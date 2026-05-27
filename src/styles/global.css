@@ -1,0 +1,90 @@
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #f5f7fa;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.app-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  color: #999;
+}
+
+.md-body {
+  font-size: 14px;
+  line-height: 1.7;
+  word-wrap: break-word;
+}
+
+.md-body p {
+  margin: 0.5em 0;
+}
+
+.md-body pre {
+  background: #f6f8fa;
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 0.6em 0;
+}
+
+.md-body code {
+  font-family: Menlo, Monaco, Consolas, monospace;
+  font-size: 12.5px;
+}
+
+.md-body :not(pre) > code {
+  background: rgba(135, 131, 120, 0.15);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.md-body table {
+  border-collapse: collapse;
+  margin: 0.6em 0;
+}
+
+.md-body table th,
+.md-body table td {
+  border: 1px solid #e0e0e0;
+  padding: 6px 10px;
+}
+
+.md-body blockquote {
+  border-left: 4px solid #ddd;
+  padding-left: 12px;
+  color: #666;
+  margin: 0.6em 0;
+}
+
+.chat-bubble-user {
+  background: #1677ff;
+  color: #fff;
+  padding: 10px 14px;
+  border-radius: 12px 12px 2px 12px;
+  max-width: 80%;
+  word-break: break-word;
+}
+
+.chat-bubble-assistant {
+  background: #f0f2f5;
+  color: #1d2129;
+  padding: 10px 14px;
+  border-radius: 12px 12px 12px 2px;
+  max-width: 80%;
+  word-break: break-word;
+}
