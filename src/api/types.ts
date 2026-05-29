@@ -61,13 +61,19 @@ export interface Agent extends BaseEntity {
   avatar?: string;
   systemPrompt?: string;
   model?: string;
-  modelParams?: {
-    temperature?: number;
-    topP?: number;
-    maxTokens?: number;
-  };
+  modelParams?:
+    | {
+        temperature?: number;
+        topP?: number;
+        maxTokens?: number;
+      }
+    | string;
+  /** 知识库绑定配置 JSON 字符串：{kbIds, topK, scoreThreshold} */
+  kbConfig?: string;
   status: EntityStatus;
 }
+
+export type PluginAuthType = 'NONE' | 'BEARER' | 'BASIC' | 'API_KEY' | 'HMAC';
 
 export interface Plugin extends BaseEntity {
   code: string;
@@ -75,8 +81,8 @@ export interface Plugin extends BaseEntity {
   description?: string;
   icon?: string;
   baseUrl?: string;
-  authType?: 'NONE' | 'API_KEY' | 'BEARER' | 'CUSTOM';
-  authConfig?: Record<string, unknown>;
+  authType?: PluginAuthType;
+  authConfig?: string;
   status: EntityStatus;
 }
 
@@ -106,9 +112,7 @@ export interface PluginTool {
 export interface PluginCredential {
   id: string;
   pluginId: string;
-  alias: string;
   credentialJson?: Record<string, unknown>;
-  isDefault: boolean;
 }
 
 export interface KnowledgeBase extends BaseEntity {

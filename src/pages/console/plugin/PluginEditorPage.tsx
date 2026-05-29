@@ -6,6 +6,7 @@ import {
   Form,
   Input,
   Popconfirm,
+  Select,
   Space,
   Spin,
   Switch,
@@ -29,7 +30,15 @@ import { pluginApi, pluginToolApi } from '@/features/plugin/api';
 import ToolDrawer from '@/features/plugin/components/ToolDrawer';
 import CredentialPanel from '@/features/plugin/components/CredentialPanel';
 import TestPanel from '@/features/plugin/components/TestPanel';
-import type { PluginTool } from '@/api/types';
+import type { PluginAuthType, PluginTool } from '@/api/types';
+
+const AUTH_TYPE_OPTIONS: { label: string; value: PluginAuthType }[] = [
+  { label: '无 (NONE)', value: 'NONE' },
+  { label: 'Bearer Token', value: 'BEARER' },
+  { label: 'Basic Auth', value: 'BASIC' },
+  { label: 'API Key', value: 'API_KEY' },
+  { label: 'HMAC 签名', value: 'HMAC' },
+];
 
 export default function PluginEditorPage() {
   const { id = '' } = useParams();
@@ -118,13 +127,10 @@ export default function PluginEditorPage() {
                 <Form
                   form={form}
                   layout="vertical"
-                  initialValues={plugin}
+                  initialValues={{ ...plugin, authType: plugin.authType ?? 'NONE' }}
                   onFinish={(v) => saveMut.mutate(v)}
                   style={{ maxWidth: 720 }}
                 >
-                  <Form.Item label="代号" name="code" rules={[{ required: true }]}>
-                    <Input />
-                  </Form.Item>
                   <Form.Item label="名称" name="name" rules={[{ required: true }]}>
                     <Input />
                   </Form.Item>
@@ -133,6 +139,51 @@ export default function PluginEditorPage() {
                   </Form.Item>
                   <Form.Item label="描述" name="description">
                     <Input.TextArea rows={3} />
+                  </Form.Item>
+                  <Form.Item
+                    label="认证方式"
+                    name="authType"
+                    extra="决定凭证 Tab 里要填哪些字段；NONE 表示接口不需鉴权"
+                  >
+                    <Select options={AUTH_TYPE_OPTIONS} />
+                  </Form.Item>
+                  <Form.Item
+                    noStyle
+                    shouldUpdate={(prev, next) => prev.authType !== next.authType}
+                  >
+                    {({ getFieldValue }) => {
+                      const at = getFieldValue('authType') as PluginAuthType | undefined;
+                      if (at !== 'API_KEY' && at !== 'HMAC') return null;
+                      return (
+                        <Form.Item
+                          label={`auth_config (${at} 非密配置 JSON)`}
+                          name="authConfig"
+                          extra={
+                            at === 'API_KEY'
+                              ? '示例：{ "location": "header", "key_name": "X-API-Key" }'
+                              : '示例：{ "algorithm": "HMAC_SHA256", "sign_template": "...", "placement": { "type": "header", "name": "X-Sign" } }'
+                          }
+                          rules={[
+                            {
+                              validator: (_, v) => {
+                                if (!v) return Promise.resolve();
+                                try {
+                                  JSON.parse(v);
+                                  return Promise.resolve();
+                                } catch (e) {
+                                  return Promise.reject((e as Error).message);
+                                }
+                              },
+                            },
+                          ]}
+                        >
+                          <Input.TextArea
+                            rows={6}
+                            style={{ fontFamily: 'Menlo, monospace', fontSize: 12 }}
+                          />
+                        </Form.Item>
+                      );
+                    }}
                   </Form.Item>
                   <Button
                     type="primary"
@@ -209,7 +260,7 @@ export default function PluginEditorPage() {
             label: '凭证',
             children: (
               <Card>
-                <CredentialPanel pluginId={id} />
+                <CredentialPanel pluginId={id} authType={plugin.authType} />
               </Card>
             ),
           },

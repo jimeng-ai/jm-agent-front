@@ -140,9 +140,6 @@ export default function PluginListPage() {
         confirmLoading={createMut.isPending}
       >
         <Form form={form} layout="vertical" onFinish={(v) => createMut.mutate(v)}>
-          <Form.Item label="代号" name="code" rules={[{ required: true }]}>
-            <Input placeholder="英文唯一标识，如 weather" />
-          </Form.Item>
           <Form.Item label="名称" name="name" rules={[{ required: true }]}>
             <Input placeholder="如 天气服务" />
           </Form.Item>

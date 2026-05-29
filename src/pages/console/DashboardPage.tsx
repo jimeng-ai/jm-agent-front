@@ -1,59 +1,540 @@
-import { Card, Col, Row, Statistic, Tooltip } from 'antd';
-import {
-  RobotOutlined,
-  AppstoreOutlined,
-  BookOutlined,
-  MessageOutlined,
-} from '@ant-design/icons';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { agentApi } from '@/features/agent/api';
 import { pluginApi } from '@/features/plugin/api';
 import { kbApi } from '@/features/knowledge/api';
+import { dashboardApi } from '@/features/dashboard/api';
+import { AreaChart, BarChart, Sparkline } from '@/components/atlas/Charts';
+import {
+  PlusIcon,
+  UploadIcon,
+  PlayIcon,
+  PlugIcon,
+  ArrowRightIcon,
+} from '@/components/icons/AtlasIcons';
+
+type Range = '7d' | '30d' | '90d';
+
+const STATUS_TEXT: Record<number, { label: string; cls: 'up' | 'down' | 'flat' }> = {
+  0: { label: '进行中', cls: 'flat' },
+  1: { label: '成功', cls: 'up' },
+  2: { label: '失败', cls: 'down' },
+};
+
+/** 紧凑数字：1234567 -> 1.23M，12345 -> 12.3K。 */
+function compact(v: number): { num: string; unit: string } {
+  if (v >= 1_000_000) return { num: (v / 1_000_000).toFixed(2), unit: 'M' };
+  if (v >= 1_000) return { num: (v / 1_000).toFixed(1), unit: 'K' };
+  return { num: String(Math.round(v)), unit: '' };
+}
+
+/** 把一条序列按量级缩放到 M / K，返回缩放后的数据与单位后缀。 */
+function scaleSeries(series: number[]): { data: number[]; suffix: string } {
+  const max = Math.max(0, ...series);
+  if (max >= 1_000_000) return { data: series.map((v) => v / 1_000_000), suffix: 'M' };
+  if (max >= 1_000) return { data: series.map((v) => v / 1_000), suffix: 'K' };
+  return { data: series, suffix: '' };
+}
+
+/** 环比百分比；prev 为 0 时返回 null（无可比基准）。 */
+function pct(cur: number, prev: number): number | null {
+  if (!prev) return null;
+  return ((cur - prev) / prev) * 100;
+}
+
+function Segments<T extends string>({
+  value,
+  onChange,
+  options,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string }[];
+}) {
+  return (
+    <div className="segments">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          className={value === opt.value ? 'active' : ''}
+          onClick={() => onChange(opt.value)}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** 环比展示；delta 为 null 时显示「—」。lowerIsBetter 用于延迟等指标（下降为好）。 */
+function Delta({
+  delta,
+  suffix = '%',
+  lowerIsBetter = false,
+}: {
+  delta: number | null;
+  suffix?: string;
+  lowerIsBetter?: boolean;
+}) {
+  if (delta === null) {
+    return <span className="delta flat">—</span>;
+  }
+  const improved = lowerIsBetter ? delta < 0 : delta > 0;
+  const trend = delta === 0 ? 'flat' : improved ? 'up' : 'down';
+  const arrow = delta === 0 ? '→' : delta > 0 ? '↗' : '↘';
+  return (
+    <span className={`delta ${trend}`}>
+      {arrow} {delta > 0 ? '+' : ''}
+      {delta.toFixed(1)}
+      {suffix}
+    </span>
+  );
+}
+
+function relTime(iso: string | null): string {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return '';
+  const diff = Date.now() - t;
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return '刚刚';
+  if (min < 60) return `${min} 分钟前`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} 小时前`;
+  const d = new Date(t);
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(
+    d.getMinutes(),
+  ).padStart(2, '0')}`;
+}
+
+const RANGE_OPTIONS: { value: Range; label: string }[] = [
+  { value: '7d', label: '近 7 天' },
+  { value: '30d', label: '近 30 天' },
+  { value: '90d', label: '近 90 天' },
+];
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
+  const [range, setRange] = useState<Range>('30d');
+  const days = range === '7d' ? 7 : range === '30d' ? 30 : 90;
+
+  // 单一数据源 + 时间范围作为 query key：选择器即全局控制整个仪表盘。
+  const overviewQ = useQuery({
+    queryKey: ['dashboard', 'overview', days],
+    queryFn: () => dashboardApi.overview(days),
+  });
   const agentQ = useQuery({ queryKey: ['dashboard', 'agents'], queryFn: () => agentApi.list() });
   const pluginQ = useQuery({ queryKey: ['dashboard', 'plugins'], queryFn: () => pluginApi.list() });
   const kbQ = useQuery({ queryKey: ['dashboard', 'kbs'], queryFn: () => kbApi.list() });
 
+  const data = overviewQ.data;
+  const totals = data?.totals;
+  const prev = data?.previous;
+
+  const agentCount = agentQ.data?.length ?? 0;
+  const pluginCount = pluginQ.data?.length ?? 0;
+  const kbCount = kbQ.data?.length ?? 0;
+
+  const { labels, tokenChart, callChart, tokenSpark, callSpark } = useMemo(() => {
+    const trend = data?.trend ?? [];
+    const labels = trend.map((p) => {
+      const [, m, d] = p.date.split('-');
+      return `${Number(m)}/${Number(d)}`;
+    });
+    const tokenSeries = trend.map((p) => p.tokens);
+    const callSeries = trend.map((p) => p.calls);
+    return {
+      labels,
+      tokenChart: scaleSeries(tokenSeries),
+      callChart: scaleSeries(callSeries),
+      tokenSpark: tokenSeries.slice(-14),
+      callSpark: callSeries.slice(-14),
+    };
+  }, [data]);
+
+  const tokensC = compact(totals?.tokens ?? 0);
+  const callsC = compact(totals?.calls ?? 0);
+  const avgLatencySec = (totals?.avgLatencyMs ?? 0) / 1000;
+  const prevLatencySec = (prev?.avgLatencyMs ?? 0) / 1000;
+
+  const topModels = data?.topModels ?? [];
+  const maxModelCalls = Math.max(1, ...topModels.map((m) => m.calls));
+  const recentCalls = data?.recentCalls ?? [];
+
+  const todayLabel = (() => {
+    const d = new Date();
+    return `${d.getMonth() + 1} 月 ${d.getDate()} 日`;
+  })();
+
+  const loading = overviewQ.isLoading;
+  const hasData = (totals?.calls ?? 0) > 0;
+  const rangeText = range === '7d' ? '7' : range === '30d' ? '30' : '90';
+
+  const renderChartArea = (chart: { data: number[]; suffix: string }, kind: 'area' | 'bar') => {
+    if (loading) {
+      return (
+        <div style={{ height: 240, display: 'grid', placeItems: 'center', color: 'var(--text-3)' }}>
+          加载中…
+        </div>
+      );
+    }
+    if (!hasData) {
+      return (
+        <div style={{ height: 240, display: 'grid', placeItems: 'center', color: 'var(--text-3)' }}>
+          该时间范围内暂无调用记录
+        </div>
+      );
+    }
+    return kind === 'area' ? (
+      <AreaChart labels={labels} data={chart.data} height={240} unitSuffix={chart.suffix} />
+    ) : (
+      <BarChart labels={labels} data={chart.data} height={240} unitSuffix={chart.suffix} />
+    );
+  };
+
   return (
-    <div>
-      <h2 style={{ marginTop: 0 }}>仪表盘</h2>
-      <Row gutter={16}>
-        <Col span={6}>
-          <Card loading={agentQ.isLoading}>
-            <Statistic
-              title="Agent 数量"
-              value={agentQ.data?.length ?? 0}
-              prefix={<RobotOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card loading={pluginQ.isLoading}>
-            <Statistic
-              title="插件数量"
-              value={pluginQ.data?.length ?? 0}
-              prefix={<AppstoreOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card loading={kbQ.isLoading}>
-            <Statistic
-              title="知识库数量"
-              value={kbQ.data?.length ?? 0}
-              prefix={<BookOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Tooltip title="后端暂未提供对话量统计接口">
-              <Statistic title="今日对话" value="-" prefix={<MessageOutlined />} />
-            </Tooltip>
-          </Card>
-        </Col>
-      </Row>
-    </div>
+    <>
+      <div className="page-head">
+        <div>
+          <h1 className="title display">仪表盘</h1>
+          <div className="sub">JM Agent · {todayLabel}</div>
+        </div>
+        <div className="dash-range">
+          <Segments<Range> value={range} onChange={setRange} options={RANGE_OPTIONS} />
+        </div>
+        <div className="actions">
+          <button
+            type="button"
+            className="atlas-btn"
+            onClick={() => navigate('/console/knowledge')}
+          >
+            <UploadIcon size={14} className="icon" />
+            导入文档
+          </button>
+          <button
+            type="button"
+            className="atlas-btn primary"
+            onClick={() => navigate('/console/agents')}
+          >
+            <PlusIcon size={14} className="icon" />
+            新建 Agent
+          </button>
+        </div>
+      </div>
+
+      {/* KPI row */}
+      <div className="kpi-grid" style={{ marginBottom: 20 }}>
+        <div className="kpi">
+          <div className="label">Token 消耗</div>
+          <div className="value">
+            <span>{loading ? '—' : tokensC.num}</span>
+            {tokensC.unit && <span className="unit">{tokensC.unit}</span>}
+          </div>
+          <div className="foot">
+            <Delta delta={pct(totals?.tokens ?? 0, prev?.tokens ?? 0)} />
+            <span style={{ color: 'var(--text-3)' }}>vs 上 {days} 天</span>
+          </div>
+          <div className="spark">
+            <Sparkline data={tokenSpark.length ? tokenSpark : [0, 0]} />
+          </div>
+        </div>
+
+        <div className="kpi">
+          <div className="label">调用次数</div>
+          <div className="value">
+            <span>{loading ? '—' : callsC.num}</span>
+            {callsC.unit && <span className="unit">{callsC.unit}</span>}
+          </div>
+          <div className="foot">
+            <Delta delta={pct(totals?.calls ?? 0, prev?.calls ?? 0)} />
+            <span style={{ color: 'var(--text-3)' }}>
+              成功率 {((totals?.successRate ?? 0) * 100).toFixed(1)}%
+            </span>
+          </div>
+          <div className="spark">
+            <Sparkline data={callSpark.length ? callSpark : [0, 0]} color="var(--chart-2)" />
+          </div>
+        </div>
+
+        <div className="kpi">
+          <div className="label">Agent</div>
+          <div className="value">
+            <span>{agentCount}</span>
+            <span className="unit">个</span>
+          </div>
+          <div className="foot">
+            <span style={{ color: 'var(--text-2)' }}>
+              知识库 {kbCount} · 插件 {pluginCount}
+            </span>
+          </div>
+        </div>
+
+        <div className="kpi">
+          <div className="label">平均延迟</div>
+          <div className="value">
+            <span>{loading ? '—' : avgLatencySec.toFixed(2)}</span>
+            <span className="unit">s</span>
+          </div>
+          <div className="foot">
+            <Delta delta={pct(avgLatencySec, prevLatencySec)} lowerIsBetter />
+            <span style={{ color: 'var(--text-3)' }}>vs 上 {days} 天</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Trend — 左：Token 面积图；右：调用次数条形图 */}
+      <div className="dash-trend-2" style={{ marginBottom: 20 }}>
+        <div className="atlas-card">
+          <div className="atlas-card-head">
+            <div>
+              <div className="h">Token 用量趋势</div>
+              <div className="sub">近 {rangeText} 天 · 来源 ai_model_call_log</div>
+            </div>
+            <div className="spacer" />
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                fontSize: 12,
+                color: 'var(--text-2)',
+              }}
+            >
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: 8,
+                  height: 8,
+                  background: 'var(--chart-1)',
+                  borderRadius: 2,
+                  marginRight: 6,
+                }}
+              />
+              Token{tokenChart.suffix ? `（${tokenChart.suffix}）` : ''}
+            </span>
+          </div>
+          <div style={{ padding: '16px 20px 20px' }}>
+            {renderChartArea(tokenChart, 'area')}
+            <div
+              style={{
+                marginTop: 12,
+                paddingLeft: 40,
+                fontSize: 12,
+                color: 'var(--text-3)',
+              }}
+              className="mono"
+            >
+              输入 {compact(totals?.inputTokens ?? 0).num}
+              {compact(totals?.inputTokens ?? 0).unit} · 输出{' '}
+              {compact(totals?.outputTokens ?? 0).num}
+              {compact(totals?.outputTokens ?? 0).unit} tokens
+            </div>
+          </div>
+        </div>
+
+        <div className="atlas-card">
+          <div className="atlas-card-head">
+            <div>
+              <div className="h">调用次数</div>
+              <div className="sub">近 {rangeText} 天 · 按天统计</div>
+            </div>
+            <div className="spacer" />
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                fontSize: 12,
+                color: 'var(--text-2)',
+              }}
+            >
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: 8,
+                  height: 8,
+                  background: 'var(--chart-1)',
+                  borderRadius: 2,
+                  marginRight: 6,
+                }}
+              />
+              调用次数{callChart.suffix ? `（${callChart.suffix}）` : ''}
+            </span>
+          </div>
+          <div style={{ padding: '16px 20px 20px' }}>
+            {renderChartArea(callChart, 'bar')}
+            <div
+              style={{
+                marginTop: 12,
+                paddingLeft: 40,
+                fontSize: 12,
+                color: 'var(--text-3)',
+              }}
+              className="mono"
+            >
+              共 {(totals?.calls ?? 0).toLocaleString()} 次 · 成功率{' '}
+              {((totals?.successRate ?? 0) * 100).toFixed(1)}%
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="row-2" style={{ marginBottom: 20 }}>
+        {/* Top models */}
+        <div className="atlas-card">
+          <div className="atlas-card-head">
+            <div>
+              <div className="h">模型用量 Top（近 {rangeText} 天）</div>
+            </div>
+            <div className="spacer" />
+            <button
+              type="button"
+              className="atlas-btn ghost sm"
+              onClick={() => navigate('/console/agents')}
+            >
+              查看全部 <ArrowRightIcon size={12} className="icon" />
+            </button>
+          </div>
+          <div>
+            {topModels.length === 0 ? (
+              <div style={{ padding: 24, color: 'var(--text-3)', fontSize: 13 }}>
+                {loading ? '加载中…' : '暂无模型调用记录'}
+              </div>
+            ) : (
+              topModels.map((m, i) => (
+                <div
+                  key={m.model}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '16px 1fr 110px 90px',
+                    gap: 14,
+                    alignItems: 'center',
+                    padding: '12px 20px',
+                    borderBottom: i < topModels.length - 1 ? '1px solid var(--divider)' : 'none',
+                  }}
+                >
+                  <span className="mono" style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      className="mono"
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 500,
+                        color: 'var(--text)',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {m.model}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 2 }}>
+                      {compact(m.tokens).num}
+                      {compact(m.tokens).unit} tokens
+                    </div>
+                  </div>
+                  <div className="share-bar">
+                    <span style={{ width: `${Math.round((m.calls / maxModelCalls) * 100)}%` }} />
+                  </div>
+                  <div
+                    className="tabular mono"
+                    style={{ textAlign: 'right', fontSize: 12, color: 'var(--text)' }}
+                  >
+                    {m.calls.toLocaleString()}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Recent calls */}
+        <div className="atlas-card">
+          <div className="atlas-card-head">
+            <div>
+              <div className="h">最近调用</div>
+              <div className="sub">当前工作区</div>
+            </div>
+          </div>
+          <div>
+            {recentCalls.length === 0 ? (
+              <div style={{ padding: 24, color: 'var(--text-3)', fontSize: 13 }}>
+                {loading ? '加载中…' : '暂无调用记录'}
+              </div>
+            ) : (
+              recentCalls.map((c) => {
+                const st = STATUS_TEXT[c.callStatus ?? 0] ?? STATUS_TEXT[0];
+                return (
+                  <div key={c.id} className="activity-row">
+                    <span className={`delta ${st.cls}`} style={{ fontSize: 11 }}>
+                      ●
+                    </span>
+                    <div style={{ minWidth: 0 }}>
+                      <span className="who mono" style={{ fontSize: 12 }}>
+                        {c.model}
+                      </span>{' '}
+                      <span className="what">
+                        {c.totalTokens.toLocaleString()} tokens
+                        {c.latencyMs != null ? ` · ${(c.latencyMs / 1000).toFixed(2)}s` : ''}
+                        {c.hasTool ? ' · 工具调用' : ''}
+                        {st.cls === 'down' ? ` · ${st.label}` : ''}
+                      </span>
+                    </div>
+                    <div className="when">{relTime(c.createTime)}</div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Quick actions */}
+      <div className="atlas-card pad">
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>快速操作</div>
+        </div>
+        <div className="qa-grid">
+          <button type="button" className="qa" onClick={() => navigate('/console/agents')}>
+            <div className="qa-icon">
+              <PlusIcon size={14} />
+            </div>
+            <div>
+              <div className="qa-title">新建 Agent</div>
+              <div className="qa-sub">从模板或空白开始</div>
+            </div>
+          </button>
+          <button type="button" className="qa" onClick={() => navigate('/console/knowledge')}>
+            <div className="qa-icon">
+              <UploadIcon size={14} />
+            </div>
+            <div>
+              <div className="qa-title">上传知识库文档</div>
+              <div className="qa-sub">PDF、Word、Markdown</div>
+            </div>
+          </button>
+          <button type="button" className="qa" onClick={() => navigate('/console/playground')}>
+            <div className="qa-icon">
+              <PlayIcon size={14} />
+            </div>
+            <div>
+              <div className="qa-title">打开 Playground</div>
+              <div className="qa-sub">对话调试与回放</div>
+            </div>
+          </button>
+          <button type="button" className="qa" onClick={() => navigate('/console/plugins')}>
+            <div className="qa-icon">
+              <PlugIcon size={14} />
+            </div>
+            <div>
+              <div className="qa-title">新建插件</div>
+              <div className="qa-sub">用 TypeScript / Python 暴露能力</div>
+            </div>
+          </button>
+        </div>
+      </div>
+    </>
   );
 }

@@ -33,23 +33,15 @@ export const pluginToolApi = {
 };
 
 export const pluginCredApi = {
-  list: (pluginId: string) =>
-    get<PluginCredential[]>(`/admin/plugin/plugins/${pluginId}/credentials`),
-  create: (pluginId: string, payload: Partial<PluginCredential>) =>
-    post<PluginCredential>(`/admin/plugin/plugins/${pluginId}/credentials`, payload),
-  update: (pluginId: string, credentialId: string, payload: Partial<PluginCredential>) =>
-    put<PluginCredential>(
-      `/admin/plugin/plugins/${pluginId}/credentials/${credentialId}`,
-      payload,
-    ),
-  delete: (pluginId: string, credentialId: string) =>
-    del<void>(`/admin/plugin/plugins/${pluginId}/credentials/${credentialId}`),
+  get: (pluginId: string) =>
+    get<PluginCredential | null>(`/admin/plugin/plugins/${pluginId}/credential`),
+  save: (pluginId: string, payload: Partial<PluginCredential>) =>
+    put<PluginCredential>(`/admin/plugin/plugins/${pluginId}/credential`, payload),
 };
 
 export interface TestPayload {
   toolId: string;
   input: Record<string, unknown>;
-  credentialAlias?: string;
 }
 
 export interface TestResult {

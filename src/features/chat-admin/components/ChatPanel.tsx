@@ -13,10 +13,26 @@ interface Props {
   rerank?: boolean;
   simple?: boolean;
   placeholder?: string;
+  /** 初始消息（用于恢复已落库的会话历史）。 */
+  initialMessages?: ChatMessage[];
+  /** 每次用户发送消息时回调（用于持久化用户消息）。 */
+  onSubmit?: (text: string) => void;
+  /** assistant 回复完成时回调（用于持久化助手消息）。 */
+  onAssistantMessage?: (text: string, citations?: ChatCitation[]) => void;
 }
 
-export default function ChatPanel({ agentId, kbId, topK, rerank, simple, placeholder }: Props) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+export default function ChatPanel({
+  agentId,
+  kbId,
+  topK,
+  rerank,
+  simple,
+  placeholder,
+  initialMessages,
+  onSubmit,
+  onAssistantMessage,
+}: Props) {
+  const [messages, setMessages] = useState<ChatMessage[]>(() => initialMessages ?? []);
   const [input, setInput] = useState('');
   const [citationOpen, setCitationOpen] = useState<ChatCitation | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -37,6 +53,7 @@ export default function ChatPanel({ agentId, kbId, topK, rerank, simple, placeho
   );
 
   const submit = (queryText: string) => {
+    onSubmit?.(queryText);
     const userMsg = newMessage('user', queryText);
     const assistantMsg = newMessage('assistant', '');
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
@@ -58,6 +75,7 @@ export default function ChatPanel({ agentId, kbId, topK, rerank, simple, placeho
               : m,
           ),
         );
+        onAssistantMessage?.(finalText, citations);
       },
     );
   };

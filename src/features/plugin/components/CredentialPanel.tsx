@@ -1,151 +1,128 @@
-import { useState } from 'react';
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Form, Input, Modal, Popconfirm, Space, Switch, Table, Tag } from 'antd';
-import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
+import { Alert, App, Button, Empty, Form, Input, Spin, Typography } from 'antd';
+import { SaveOutlined } from '@ant-design/icons';
 import { pluginCredApi } from '@/features/plugin/api';
-import type { PluginCredential } from '@/api/types';
+import type { PluginAuthType } from '@/api/types';
 
-interface FormValues {
-  alias: string;
-  isDefault: boolean;
-  credentialJsonRaw: string;
+interface FieldSpec {
+  name: string;
+  label: string;
+  secret?: boolean;
+  placeholder?: string;
 }
 
-export default function CredentialPanel({ pluginId }: { pluginId: string }) {
+const FIELDS_BY_TYPE: Partial<Record<PluginAuthType, FieldSpec[]>> = {
+  BEARER: [
+    { name: 'token', label: 'Token', secret: true, placeholder: 'Bearer Token 字符串' },
+  ],
+  BASIC: [
+    { name: 'username', label: '用户名', placeholder: '用户名' },
+    { name: 'password', label: '密码', secret: true, placeholder: '密码' },
+  ],
+  API_KEY: [
+    { name: 'value', label: 'API Key', secret: true, placeholder: 'Key 字符串（header/query 位置在插件 auth_config 配置）' },
+  ],
+  HMAC: [
+    { name: 'secret_key', label: 'Secret Key', secret: true, placeholder: '签名密钥' },
+  ],
+};
+
+interface Props {
+  pluginId: string;
+  authType?: PluginAuthType;
+}
+
+export default function CredentialPanel({ pluginId, authType }: Props) {
   const { message } = App.useApp();
   const qc = useQueryClient();
-  const [editing, setEditing] = useState<PluginCredential | null>(null);
-  const [open, setOpen] = useState(false);
-  const [form] = Form.useForm<FormValues>();
+  const [form] = Form.useForm<Record<string, string>>();
+
+  const fields = authType ? FIELDS_BY_TYPE[authType] : undefined;
 
   const { data, isLoading } = useQuery({
-    queryKey: ['plugin', pluginId, 'creds'],
-    queryFn: () => pluginCredApi.list(pluginId),
+    queryKey: ['plugin', pluginId, 'credential'],
+    queryFn: () => pluginCredApi.get(pluginId),
+    enabled: !!fields,
   });
 
-  const refresh = () => qc.invalidateQueries({ queryKey: ['plugin', pluginId, 'creds'] });
+  useEffect(() => {
+    if (!fields) return;
+    const next: Record<string, string> = {};
+    const json = data?.credentialJson ?? {};
+    fields.forEach((f) => {
+      const v = json[f.name];
+      next[f.name] = typeof v === 'string' ? v : v == null ? '' : String(v);
+    });
+    form.setFieldsValue(next);
+  }, [data, fields, form]);
 
   const saveMut = useMutation({
-    mutationFn: async (values: FormValues) => {
-      let credentialJson: Record<string, unknown>;
-      try {
-        credentialJson = JSON.parse(values.credentialJsonRaw);
-      } catch {
-        throw new Error('凭证 JSON 不合法');
-      }
-      const payload = {
-        alias: values.alias,
-        isDefault: values.isDefault,
-        credentialJson,
-      };
-      if (editing) {
-        return pluginCredApi.update(pluginId, editing.id, payload);
-      }
-      return pluginCredApi.create(pluginId, payload);
+    mutationFn: async (values: Record<string, string>) => {
+      const credentialJson: Record<string, string> = {};
+      (fields ?? []).forEach((f) => {
+        const v = values[f.name];
+        if (v !== undefined && v !== '') credentialJson[f.name] = v;
+      });
+      return pluginCredApi.save(pluginId, { credentialJson });
     },
     onSuccess: () => {
       message.success('保存成功');
-      setOpen(false);
-      refresh();
+      qc.invalidateQueries({ queryKey: ['plugin', pluginId, 'credential'] });
     },
     onError: (e: Error) => message.error(e.message),
   });
 
-  const delMut = useMutation({
-    mutationFn: (id: string) => pluginCredApi.delete(pluginId, id),
-    onSuccess: () => {
-      message.success('已删除');
-      refresh();
-    },
-  });
+  if (!authType || authType === 'NONE') {
+    return (
+      <Alert
+        type="info"
+        showIcon
+        message="该插件未启用鉴权"
+        description="如果需要鉴权，先到「基础信息」Tab 选择认证方式。"
+      />
+    );
+  }
 
-  const openCreate = () => {
-    setEditing(null);
-    form.setFieldsValue({
-      alias: '',
-      isDefault: false,
-      credentialJsonRaw: '{\n  "apiKey": ""\n}',
-    });
-    setOpen(true);
-  };
+  if (!fields) {
+    return <Empty description={`未知的认证类型: ${authType}`} />;
+  }
 
-  const openEdit = (row: PluginCredential) => {
-    setEditing(row);
-    form.setFieldsValue({
-      alias: row.alias,
-      isDefault: row.isDefault,
-      credentialJsonRaw: JSON.stringify(row.credentialJson ?? {}, null, 2),
-    });
-    setOpen(true);
-  };
+  if (isLoading) return <Spin />;
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-        <h4 style={{ margin: 0 }}>凭证管理</h4>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-          新增凭证
+        <h4 style={{ margin: 0 }}>凭证</h4>
+        <Button
+          type="primary"
+          icon={<SaveOutlined />}
+          loading={saveMut.isPending}
+          onClick={() => form.submit()}
+        >
+          保存
         </Button>
       </div>
-      <Table<PluginCredential>
-        rowKey="id"
-        loading={isLoading}
-        dataSource={data ?? []}
-        pagination={false}
-        columns={[
-          { title: '别名', dataIndex: 'alias' },
-          {
-            title: '默认',
-            dataIndex: 'isDefault',
-            width: 80,
-            render: (v) => (v ? <Tag color="green">默认</Tag> : '-'),
-          },
-          {
-            title: '内容',
-            render: (_, r) =>
-              Object.keys(r.credentialJson ?? {}).map((k) => (
-                <Tag key={k}>{k}=****</Tag>
-              )),
-          },
-          {
-            title: '操作',
-            width: 120,
-            render: (_, r) => (
-              <Space>
-                <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)} />
-                <Popconfirm title="确认删除？" onConfirm={() => delMut.mutate(r.id)}>
-                  <Button size="small" danger icon={<DeleteOutlined />} />
-                </Popconfirm>
-              </Space>
-            ),
-          },
-        ]}
-      />
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+        当前认证方式：<b>{authType}</b>。每个插件在租户内只允许配置一份凭证。
+      </Typography.Paragraph>
 
-      <Modal
-        title={editing ? '编辑凭证' : '新增凭证'}
-        open={open}
-        onCancel={() => setOpen(false)}
-        onOk={() => form.submit()}
-        confirmLoading={saveMut.isPending}
-        destroyOnClose
+      <Form
+        form={form}
+        layout="vertical"
+        style={{ maxWidth: 480 }}
+        onFinish={(v) => saveMut.mutate(v)}
       >
-        <Form form={form} layout="vertical" onFinish={(v) => saveMut.mutate(v)}>
-          <Form.Item label="别名" name="alias" rules={[{ required: true }]}>
-            <Input placeholder="如 prod / test" />
+        {fields.map((f) => (
+          <Form.Item key={f.name} label={f.label} name={f.name}>
+            {f.secret ? (
+              <Input.Password placeholder={f.placeholder} visibilityToggle />
+            ) : (
+              <Input placeholder={f.placeholder} />
+            )}
           </Form.Item>
-          <Form.Item label="设为默认" name="isDefault" valuePropName="checked">
-            <Switch />
-          </Form.Item>
-          <Form.Item
-            label="凭证 JSON"
-            name="credentialJsonRaw"
-            extra="敏感信息以 JSON 形式存储，请谨慎管理"
-          >
-            <Input.TextArea rows={6} style={{ fontFamily: 'Menlo, monospace', fontSize: 12 }} />
-          </Form.Item>
-        </Form>
-      </Modal>
+        ))}
+      </Form>
     </div>
   );
 }

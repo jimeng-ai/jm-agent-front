@@ -14,6 +14,7 @@ const PluginEditorPage = lazy(() => import('@/pages/console/plugin/PluginEditorP
 const KnowledgeListPage = lazy(() => import('@/pages/console/knowledge/KnowledgeListPage'));
 const KnowledgeDetailPage = lazy(() => import('@/pages/console/knowledge/KnowledgeDetailPage'));
 const PlaygroundPage = lazy(() => import('@/pages/console/playground/PlaygroundPage'));
+const ChatHomePage = lazy(() => import('@/pages/chat/ChatHomePage'));
 const ChatConversationPage = lazy(() => import('@/pages/chat/ConversationPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 
@@ -58,7 +59,9 @@ export default function AppRouter() {
             </ProtectedRoute>
           }
         >
-          <Route path=":agentId" element={<ChatConversationPage />} />
+          <Route index element={<ChatHomePage />} />
+          <Route path="agent/:agentId" element={<ChatConversationPage />} />
+          <Route path="c/:conversationId" element={<ChatConversationPage />} />
         </Route>
 
         <Route path="/" element={<Navigate to="/console" replace />} />

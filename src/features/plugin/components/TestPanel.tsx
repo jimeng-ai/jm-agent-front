@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Drawer, Form, Input, Select, Button, Space, Typography, Alert } from 'antd';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { pluginCredApi, pluginTestApi, pluginToolApi } from '@/features/plugin/api';
+import { pluginTestApi, pluginToolApi } from '@/features/plugin/api';
 
 interface Props {
   open: boolean;
@@ -10,7 +10,7 @@ interface Props {
 }
 
 export default function TestPanel({ open, pluginId, onClose }: Props) {
-  const [form] = Form.useForm<{ toolId: string; credentialAlias?: string; inputJson: string }>();
+  const [form] = Form.useForm<{ toolId: string; inputJson: string }>();
   const [result, setResult] = useState<unknown>(null);
 
   const toolsQuery = useQuery({
@@ -18,14 +18,9 @@ export default function TestPanel({ open, pluginId, onClose }: Props) {
     queryFn: () => pluginToolApi.list(pluginId),
     enabled: open,
   });
-  const credsQuery = useQuery({
-    queryKey: ['plugin', pluginId, 'creds'],
-    queryFn: () => pluginCredApi.list(pluginId),
-    enabled: open,
-  });
 
   const testMut = useMutation({
-    mutationFn: async (v: { toolId: string; credentialAlias?: string; inputJson: string }) => {
+    mutationFn: async (v: { toolId: string; inputJson: string }) => {
       let input: Record<string, unknown> = {};
       try {
         input = JSON.parse(v.inputJson);
@@ -34,7 +29,6 @@ export default function TestPanel({ open, pluginId, onClose }: Props) {
       }
       return pluginTestApi.test(pluginId, {
         toolId: v.toolId,
-        credentialAlias: v.credentialAlias,
         input,
       });
     },
@@ -54,13 +48,6 @@ export default function TestPanel({ open, pluginId, onClose }: Props) {
           <Select
             options={(toolsQuery.data ?? []).map((t) => ({ label: t.name, value: t.id }))}
             placeholder="选择要测试的工具"
-          />
-        </Form.Item>
-        <Form.Item label="凭证（可选）" name="credentialAlias">
-          <Select
-            allowClear
-            options={(credsQuery.data ?? []).map((c) => ({ label: c.alias, value: c.alias }))}
-            placeholder="不选则使用默认凭证"
           />
         </Form.Item>
         <Form.Item label="入参 JSON" name="inputJson" rules={[{ required: true }]}>

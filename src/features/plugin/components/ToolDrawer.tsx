@@ -1,9 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Drawer, Form, Input, Switch, Space, Button, App, Divider, Typography } from 'antd';
 import { useMutation } from '@tanstack/react-query';
 import { pluginToolApi } from '@/features/plugin/api';
 import type { PluginHttpMapping, PluginTool } from '@/api/types';
 import HttpMappingForm from './HttpMappingForm';
+import InputSchemaEditor from './InputSchemaEditor';
+import {
+  fieldsToJsonSchema,
+  jsonSchemaToFields,
+  type FieldDef,
+} from '@/features/plugin/utils/schema';
 
 interface Props {
   open: boolean;
@@ -17,20 +23,12 @@ interface ToolFormValues {
   name: string;
   description?: string;
   enabled: boolean;
-  inputSchemaJson: string;
 }
-
-const DEFAULT_SCHEMA = `{
-  "type": "object",
-  "properties": {
-    "query": { "type": "string", "description": "搜索关键词" }
-  },
-  "required": ["query"]
-}`;
 
 export default function ToolDrawer({ open, pluginId, tool, onClose, onSaved }: Props) {
   const { message } = App.useApp();
   const [form] = Form.useForm<ToolFormValues>();
+  const [fields, setFields] = useState<FieldDef[]>([]);
   const [mapping, setMapping] = useState<PluginHttpMapping>({
     method: 'GET',
     urlTemplate: '',
@@ -42,8 +40,8 @@ export default function ToolDrawer({ open, pluginId, tool, onClose, onSaved }: P
         name: tool?.name ?? '',
         description: tool?.description ?? '',
         enabled: tool?.enabled ?? true,
-        inputSchemaJson: JSON.stringify(tool?.inputSchema ?? JSON.parse(DEFAULT_SCHEMA), null, 2),
       });
+      setFields(jsonSchemaToFields(tool?.inputSchema));
       setMapping(
         tool?.mapping ?? {
           method: 'GET',
@@ -55,30 +53,21 @@ export default function ToolDrawer({ open, pluginId, tool, onClose, onSaved }: P
     }
   }, [open, tool, form]);
 
-  const inputVariables = useMemo(() => {
-    try {
-      const schemaJson = form.getFieldValue('inputSchemaJson') as string | undefined;
-      if (!schemaJson) return [];
-      const parsed = JSON.parse(schemaJson);
-      return Object.keys(parsed?.properties ?? {});
-    } catch {
-      return [];
-    }
-  }, [form, mapping]);
+  const inputVariables = fields.map((f) => f.name).filter(Boolean);
 
   const saveMut = useMutation({
     mutationFn: async (values: ToolFormValues) => {
-      let inputSchema: Record<string, unknown> = {};
-      try {
-        inputSchema = JSON.parse(values.inputSchemaJson);
-      } catch {
-        throw new Error('入参 schema 不是合法 JSON');
+      const namesSeen = new Set<string>();
+      for (const f of fields) {
+        if (!f.name) throw new Error('存在未命名的入参字段');
+        if (namesSeen.has(f.name)) throw new Error(`字段名重复：${f.name}`);
+        namesSeen.add(f.name);
       }
       const payload = {
         name: values.name,
         description: values.description,
         enabled: values.enabled,
-        inputSchema,
+        inputSchema: fieldsToJsonSchema(fields),
         mapping,
       };
       if (tool) {
@@ -124,24 +113,12 @@ export default function ToolDrawer({ open, pluginId, tool, onClose, onSaved }: P
         <Form.Item label="启用" name="enabled" valuePropName="checked">
           <Switch />
         </Form.Item>
-        <Form.Item
-          label="入参 Schema (JSON Schema)"
-          name="inputSchemaJson"
-          rules={[
-            {
-              validator: (_, v) => {
-                try {
-                  JSON.parse(v);
-                  return Promise.resolve();
-                } catch (e) {
-                  return Promise.reject((e as Error).message);
-                }
-              },
-            },
-          ]}
-        >
-          <Input.TextArea rows={10} style={{ fontFamily: 'Menlo, monospace', fontSize: 12 }} />
-        </Form.Item>
+
+        <Divider>入参字段</Divider>
+        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+          逐个配置工具的输入字段，将作为 LLM 调用本工具时填入的参数
+        </Typography.Text>
+        <InputSchemaEditor value={fields} onChange={setFields} />
 
         <Divider>HTTP 映射</Divider>
         <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>

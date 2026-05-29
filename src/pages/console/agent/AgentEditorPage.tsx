@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   App,
   Button,
@@ -33,6 +33,21 @@ interface KbBinding {
   scoreThreshold?: number;
 }
 
+/** 后端 JSON 字段（model_params / kb_config）以字符串返回，这里统一解析成对象。 */
+function parseJsonObj(v: unknown): Record<string, unknown> | undefined {
+  if (!v) return undefined;
+  if (typeof v === 'object') return v as Record<string, unknown>;
+  if (typeof v === 'string') {
+    try {
+      const o = JSON.parse(v);
+      return o && typeof o === 'object' ? (o as Record<string, unknown>) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 export default function AgentEditorPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
@@ -46,6 +61,18 @@ export default function AgentEditorPage() {
     queryFn: () => agentApi.detail(id),
     enabled: !!id,
   });
+
+  // Agent 详情加载后，回显已保存的知识库绑定。
+  useEffect(() => {
+    const kb = parseJsonObj(agentQuery.data?.kbConfig);
+    if (kb) {
+      setKbBinding({
+        kbIds: Array.isArray(kb.kbIds) ? (kb.kbIds as string[]).map(String) : undefined,
+        topK: typeof kb.topK === 'number' ? kb.topK : 5,
+        scoreThreshold: typeof kb.scoreThreshold === 'number' ? kb.scoreThreshold : 0.5,
+      });
+    }
+  }, [agentQuery.data]);
 
   const saveMut = useMutation({
     mutationFn: (v: Record<string, unknown>) => agentApi.update(id, v),
@@ -103,17 +130,32 @@ export default function AgentEditorPage() {
       <Form
         form={form}
         layout="vertical"
-        initialValues={{
-          ...agent,
-          model: agent.model ?? AVAILABLE_MODELS[0].value,
-          systemPrompt: agent.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
-          modelParams: {
-            temperature: agent.modelParams?.temperature ?? 0.7,
-            topP: agent.modelParams?.topP ?? 1,
-            maxTokens: agent.modelParams?.maxTokens ?? 2048,
-          },
+        initialValues={(() => {
+          const mp = parseJsonObj(agent.modelParams) ?? {};
+          return {
+            ...agent,
+            model: agent.model ?? AVAILABLE_MODELS[0].value,
+            systemPrompt: agent.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
+            modelParams: {
+              temperature: typeof mp.temperature === 'number' ? mp.temperature : 0.7,
+              topP: typeof mp.topP === 'number' ? mp.topP : 1,
+              maxTokens: typeof mp.maxTokens === 'number' ? mp.maxTokens : 2048,
+            },
+          };
+        })()}
+        onFinish={(v) => {
+          // 后端 model_params / kb_config 为 JSON 字符串列：必须序列化成字符串提交，否则存不进去。
+          const payload: Record<string, unknown> = {
+            ...v,
+            modelParams: JSON.stringify(v.modelParams ?? {}),
+            kbConfig: JSON.stringify({
+              kbIds: kbBinding.kbIds ?? [],
+              topK: kbBinding.topK ?? 5,
+              scoreThreshold: kbBinding.scoreThreshold ?? 0.5,
+            }),
+          };
+          saveMut.mutate(payload);
         }}
-        onFinish={(v) => saveMut.mutate(v)}
       >
         <Tabs
           items={[
@@ -191,7 +233,7 @@ export default function AgentEditorPage() {
                 <Card>
                   <KnowledgeBindPanel value={kbBinding} onChange={setKbBinding} />
                   <Typography.Text type="secondary">
-                    （知识库绑定字段后端尚未在 Agent 实体内固化，此处仅前端表单保留，后续后端补字段后联调）
+                    绑定后，与该 Agent 对话时会自动在所选知识库中检索并基于命中内容作答（带引用）；不绑定则为纯人设对话。保存后生效。
                   </Typography.Text>
                 </Card>
               ),

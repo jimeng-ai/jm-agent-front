@@ -12,8 +12,8 @@ export const agentApi = {
   unpublish: (id: string) => post<Agent>(`/admin/agent/agents/${id}/unpublish`),
 
   listPlugins: (id: string) => get<Plugin[]>(`/admin/agent/agents/${id}/plugins`),
-  bindPlugin: (id: string, pluginId: string, credentialAlias?: string) =>
-    post<void>(`/admin/agent/agents/${id}/plugins`, { pluginId, credentialAlias }),
+  bindPlugin: (id: string, pluginId: string) =>
+    post<void>(`/admin/agent/agents/${id}/plugins`, { pluginId }),
   unbindPlugin: (id: string, pluginId: string) =>
     del<void>(`/admin/agent/agents/${id}/plugins/${pluginId}`),
 };
