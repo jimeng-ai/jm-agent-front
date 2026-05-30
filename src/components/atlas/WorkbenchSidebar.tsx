@@ -1,13 +1,28 @@
 import { Dropdown } from 'antd';
+import { useQuery } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
+import { authApi } from '@/features/auth/api';
 import { ChevDownIcon, CogIcon, LogoutIcon } from '@/components/icons/AtlasIcons';
 import { WORKBENCH_NAV, DEBUG_NAV, type NavItem } from '@/components/atlas/workbenchNav';
 
 export default function WorkbenchSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, tenantId, logout } = useAuthStore();
+  const { user, tenantId, token, logout } = useAuthStore();
+
+  // 拉取当前账号权限，用于按模块过滤左侧导航。超管 / 数据未到达时默认全显示。
+  const { data: perm } = useQuery({
+    queryKey: ['me', 'permissions'],
+    queryFn: authApi.mePermissions,
+    enabled: !!token,
+    staleTime: 60_000,
+  });
+  const canSee = (item: NavItem) => {
+    if (!perm || perm.superAdmin) return true;
+    if (!item.module) return true;
+    return perm.modules.includes(item.module);
+  };
 
   // /chat 与 /chat/:agentId 都应高亮「对话」；其余按前缀匹配。
   const isActive = (path: string) => {
@@ -26,7 +41,7 @@ export default function WorkbenchSidebar() {
 
   const renderNav = (items: NavItem[]) => (
     <nav className="atlas-nav">
-      {items.map((item) => {
+      {items.filter(canSee).map((item) => {
         const { Icon } = item;
         return (
           <button
@@ -63,8 +78,12 @@ export default function WorkbenchSidebar() {
       <div className="atlas-sidebar-section">工作台</div>
       {renderNav(WORKBENCH_NAV)}
 
-      <div className="atlas-sidebar-section">调试与观测</div>
-      {renderNav(DEBUG_NAV)}
+      {DEBUG_NAV.some(canSee) && (
+        <>
+          <div className="atlas-sidebar-section">调试与观测</div>
+          {renderNav(DEBUG_NAV)}
+        </>
+      )}
 
       <div style={{ marginTop: 'auto' }}>
         <nav className="atlas-nav" style={{ padding: '4px 8px 8px' }}>

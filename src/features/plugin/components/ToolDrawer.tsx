@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Drawer, Form, Input, Switch, Space, Button, App, Divider, Typography } from 'antd';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { pluginToolApi } from '@/features/plugin/api';
-import type { PluginHttpMapping, PluginTool } from '@/api/types';
+import type { PluginTool } from '@/api/types';
 import HttpMappingForm from './HttpMappingForm';
 import InputSchemaEditor from './InputSchemaEditor';
 import {
@@ -10,6 +10,13 @@ import {
   jsonSchemaToFields,
   type FieldDef,
 } from '@/features/plugin/utils/schema';
+import {
+  type HttpForm,
+  emptyHttpForm,
+  buildMapping,
+  disassembleMapping,
+  applyLocations,
+} from '@/features/plugin/utils/mapping';
 
 interface Props {
   open: boolean;
@@ -29,31 +36,36 @@ export default function ToolDrawer({ open, pluginId, tool, onClose, onSaved }: P
   const { message } = App.useApp();
   const [form] = Form.useForm<ToolFormValues>();
   const [fields, setFields] = useState<FieldDef[]>([]);
-  const [mapping, setMapping] = useState<PluginHttpMapping>({
-    method: 'GET',
-    urlTemplate: '',
+  const [httpForm, setHttpForm] = useState<HttpForm>(emptyHttpForm());
+
+  const isEdit = Boolean(tool?.id);
+
+  // 编辑态：HTTP 映射不随工具列表返回，需按 toolId 单独拉取
+  const mappingQuery = useQuery({
+    queryKey: ['plugin', pluginId, 'tool', tool?.id, 'mapping'],
+    queryFn: () => pluginToolApi.mapping(pluginId, tool!.id),
+    enabled: open && isEdit,
   });
 
   useEffect(() => {
-    if (open) {
-      form.setFieldsValue({
-        name: tool?.name ?? '',
-        description: tool?.description ?? '',
-        enabled: tool?.enabled ?? true,
-      });
-      setFields(jsonSchemaToFields(tool?.inputSchema));
-      setMapping(
-        tool?.mapping ?? {
-          method: 'GET',
-          urlTemplate: '',
-          headersTemplate: {},
-          bodyType: 'json',
-        },
-      );
-    }
+    if (!open) return;
+    form.setFieldsValue({
+      name: tool?.name ?? '',
+      description: tool?.description ?? '',
+      enabled: tool?.enabled ?? true,
+    });
+    setFields(jsonSchemaToFields(tool?.inputSchema));
+    setHttpForm(emptyHttpForm());
   }, [open, tool, form]);
 
-  const inputVariables = fields.map((f) => f.name).filter(Boolean);
+  // 既有映射拉取完成后：还原表单 + 回填各入参的位置
+  useEffect(() => {
+    if (open && isEdit && mappingQuery.data) {
+      const { form: hf, locations } = disassembleMapping(mappingQuery.data);
+      setHttpForm(hf);
+      setFields((prev) => applyLocations(prev, locations));
+    }
+  }, [open, isEdit, mappingQuery.data]);
 
   const saveMut = useMutation({
     mutationFn: async (values: ToolFormValues) => {
@@ -68,7 +80,7 @@ export default function ToolDrawer({ open, pluginId, tool, onClose, onSaved }: P
         description: values.description,
         enabled: values.enabled,
         inputSchema: fieldsToJsonSchema(fields),
-        mapping,
+        mapping: buildMapping(fields, httpForm),
       };
       if (tool) {
         return pluginToolApi.update(pluginId, tool.id, payload);
@@ -88,7 +100,7 @@ export default function ToolDrawer({ open, pluginId, tool, onClose, onSaved }: P
       title={tool ? '编辑工具' : '新增工具'}
       open={open}
       onClose={onClose}
-      width={760}
+      width={860}
       destroyOnClose
       extra={
         <Space>
@@ -99,11 +111,7 @@ export default function ToolDrawer({ open, pluginId, tool, onClose, onSaved }: P
         </Space>
       }
     >
-      <Form
-        form={form}
-        layout="vertical"
-        onFinish={(v) => saveMut.mutate(v)}
-      >
+      <Form form={form} layout="vertical" onFinish={(v) => saveMut.mutate(v)}>
         <Form.Item label="工具名" name="name" rules={[{ required: true }]}>
           <Input placeholder="如 search_weather" />
         </Form.Item>
@@ -116,19 +124,15 @@ export default function ToolDrawer({ open, pluginId, tool, onClose, onSaved }: P
 
         <Divider>入参字段</Divider>
         <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-          逐个配置工具的输入字段，将作为 LLM 调用本工具时填入的参数
+          逐个配置工具的输入字段（LLM 调用时填入），并指定每个参数的位置：Path / Query / Body
         </Typography.Text>
         <InputSchemaEditor value={fields} onChange={setFields} />
 
         <Divider>HTTP 映射</Divider>
         <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-          配置工具实际调用的 HTTP 端点
+          配置工具实际调用的 HTTP 端点；Query/Body 参数按上方位置自动拼装
         </Typography.Text>
-        <HttpMappingForm
-          value={mapping}
-          onChange={setMapping}
-          inputVariables={inputVariables}
-        />
+        <HttpMappingForm value={httpForm} onChange={setHttpForm} fields={fields} />
       </Form>
     </Drawer>
   );

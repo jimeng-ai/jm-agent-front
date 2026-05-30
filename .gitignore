@@ -9,3 +9,6 @@ dist-ssr
 *.log
 .env.local
 .env.*.local
+
+# TypeScript 增量编译缓存（构建产物，不应入库）
+tsconfig.tsbuildinfo

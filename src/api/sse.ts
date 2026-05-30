@@ -1,4 +1,5 @@
 import { useAuthStore } from '@/stores/authStore';
+import { redirectToLogin } from '@/api/client';
 
 const baseURL = import.meta.env.VITE_API_BASE || '/data';
 
@@ -76,6 +77,11 @@ export async function streamSse(url: string, body: unknown, opts: StreamOptions 
   }
 
   if (!response.ok || !response.body) {
+    // 流式接口走原始 fetch，不经 axios 拦截器；这里手动复用同一套登出逻辑，
+    // 让被禁用 / 掉线的成员在纯 SSE 场景也会被踢回登录页（与 client.ts 拦截器一致）。
+    if (response.status === 401 || response.status === 403) {
+      redirectToLogin('登录已过期，请重新登录');
+    }
     opts.onError?.(new Error(`SSE 请求失败 HTTP ${response.status}`));
     return;
   }
@@ -85,7 +91,7 @@ export async function streamSse(url: string, body: unknown, opts: StreamOptions 
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = '';
   try {
-    while (true) {
+    for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
       buffer += value;

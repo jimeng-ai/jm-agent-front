@@ -24,9 +24,25 @@ export default function LoginPage() {
       logout();
       return;
     }
-    const redirect = params.get('redirect');
-    const dest = redirect ? decodeURIComponent(redirect) : '/console';
-    navigate(dest, { replace: true });
+    // 本地 token 未过期 ≠ 账号仍有效（可能已被禁用 / 会话已失效）。
+    // 先向服务端确认（me() 会被网关 + AccountStatusFilter 校验），成功才进站；
+    // 401 等失败则清掉本地登录态，留在登录页重新登录——避免被禁用成员凭旧 token 自动进站。
+    let cancelled = false;
+    authApi
+      .me()
+      .then(() => {
+        if (cancelled) return;
+        const redirect = params.get('redirect');
+        const dest = redirect ? decodeURIComponent(redirect) : '/console';
+        navigate(dest, { replace: true });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        logout();
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [token, navigate, params, logout]);
 
   const loginMut = useMutation({

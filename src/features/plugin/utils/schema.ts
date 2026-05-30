@@ -2,12 +2,17 @@ import { nanoid } from 'nanoid';
 
 export type FieldType = 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'array';
 
+/** 入参在 HTTP 请求中的位置（仅顶层字段有意义） */
+export type ParamLocation = 'path' | 'query' | 'body';
+
 export interface FieldDef {
   id: string;
   name: string;
   type: FieldType;
   description?: string;
   required?: boolean;
+  /** 该入参放到 URL 路径 / Query / Body，仅顶层字段使用，默认 query */
+  location?: ParamLocation;
   enumValues?: string[];
   fields?: FieldDef[];
   itemType?: Exclude<FieldType, 'array'>;

@@ -69,7 +69,8 @@ httpClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 });
 
 let redirecting: Promise<void> | null = null;
-function redirectToLogin(reason: string) {
+// 导出供非 axios 链路（如 SSE 原始 fetch，见 api/sse.ts）复用同一套登出+跳转逻辑。
+export function redirectToLogin(reason: string) {
   if (window.location.pathname === '/login') return Promise.resolve();
   if (redirecting) return redirecting;
   redirecting = Promise.resolve().then(() => {
@@ -82,15 +83,16 @@ function redirectToLogin(reason: string) {
   return redirecting;
 }
 
-function isAuthError(
-  status: number | undefined,
-  respCode: number | string | undefined,
-  respMsg: string | undefined,
-): boolean {
+// 会话「真正失效」时，网关 AuthorizeFilter 与 AccountStatusFilter 一律以 HTTP 401/403 返回。
+// 后端却把「无权访问该资源 / 需要超管权限 / 旧密码错误」等也用业务码 4001(AUTHENTICATION_FAIL)
+// 表达，而这些都走 HTTP 200——它们是「授权/业务」失败而非「会话过期」，绝不能据此跳登录。
+// 否则成员一创建插件、读回详情(getPlugin → assertCurrentAccess 对未授权资源抛 4001)就会被
+// 误判为掉线、踢回登录页。因此只认 HTTP 状态，不再把裸 respCode 4001 当会话过期。
+function isAuthError(status: number | undefined, respMsg: string | undefined): boolean {
   if (status === 401 || status === 403) return true;
-  if (isCode(respCode, RESP_CODE.UNAUTHORIZED)) return true;
-  // Gateway may return a non-401 status for malformed/invalid JWTs; sniff the message.
-  if (respMsg && /jwt|token/i.test(respMsg)) return true;
+  // 网关对畸形 JWT 理论上可能返回非 401 状态：仅在「非成功响应」上按 token/jwt 文案兜底，
+  // 不波及 HTTP 200 的业务错误（即便其文案恰好含 token 也不跳登录）。
+  if (status !== 200 && respMsg && /jwt|token/i.test(respMsg)) return true;
   return false;
 }
 
@@ -106,7 +108,7 @@ httpClient.interceptors.response.use(
     }
     // 白名单接口（如登录）本就不携带会话，其失败一律是业务错误：后端把
     // “用户名或密码错误”也用 4001 返回，与会话过期的 4001 撞码 —— 绝不能据此跳登录。
-    if (!isWhitelisted(response.config?.url) && isAuthError(response.status, body.respCode, body.respMsg)) {
+    if (!isWhitelisted(response.config?.url) && isAuthError(response.status, body.respMsg)) {
       redirectToLogin('登录已过期，请重新登录');
       throw new BizError(body.respCode, body.respMsg);
     }
@@ -122,7 +124,7 @@ httpClient.interceptors.response.use(
       respBody && typeof respBody === 'object' && 'respMsg' in respBody
         ? respBody.respMsg
         : undefined;
-    if (!isWhitelisted(error.config?.url) && isAuthError(error.response?.status, respCode, respMsg)) {
+    if (!isWhitelisted(error.config?.url) && isAuthError(error.response?.status, respMsg)) {
       redirectToLogin('未授权，请登录');
       return Promise.reject(new BizError(respCode ?? RESP_CODE.UNAUTHORIZED, respMsg ?? '未授权'));
     }

@@ -1,0 +1,11 @@
+tunnel: 68b897cb-01ce-4110-8b8a-0951d994fb3d
+credentials-file: /etc/cloudflared/68b897cb-01ce-4110-8b8a-0951d994fb3d.json
+
+ingress:
+  - hostname: heartbeat.ren
+    service: http://localhost:10010
+  - hostname: www.heartbeat.ren
+    service: http://localhost:10010
+  - hostname: atlas.heartbeat.ren
+    service: http://localhost:10012
+  - service: http_status:404

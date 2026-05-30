@@ -1,6 +1,12 @@
-import { Button, Input, Select, Space, Switch, Tag, Typography } from 'antd';
+import { Button, Input, Select, Space, Switch, Tag, Tooltip, Typography } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { newField, type FieldDef, type FieldType } from '@/features/plugin/utils/schema';
+import {
+  newField,
+  type FieldDef,
+  type FieldType,
+  type ParamLocation,
+} from '@/features/plugin/utils/schema';
+import { LOCATION_OPTIONS } from '@/features/plugin/utils/mapping';
 
 const TYPE_OPTIONS: { label: string; value: FieldType }[] = [
   { label: 'string', value: 'string' },
@@ -20,7 +26,7 @@ interface Props {
 
 export default function InputSchemaEditor({ value, onChange }: Props) {
   return (
-    <FieldList value={value} onChange={onChange} />
+    <FieldList value={value} onChange={onChange} topLevel />
   );
 }
 
@@ -28,9 +34,11 @@ interface ListProps {
   value: FieldDef[];
   onChange: (next: FieldDef[]) => void;
   itemLabel?: string;
+  /** 顶层字段才展示「位置(Path/Query/Body)」选择 */
+  topLevel?: boolean;
 }
 
-function FieldList({ value, onChange, itemLabel = '字段' }: ListProps) {
+function FieldList({ value, onChange, itemLabel = '字段', topLevel = false }: ListProps) {
   const update = (idx: number, patch: Partial<FieldDef>) => {
     onChange(value.map((f, i) => (i === idx ? { ...f, ...patch } : f)));
   };
@@ -38,7 +46,7 @@ function FieldList({ value, onChange, itemLabel = '字段' }: ListProps) {
     onChange(value.filter((_, i) => i !== idx));
   };
   const add = () => {
-    onChange([...value, newField()]);
+    onChange([...value, newField(topLevel ? { location: 'query' } : undefined)]);
   };
 
   return (
@@ -47,6 +55,7 @@ function FieldList({ value, onChange, itemLabel = '字段' }: ListProps) {
         <FieldRow
           key={f.id}
           field={f}
+          topLevel={topLevel}
           onChange={(patch) => update(idx, patch)}
           onRemove={() => remove(idx)}
         />
@@ -60,11 +69,12 @@ function FieldList({ value, onChange, itemLabel = '字段' }: ListProps) {
 
 interface RowProps {
   field: FieldDef;
+  topLevel?: boolean;
   onChange: (patch: Partial<FieldDef>) => void;
   onRemove: () => void;
 }
 
-function FieldRow({ field, onChange, onRemove }: RowProps) {
+function FieldRow({ field, topLevel = false, onChange, onRemove }: RowProps) {
   const onTypeChange = (t: FieldType) => {
     const patch: Partial<FieldDef> = { type: t };
     if (t !== 'enum') patch.enumValues = undefined;
@@ -99,8 +109,18 @@ function FieldRow({ field, onChange, onRemove }: RowProps) {
           value={field.type}
           onChange={onTypeChange}
           options={TYPE_OPTIONS}
-          style={{ width: 120 }}
+          style={{ width: 110 }}
         />
+        {topLevel && (
+          <Tooltip title="该参数放到 URL 路径 / Query / 请求体；保存时自动拼接，无需手写">
+            <Select<ParamLocation>
+              value={field.location ?? 'query'}
+              onChange={(loc) => onChange({ location: loc })}
+              options={LOCATION_OPTIONS}
+              style={{ width: 120 }}
+            />
+          </Tooltip>
+        )}
         <Input
           placeholder="描述（供 LLM 理解）"
           value={field.description}

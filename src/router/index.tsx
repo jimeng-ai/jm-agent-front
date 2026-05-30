@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Spin } from 'antd';
 import ProtectedRoute from './ProtectedRoute';
+import ModuleRoute from './ModuleRoute';
 import ConsoleLayout from '@/layouts/ConsoleLayout';
 import ChatLayout from '@/layouts/ChatLayout';
 
@@ -41,21 +42,73 @@ export default function AppRouter() {
           }
         >
           <Route index element={<Navigate to="dashboard" replace />} />
+          {/* 仪表盘不受模块限制 */}
           <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="agents" element={<AgentListPage />} />
-          <Route path="agents/:id" element={<AgentEditorPage />} />
-          <Route path="plugins" element={<PluginListPage />} />
-          <Route path="plugins/:id" element={<PluginEditorPage />} />
-          <Route path="knowledge" element={<KnowledgeListPage />} />
-          <Route path="knowledge/:kbId" element={<KnowledgeDetailPage />} />
-          <Route path="playground/:agentId?" element={<PlaygroundPage />} />
+          <Route
+            path="agents"
+            element={
+              <ModuleRoute module="AGENT_MODULE">
+                <AgentListPage />
+              </ModuleRoute>
+            }
+          />
+          <Route
+            path="agents/:id"
+            element={
+              <ModuleRoute module="AGENT_MODULE">
+                <AgentEditorPage />
+              </ModuleRoute>
+            }
+          />
+          <Route
+            path="plugins"
+            element={
+              <ModuleRoute module="PLUGIN_MODULE">
+                <PluginListPage />
+              </ModuleRoute>
+            }
+          />
+          <Route
+            path="plugins/:id"
+            element={
+              <ModuleRoute module="PLUGIN_MODULE">
+                <PluginEditorPage />
+              </ModuleRoute>
+            }
+          />
+          <Route
+            path="knowledge"
+            element={
+              <ModuleRoute module="KB_MODULE">
+                <KnowledgeListPage />
+              </ModuleRoute>
+            }
+          />
+          <Route
+            path="knowledge/:kbId"
+            element={
+              <ModuleRoute module="KB_MODULE">
+                <KnowledgeDetailPage />
+              </ModuleRoute>
+            }
+          />
+          <Route
+            path="playground/:agentId?"
+            element={
+              <ModuleRoute module="AGENT_MODULE">
+                <PlaygroundPage />
+              </ModuleRoute>
+            }
+          />
         </Route>
 
         <Route
           path="/chat"
           element={
             <ProtectedRoute>
-              <ChatLayout />
+              <ModuleRoute module="CHAT_MODULE">
+                <ChatLayout />
+              </ModuleRoute>
             </ProtectedRoute>
           }
         >

@@ -47,11 +47,22 @@ export interface AdminUser {
   username: string;
   displayName?: string;
   status?: string;
+  userType?: 'SUPER_ADMIN' | 'MEMBER';
 }
 
 export interface LoginResult {
   token: string;
   user: AdminUser;
+}
+
+/** 当前账号的有效权限（GET /admin/me/permissions）。 */
+export interface MePermissions {
+  superAdmin: boolean;
+  userType?: 'SUPER_ADMIN' | 'MEMBER';
+  modules: string[];
+  agentIds: string[];
+  knowledgeBaseIds: string[];
+  pluginIds: string[];
 }
 
 export interface Agent extends BaseEntity {
@@ -94,9 +105,14 @@ export interface PluginHttpMapping {
   method: HttpMethod;
   urlTemplate: string;
   headersTemplate?: Record<string, string>;
+  /** Query 参数模板 {name: '{{input.name}}'} */
+  queryTemplate?: Record<string, string>;
   bodyTemplate?: string;
-  bodyType?: 'json' | 'form' | 'urlencoded';
+  /** 真实 Content-Type，如 application/json；为空表示不带 body */
+  bodyContentType?: string;
+  /** 响应抽取：多字段映射 JSON 数组字符串，或旧版单条 JSONPath */
   responseExtract?: string;
+  responseMaxItems?: number;
 }
 
 export interface PluginTool {
