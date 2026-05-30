@@ -1,8 +1,8 @@
 import axios, { type AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
 import { message } from 'antd';
 import { useAuthStore } from '@/stores/authStore';
-import { decodeJwt } from '@/utils/jwt';
-import { type ApiResponse, BizError, RESP_CODE, isCode } from './types';
+import { decodeJwt, type JwtPayload } from '@/utils/jwt';
+import { type ApiResponse, type LoginResult, BizError, RESP_CODE, isCode } from './types';
 
 const baseURL = import.meta.env.VITE_API_BASE || '/data';
 
@@ -15,6 +15,34 @@ const AUTH_WHITELIST = [/\/admin\/auth\/login$/];
 function isWhitelisted(url: string | undefined): boolean {
   if (!url) return false;
   return AUTH_WHITELIST.some((re) => re.test(url));
+}
+
+// 滑动续期：token 剩余有效期低于该阈值时，在后台静默换发一枚新的 12h token
+// （阈值默认 6h，即 token 寿命的一半）。只要在该窗口内有任意请求，会话就持续顺延；
+// 超过约 6–12h 完全无操作才会真正过期、需要重新登录。
+const RENEW_BEFORE_MS = 6 * 60 * 60 * 1000;
+const REFRESH_URL = '/admin/auth/refresh';
+
+let renewing: Promise<void> | null = null;
+function maybeRenewToken(payload: JwtPayload, url: string) {
+  if (renewing) return; // 已有续期在途，避免并发重复换发
+  if (url.includes(REFRESH_URL)) return; // 别让 refresh 请求自身再触发续期（防递归）
+  if (typeof payload.exp !== 'number') return;
+  const remaining = payload.exp * 1000 - Date.now();
+  if (remaining <= 0 || remaining >= RENEW_BEFORE_MS) return;
+  // 当前请求继续用旧 token（仍有效）发出；新 token 落库后从下一个请求开始生效。
+  renewing = httpClient
+    .post<LoginResult>(REFRESH_URL)
+    .then((r) => {
+      const next = r.data?.token;
+      if (next) useAuthStore.getState().renewToken(next);
+    })
+    .catch(() => {
+      // 续期失败不打断业务请求；token 真到期时自然会走 401 → 跳登录
+    })
+    .finally(() => {
+      renewing = null;
+    });
 }
 
 httpClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
@@ -30,6 +58,7 @@ httpClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     }
     // Backend contract (LoginResponse#token): raw JWT, no "Bearer " prefix.
     config.headers.set('Authorization', token);
+    maybeRenewToken(payload, url); // 临近过期则后台静默续期，不阻塞当前请求
   } else if (token) {
     config.headers.set('Authorization', token);
   }

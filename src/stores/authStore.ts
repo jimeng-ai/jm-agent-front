@@ -8,6 +8,8 @@ interface AuthState {
   tenantId: string | null;
   user: AdminUser | null;
   setAuth: (payload: { token: string; user?: AdminUser }) => void;
+  /** 滑动续期：仅替换 token，保留现有 user / tenantId（不可复用 setAuth，它会把 user 置空）。 */
+  renewToken: (token: string) => void;
   setUser: (user: AdminUser) => void;
   logout: () => void;
 }
@@ -26,6 +28,7 @@ export const useAuthStore = create<AuthState>()(
           user: user ?? null,
         });
       },
+      renewToken: (token) => set({ token }),
       setUser: (user) => set({ user, tenantId: user.tenantId ?? null }),
       logout: () => set({ token: null, tenantId: null, user: null }),
     }),
