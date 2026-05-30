@@ -1,4 +1,6 @@
+import { Suspense } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
+import { Spin } from 'antd';
 import WorkbenchSidebar from '@/components/atlas/WorkbenchSidebar';
 import { workbenchCrumbs } from '@/components/atlas/workbenchNav';
 import { SearchIcon, BellIcon } from '@/components/icons/AtlasIcons';
@@ -38,7 +40,15 @@ export default function ConsoleLayout() {
         </header>
 
         <main className="atlas-content">
-          <Outlet />
+          <Suspense
+            fallback={
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
+                <Spin size="large" />
+              </div>
+            }
+          >
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>
