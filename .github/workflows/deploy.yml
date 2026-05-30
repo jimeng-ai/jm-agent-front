@@ -1,0 +1,58 @@
+name: Deploy
+
+# push 到 main 即自动部署。也支持在 Actions 页面手动触发。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 让 GITHUB_TOKEN 有推送 GHCR 镜像的权限（无需额外 secret）
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/spider615/jm-agent-front
+  CONTAINER: jm-agent-front
+  PORT: 10012
+
+jobs:
+  deploy:
+    # 跑在本机（Mac）上的自托管 Runner
+    runs-on: [self-hosted, macOS]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build image
+        run: |
+          docker build \
+            -t "$IMAGE:latest" \
+            -t "$IMAGE:${{ github.sha }}" \
+            .
+
+      - name: Push image
+        run: |
+          docker push "$IMAGE:latest"
+          docker push "$IMAGE:${{ github.sha }}"
+
+      - name: Redeploy container
+        run: |
+          docker rm -f "$CONTAINER" 2>/dev/null || true
+          docker run -d \
+            --name "$CONTAINER" \
+            --restart unless-stopped \
+            --add-host host.docker.internal:host-gateway \
+            -p "$PORT:80" \
+            "$IMAGE:latest"
+
+      - name: Cleanup old images
+        if: always()
+        run: docker image prune -f
