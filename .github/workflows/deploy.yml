@@ -60,14 +60,19 @@ jobs:
             "$IMAGE:latest"
 
       # 推送到 GHCR 作为归档/回滚备份：best-effort。
-      # 本机经代理访问 ghcr.io，Docker daemon 偶发超时也不影响上面的部署结果。
+      # 直接把凭据 base64 写进干净的 DOCKER_CONFIG（不调 docker login），彻底不碰 macOS 钥匙串
+      # ——headless 会话里 docker login 存储凭据会报 "-25308 User interaction is not allowed"。
       - name: Push to GHCR (best-effort)
         continue-on-error: true
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          AUTH=$(printf '%s' "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" | base64 | tr -d '\n')
+          printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "$AUTH" > "$DOCKER_CONFIG/config.json"
           docker push "$IMAGE:latest"
           docker push "$IMAGE:${{ github.sha }}"
 
+      # 多个仓库的部署并行跑在同一 Docker daemon 上，prune 有全局锁，并发会撞
+      # "a prune operation is already running"。这是无害的清理步骤，失败不应判部署失败。
       - name: Cleanup old images
         if: always()
+        continue-on-error: true
         run: docker image prune -f
