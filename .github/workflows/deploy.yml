@@ -19,9 +19,6 @@ env:
   IMAGE: ghcr.io/spider615/jm-agent-front
   CONTAINER: jm-agent-front
   PORT: 10012
-  # 独立 docker config 目录，避免 macOS 钥匙串凭据助手(credsStore=desktop)在
-  # launchd 后台环境下干扰 docker login。
-  DOCKER_CONFIG: ${{ runner.temp }}/docker-ci
 
 jobs:
   deploy:
@@ -54,7 +51,12 @@ jobs:
       # 本机经代理访问 ghcr.io，Docker daemon 偶发超时也不影响上面的部署结果。
       - name: Push to GHCR (best-effort)
         continue-on-error: true
+        # 独立 docker config 目录，避免 macOS 钥匙串凭据助手(credsStore=desktop)在
+        # launchd 后台环境下干扰 docker login。注意必须用运行时变量 $RUNNER_TEMP，
+        # 不能用 ${{ runner.temp }}——runner 上下文在 workflow 级 env 不可用，会导致
+        # 整个 workflow 启动即失败（startup_failure，0 秒、无任何 job）。
         run: |
+          export DOCKER_CONFIG="$RUNNER_TEMP/docker-ci"
           mkdir -p "$DOCKER_CONFIG"
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           docker push "$IMAGE:latest"
