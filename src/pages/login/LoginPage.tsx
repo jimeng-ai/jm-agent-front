@@ -35,7 +35,11 @@ export default function LoginPage() {
       setAuth({ token: data.token, user: data.user });
       message.success('登录成功');
     },
-    onError: (e: BizError) => message.error(e.message || '登录失败'),
+    onError: (e: BizError) => {
+      // 把 toast 推迟到下一个微任务：避免 antd message 的同步渲染插在 react-query
+      // 状态通知之前，导致按钮 loading 的重渲染被推迟到 message 3s 自动消失时才发生。
+      queueMicrotask(() => message.error(e.message || '登录失败'));
+    },
   });
 
   return (

@@ -104,7 +104,9 @@ httpClient.interceptors.response.use(
       response.data = body.data;
       return response;
     }
-    if (isAuthError(response.status, body.respCode, body.respMsg)) {
+    // 白名单接口（如登录）本就不携带会话，其失败一律是业务错误：后端把
+    // “用户名或密码错误”也用 4001 返回，与会话过期的 4001 撞码 —— 绝不能据此跳登录。
+    if (!isWhitelisted(response.config?.url) && isAuthError(response.status, body.respCode, body.respMsg)) {
       redirectToLogin('登录已过期，请重新登录');
       throw new BizError(body.respCode, body.respMsg);
     }
@@ -120,7 +122,7 @@ httpClient.interceptors.response.use(
       respBody && typeof respBody === 'object' && 'respMsg' in respBody
         ? respBody.respMsg
         : undefined;
-    if (isAuthError(error.response?.status, respCode, respMsg)) {
+    if (!isWhitelisted(error.config?.url) && isAuthError(error.response?.status, respCode, respMsg)) {
       redirectToLogin('未授权，请登录');
       return Promise.reject(new BizError(respCode ?? RESP_CODE.UNAUTHORIZED, respMsg ?? '未授权'));
     }
