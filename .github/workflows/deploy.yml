@@ -19,6 +19,9 @@ env:
   IMAGE: ghcr.io/spider615/jm-agent-front
   CONTAINER: jm-agent-front
   PORT: 10012
+  # 自托管 Runner（launchd 服务）默认 PATH 不含 Docker Desktop 的 /usr/local/bin，
+  # 这里显式补全，保证各步骤能找到 docker。
+  PATH: /usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
 
 jobs:
   deploy:
