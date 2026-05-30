@@ -19,9 +19,8 @@ env:
   IMAGE: ghcr.io/spider615/jm-agent-front
   CONTAINER: jm-agent-front
   PORT: 10012
-  # 用独立的 docker config 目录：macOS 默认 credsStore=desktop（钥匙串凭据助手），
-  # 在 launchd 后台环境下无法访问 GUI 钥匙串，会导致 docker login 失败（exit 1）。
-  # 指向一个干净目录后，登录凭据会以内联方式写入临时 config，绕过钥匙串。
+  # 独立 docker config 目录，避免 macOS 钥匙串凭据助手(credsStore=desktop)在
+  # launchd 后台环境下干扰 docker login。
   DOCKER_CONFIG: ${{ runner.temp }}/docker-ci
 
 jobs:
@@ -32,11 +31,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Login to GHCR
-        run: |
-          mkdir -p "$DOCKER_CONFIG"
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-
       - name: Build image
         run: |
           docker build \
@@ -44,11 +38,8 @@ jobs:
             -t "$IMAGE:${{ github.sha }}" \
             .
 
-      - name: Push image
-        run: |
-          docker push "$IMAGE:latest"
-          docker push "$IMAGE:${{ github.sha }}"
-
+      # 部署是关键步骤：直接用刚构建的本地镜像重建容器，不依赖镜像仓库可达性。
+      # 放在推送之前，保证即使 GHCR 连不上，部署也能成功。
       - name: Redeploy container
         run: |
           docker rm -f "$CONTAINER" 2>/dev/null || true
@@ -58,6 +49,16 @@ jobs:
             --add-host host.docker.internal:host-gateway \
             -p "$PORT:80" \
             "$IMAGE:latest"
+
+      # 推送到 GHCR 作为归档/回滚备份：best-effort。
+      # 本机经代理访问 ghcr.io，Docker daemon 偶发超时也不影响上面的部署结果。
+      - name: Push to GHCR (best-effort)
+        continue-on-error: true
+        run: |
+          mkdir -p "$DOCKER_CONFIG"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push "$IMAGE:latest"
+          docker push "$IMAGE:${{ github.sha }}"
 
       - name: Cleanup old images
         if: always()
