@@ -28,6 +28,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # macOS 自托管 Runner 跑在 launchd 后台会话里，默认 ~/.docker/config.json 的
+      # credsStore=desktop 会去访问登录钥匙串；无人交互时报 "keychain cannot be accessed"，
+      # 连 docker build 拉公共基础镜像（node/nginx）都会失败。这里指向一个干净的 DOCKER_CONFIG
+      # （config.json={}，无 credsStore），让后续所有 docker 命令都不走钥匙串助手——公共镜像匿名拉取，
+      # GHCR 登录则把凭据以 base64 写进该配置照常可用。写入 $GITHUB_ENV 让后续每个 step 都继承。
+      - name: Prepare clean docker config (bypass macOS keychain)
+        run: |
+          DC="$RUNNER_TEMP/docker-ci"
+          mkdir -p "$DC"
+          printf '{}' > "$DC/config.json"
+          echo "DOCKER_CONFIG=$DC" >> "$GITHUB_ENV"
+
       - name: Build image
         run: |
           docker build \
@@ -51,13 +63,7 @@ jobs:
       # 本机经代理访问 ghcr.io，Docker daemon 偶发超时也不影响上面的部署结果。
       - name: Push to GHCR (best-effort)
         continue-on-error: true
-        # 独立 docker config 目录，避免 macOS 钥匙串凭据助手(credsStore=desktop)在
-        # launchd 后台环境下干扰 docker login。注意必须用运行时变量 $RUNNER_TEMP，
-        # 不能用 ${{ runner.temp }}——runner 上下文在 workflow 级 env 不可用，会导致
-        # 整个 workflow 启动即失败（startup_failure，0 秒、无任何 job）。
         run: |
-          export DOCKER_CONFIG="$RUNNER_TEMP/docker-ci"
-          mkdir -p "$DOCKER_CONFIG"
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           docker push "$IMAGE:latest"
           docker push "$IMAGE:${{ github.sha }}"
