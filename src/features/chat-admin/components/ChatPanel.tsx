@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Input, Space, Tag, Typography } from 'antd';
-import { SendOutlined, StopOutlined, ReloadOutlined } from '@ant-design/icons';
+import { App, Button, Input, Space, Tag, Typography, Upload, type UploadProps } from 'antd';
+import { SendOutlined, StopOutlined, ReloadOutlined, PaperClipOutlined } from '@ant-design/icons';
 import MessageBubble from './MessageBubble';
 import { useSSE } from '@/features/chat-admin/hooks/useSSE';
 import { newMessage, type ChatMessage, type MessageSegment } from '@/features/chat-admin/types';
+import { uploadAgentFile, type AgentFileView } from '@/api/agentFiles';
 import type { ChatCitation, ChatMessageHistoryItem } from '@/api/types';
 
 /** 助手回复完成时回传的元信息（用于持久化）。 */
 export interface AssistantMessageMeta {
   citations?: ChatCitation[];
-  /** 仅含工具调用的回复才有，用于刷新后还原过程 */
+  /** 含工具调用 / 产物的回复才有，用于刷新后还原过程 */
   segments?: MessageSegment[];
   elapsedMs?: number;
 }
@@ -40,8 +41,10 @@ export default function ChatPanel({
   onSubmit,
   onAssistantMessage,
 }: Props) {
+  const { message: toast } = App.useApp();
   const [messages, setMessages] = useState<ChatMessage[]>(() => initialMessages ?? []);
   const [input, setInput] = useState('');
+  const [attached, setAttached] = useState<AgentFileView[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sse = useSSE();
 
@@ -60,24 +63,23 @@ export default function ChatPanel({
   );
 
   const submit = (queryText: string) => {
+    // 有附件 → 走代码执行 / 文件处理 Agent；否则走 RAG 问答
+    const fileIds = attached.map((a) => String(a.fileId));
+    const mode: 'rag' | 'exec' = fileIds.length > 0 ? 'exec' : 'rag';
+
     onSubmit?.(queryText);
     const userMsg = newMessage('user', queryText);
     const assistantMsg = newMessage('assistant', '');
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
     setInput('');
+    setAttached([]);
+
     sse.start(
-      {
-        agentId,
-        kbId,
-        query: queryText,
-        topK,
-        rerank,
-        history,
-      },
+      { agentId, kbId, query: queryText, topK, rerank, history, fileIds },
       ({ text: finalText, citations, segments, elapsedMs }) => {
-        // 仅含工具调用的回复才落库 segments；纯文本回复刷新后回退渲染 content 即可。
-        const hasTool = segments.some((s) => s.type === 'tool');
-        const persistedSegments = hasTool ? segments : undefined;
+        // 含工具调用 / 产物的回复才落库 segments；纯文本回复刷新后回退渲染 content 即可。
+        const rich = segments.some((s) => s.type === 'tool' || s.type === 'artifact');
+        const persistedSegments = rich ? segments : undefined;
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsg.id
@@ -87,6 +89,7 @@ export default function ChatPanel({
         );
         onAssistantMessage?.(finalText, { citations, segments: persistedSegments, elapsedMs });
       },
+      { mode },
     );
   };
 
@@ -130,17 +133,37 @@ export default function ChatPanel({
 
   const isStreaming = sse.status === 'streaming';
 
+  const uploadFile: UploadProps['customRequest'] = async (options) => {
+    try {
+      const res = await uploadAgentFile(options.file as File);
+      setAttached((prev) => [...prev, res]);
+      options.onSuccess?.(res);
+    } catch (e) {
+      options.onError?.(e as Error);
+      toast.error(`文件上传失败：${(e as Error).message}`);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', padding: 16 }}>
         {messages.length === 0 ? (
           <div style={{ textAlign: 'center', color: '#999', marginTop: 80 }}>
             <Typography.Text type="secondary">
-              {placeholder || '试着提一个问题，开始对话吧'}
+              {placeholder || '试着提一个问题，或上传文件让 Agent 处理'}
             </Typography.Text>
           </div>
         ) : (
           messages.map((m) => <MessageBubble key={m.id} message={m} />)
+        )}
+        {isStreaming && sse.files.length > 0 && (
+          <div style={{ fontSize: 12, color: '#8c8c8c', padding: '0 8px 8px' }}>
+            {sse.files.map((f) => (
+              <span key={f.filename} style={{ marginRight: 12 }}>
+                📎 {f.filename} · {f.phase === 'ready' ? '已就绪' : f.phase === 'pulling' ? '准备中…' : f.phase}
+              </span>
+            ))}
+          </div>
         )}
       </div>
 
@@ -157,9 +180,27 @@ export default function ChatPanel({
               </Button>
             )}
             {kbId && <Tag color="blue">已挂载知识库</Tag>}
+            {attached.length > 0 && <Tag color="purple">文件处理模式</Tag>}
           </Space>
         )}
+        {attached.length > 0 && (
+          <div style={{ marginBottom: 8 }}>
+            {attached.map((a, i) => (
+              <Tag
+                key={`${a.fileId}`}
+                closable
+                onClose={() => setAttached((prev) => prev.filter((_, j) => j !== i))}
+                style={{ marginBottom: 4 }}
+              >
+                📎 {a.filename}
+              </Tag>
+            ))}
+          </div>
+        )}
         <Space.Compact style={{ width: '100%' }}>
+          <Upload customRequest={uploadFile} showUploadList={false} multiple disabled={isStreaming}>
+            <Button icon={<PaperClipOutlined />} disabled={isStreaming} title="上传文件交给 Agent 处理" />
+          </Upload>
           <Input.TextArea
             value={input}
             onChange={(e) => setInput(e.target.value)}

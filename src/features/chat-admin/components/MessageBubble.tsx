@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Avatar, Button } from 'antd';
 import {
   CopyOutlined,
@@ -6,12 +7,15 @@ import {
   LoadingOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
+  DownloadOutlined,
+  FileOutlined,
 } from '@ant-design/icons';
 import { App } from 'antd';
 import dayjs from 'dayjs';
 import Markdown from '@/components/Markdown';
 import CitationReferences from './CitationReferences';
-import type { ChatMessage, ToolCallView } from '@/features/chat-admin/types';
+import { downloadArtifact } from '@/api/agentFiles';
+import type { ArtifactRef, ChatMessage, ToolCallView } from '@/features/chat-admin/types';
 
 interface Props {
   message: ChatMessage;
@@ -58,27 +62,83 @@ function ToolCallPill({ tc }: { tc: ToolCallView }) {
   const verb = tc.status === 'running' ? '正在调用工具' : tc.status === 'success' ? '已调用工具' : '工具调用失败';
   const inputStr = formatToolInput(tc.input);
   return (
+    <div>
+      <div
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: 12,
+          color: '#595959',
+          background: '#f5f5f5',
+          border: '1px solid #eee',
+          borderRadius: 6,
+          padding: '4px 10px',
+          marginRight: 6,
+          marginBottom: 6,
+        }}
+      >
+        {icon}
+        <span>
+          {verb} <b>{tc.name}</b>
+          {tc.desc ? <span style={{ color: '#8c8c8c' }}>（{tc.desc}）</span> : null}
+          {inputStr ? <span style={{ color: '#8c8c8c' }}> · {inputStr}</span> : null}
+        </span>
+      </div>
+      {tc.output ? (
+        <pre
+          style={{
+            margin: '0 0 6px',
+            padding: 8,
+            background: '#0f172a',
+            color: '#e2e8f0',
+            borderRadius: 6,
+            fontSize: 12,
+            maxHeight: 240,
+            overflow: 'auto',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-all',
+          }}
+        >
+          {tc.output.length > 4000 ? `${tc.output.slice(0, 4000)}\n…（已截断）` : tc.output}
+        </pre>
+      ) : null}
+    </div>
+  );
+}
+
+/** 代码执行 Agent 产物：文件名 + 下载按钮（带鉴权头取 blob 触发下载）。 */
+function ArtifactCard({ artifact }: { artifact: ArtifactRef }) {
+  const { message: toast } = App.useApp();
+  const [loading, setLoading] = useState(false);
+  const onDownload = async () => {
+    setLoading(true);
+    try {
+      await downloadArtifact(artifact.artifactId, artifact.filename);
+    } catch (e) {
+      toast.error(`下载失败：${(e as Error).message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+  return (
     <div
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 6,
-        fontSize: 12,
-        color: '#595959',
-        background: '#f5f5f5',
-        border: '1px solid #eee',
+        gap: 8,
+        fontSize: 13,
+        background: '#f6ffed',
+        border: '1px solid #b7eb8f',
         borderRadius: 6,
         padding: '4px 10px',
-        marginRight: 6,
-        marginBottom: 6,
       }}
     >
-      {icon}
-      <span>
-        {verb} <b>{tc.name}</b>
-        {tc.desc ? <span style={{ color: '#8c8c8c' }}>（{tc.desc}）</span> : null}
-        {inputStr ? <span style={{ color: '#8c8c8c' }}> · {inputStr}</span> : null}
-      </span>
+      <FileOutlined style={{ color: '#52c41a' }} />
+      <span>{artifact.filename}</span>
+      <Button type="link" size="small" icon={<DownloadOutlined />} loading={loading} onClick={onDownload}>
+        下载
+      </Button>
     </div>
   );
 }
@@ -108,6 +168,13 @@ export default function MessageBubble({ message }: Props) {
               return (
                 <div key={`t${i}`} style={{ marginBottom: 8 }}>
                   <ToolCallPill tc={seg.call} />
+                </div>
+              );
+            }
+            if (seg.type === 'artifact') {
+              return (
+                <div key={`a${i}`} style={{ marginBottom: 8 }}>
+                  <ArtifactCard artifact={seg.artifact} />
                 </div>
               );
             }

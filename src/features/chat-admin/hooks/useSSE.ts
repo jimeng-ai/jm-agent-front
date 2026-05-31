@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { streamAnswer, type AnswerStreamPayload } from '@/features/chat-admin/api';
+import { streamAgentExec, type FileStatusEvent } from '@/features/chat-admin/agentExecApi';
 import type { ChatCitation } from '@/api/types';
-import type { MessageSegment } from '@/features/chat-admin/types';
+import type { ArtifactRef, MessageSegment } from '@/features/chat-admin/types';
 
 interface State {
   status: 'idle' | 'streaming' | 'done' | 'error';
   text: string;
   citations: ChatCitation[];
   segments: MessageSegment[];
+  /** 代码执行 Agent 的产物（可下载） */
+  artifacts: ArtifactRef[];
+  /** 输入文件准备状态（代码执行 Agent，瞬态） */
+  files: FileStatusEvent[];
   /** 本轮回答总耗时（毫秒），done 后有值 */
   elapsedMs?: number;
   error?: string;
@@ -18,8 +23,16 @@ export interface SseDoneResult {
   text: string;
   citations: ChatCitation[];
   segments: MessageSegment[];
+  artifacts: ArtifactRef[];
   elapsedMs: number;
 }
+
+/** start 的可选项：mode='exec' 走代码执行 Agent（/agent/exec），默认 'rag'（/rag/answer）。 */
+export interface SseStartOptions {
+  mode?: 'rag' | 'exec';
+}
+
+type StartPayload = AnswerStreamPayload & { fileIds?: string[]; conversationId?: string };
 
 export function useSSE() {
   const [state, setState] = useState<State>({
@@ -27,14 +40,17 @@ export function useSSE() {
     text: '',
     citations: [],
     segments: [],
+    artifacts: [],
+    files: [],
   });
   const abortRef = useRef<AbortController | null>(null);
   const textBufferRef = useRef('');
   const segmentsRef = useRef<MessageSegment[]>([]);
+  const artifactsRef = useRef<ArtifactRef[]>([]);
   const rafRef = useRef<number | null>(null);
   const startedAtRef = useRef(0);
 
-  // 把文本增量追加到「当前文本片段」；若上一片段是工具调用，则开启新文本片段（实现交错顺序）
+  // 把文本增量追加到「当前文本片段」；若上一片段是工具/产物，则开启新文本片段（实现交错顺序）
   const appendText = useCallback((delta: string) => {
     const segs = segmentsRef.current;
     const last = segs[segs.length - 1];
@@ -69,93 +85,147 @@ export function useSSE() {
 
   const start = useCallback(
     async (
-      payload: AnswerStreamPayload,
+      payload: StartPayload,
       onDoneFinalText?: (result: SseDoneResult) => void,
+      opts?: SseStartOptions,
     ) => {
       abortRef.current?.abort();
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       textBufferRef.current = '';
       segmentsRef.current = [];
+      artifactsRef.current = [];
       startedAtRef.current = performance.now();
-      setState({ status: 'streaming', text: '', citations: [], segments: [] });
+      setState({ status: 'streaming', text: '', citations: [], segments: [], artifacts: [], files: [] });
 
       let citations: ChatCitation[] = [];
-      await streamAnswer(
-        payload,
-        {
-          onCitations: (cs) => {
-            citations = cs;
-            setState((s) => ({ ...s, citations: cs }));
-          },
-          onDelta: (delta) => {
-            textBufferRef.current += delta;
-            appendText(delta);
-            scheduleFlush();
-          },
-          onToolCall: (calls) => {
-            for (const c of calls) {
-              const idx = segmentsRef.current.findIndex(
-                (s) => s.type === 'tool' && s.call.id === c.id,
-              );
-              const seg: MessageSegment = {
-                type: 'tool',
-                call: { id: c.id, name: c.name, desc: c.desc, input: c.input, status: 'running' },
-              };
-              if (idx >= 0) segmentsRef.current[idx] = seg;
-              else segmentsRef.current.push(seg);
+
+      // ── 共用累积回调 ──
+      const onDelta = (delta: string) => {
+        textBufferRef.current += delta;
+        appendText(delta);
+        scheduleFlush();
+      };
+      const onToolCall = (calls: { id: string; name: string; desc?: string; input?: unknown }[]) => {
+        for (const c of calls) {
+          const idx = segmentsRef.current.findIndex((s) => s.type === 'tool' && s.call.id === c.id);
+          const seg: MessageSegment = {
+            type: 'tool',
+            call: { id: c.id, name: c.name, desc: c.desc, input: c.input, status: 'running' },
+          };
+          if (idx >= 0) segmentsRef.current[idx] = seg;
+          else segmentsRef.current.push(seg);
+        }
+        commit();
+      };
+      const onToolResult = (results: { id: string; name: string; status: 'success' | 'error' }[]) => {
+        for (const r of results) {
+          const idx = segmentsRef.current.findIndex((s) => s.type === 'tool' && s.call.id === r.id);
+          if (idx >= 0) {
+            const seg = segmentsRef.current[idx];
+            if (seg.type === 'tool') {
+              segmentsRef.current[idx] = { type: 'tool', call: { ...seg.call, status: r.status } };
             }
-            commit();
+          } else {
+            segmentsRef.current.push({ type: 'tool', call: { id: r.id, name: r.name, status: r.status } });
+          }
+        }
+        commit();
+      };
+      const onError = (e: Error) => {
+        setState((s) => ({ ...s, status: 'error', error: e.message }));
+      };
+      const finalize = () => {
+        if (rafRef.current != null) {
+          cancelAnimationFrame(rafRef.current);
+          rafRef.current = null;
+        }
+        const finalText = textBufferRef.current;
+        // 流已结束：仍处于 running 的工具段规整为 error，否则刷新后会看到永远转圈的工具。
+        const finalSegments: MessageSegment[] = segmentsRef.current.map((s) =>
+          s.type === 'tool' && s.call.status === 'running'
+            ? { type: 'tool', call: { ...s.call, status: 'error' as const } }
+            : s,
+        );
+        const artifacts = [...artifactsRef.current];
+        const elapsedMs = Math.round(performance.now() - startedAtRef.current);
+        setState({
+          status: 'done',
+          text: finalText,
+          citations,
+          segments: finalSegments,
+          artifacts,
+          files: [],
+          elapsedMs,
+        });
+        onDoneFinalText?.({ text: finalText, citations, segments: finalSegments, artifacts, elapsedMs });
+      };
+
+      if (opts?.mode === 'exec') {
+        await streamAgentExec(
+          {
+            agentId: payload.agentId,
+            conversationId: payload.conversationId,
+            query: payload.query,
+            fileIds: payload.fileIds,
+            history: payload.history,
           },
-          onToolResult: (results) => {
-            for (const r of results) {
-              const idx = segmentsRef.current.findIndex(
-                (s) => s.type === 'tool' && s.call.id === r.id,
-              );
+          {
+            onDelta,
+            onToolCall,
+            onToolResult,
+            onError,
+            onCodeOutput: (c) => {
+              const idx = segmentsRef.current.findIndex((s) => s.type === 'tool' && s.call.id === c.id);
               if (idx >= 0) {
                 const seg = segmentsRef.current[idx];
                 if (seg.type === 'tool') {
-                  segmentsRef.current[idx] = { type: 'tool', call: { ...seg.call, status: r.status } };
+                  segmentsRef.current[idx] = { type: 'tool', call: { ...seg.call, output: c.output } };
                 }
               } else {
                 segmentsRef.current.push({
                   type: 'tool',
-                  call: { id: r.id, name: r.name, status: r.status },
+                  call: { id: c.id, name: c.tool, status: 'running', output: c.output },
                 });
               }
-            }
-            commit();
+              commit();
+            },
+            onArtifact: (a) => {
+              artifactsRef.current.push(a);
+              segmentsRef.current.push({ type: 'artifact', artifact: a });
+              setState((s) => ({ ...s, artifacts: [...artifactsRef.current] }));
+              commit();
+            },
+            onFileStatus: (f) => {
+              setState((s) => {
+                const files = [...s.files];
+                const i = files.findIndex((x) => x.filename === f.filename);
+                if (i >= 0) files[i] = f;
+                else files.push(f);
+                return { ...s, files };
+              });
+            },
+            onDone: finalize,
           },
-          onError: (e) => {
-            setState((s) => ({ ...s, status: 'error', error: e.message }));
+          ctrl.signal,
+        );
+      } else {
+        await streamAnswer(
+          payload,
+          {
+            onCitations: (cs) => {
+              citations = cs;
+              setState((s) => ({ ...s, citations: cs }));
+            },
+            onDelta,
+            onToolCall,
+            onToolResult,
+            onError,
+            onDone: finalize,
           },
-          onDone: () => {
-            if (rafRef.current != null) {
-              cancelAnimationFrame(rafRef.current);
-              rafRef.current = null;
-            }
-            const finalText = textBufferRef.current;
-            // 流已结束：任何仍处于 running 的工具段都不会再有结果（正常完成会收到
-            // tool_result；中断/卸载 abort 或后端漏发则停在 running）。规整为 error，
-            // 否则落库后刷新会看到一个永远转圈的工具。
-            const finalSegments: MessageSegment[] = segmentsRef.current.map((s) =>
-              s.type === 'tool' && s.call.status === 'running'
-                ? { type: 'tool', call: { ...s.call, status: 'error' as const } }
-                : s,
-            );
-            const elapsedMs = Math.round(performance.now() - startedAtRef.current);
-            setState({
-              status: 'done',
-              text: finalText,
-              citations,
-              segments: finalSegments,
-              elapsedMs,
-            });
-            onDoneFinalText?.({ text: finalText, citations, segments: finalSegments, elapsedMs });
-          },
-        },
-        ctrl.signal,
-      );
+          ctrl.signal,
+        );
+      }
     },
     [appendText, commit, scheduleFlush],
   );
@@ -168,7 +238,8 @@ export function useSSE() {
     abortRef.current?.abort();
     textBufferRef.current = '';
     segmentsRef.current = [];
-    setState({ status: 'idle', text: '', citations: [], segments: [] });
+    artifactsRef.current = [];
+    setState({ status: 'idle', text: '', citations: [], segments: [], artifacts: [], files: [] });
   }, []);
 
   return { ...state, start, abort, reset };
