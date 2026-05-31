@@ -34,6 +34,8 @@ interface RawModelUsage {
 
 interface RawRecentCall {
   id: Num;
+  agentId?: Num | null;
+  agentName?: string | null;
   model?: string;
   provider?: string;
   totalTokens?: Num | null;
@@ -53,6 +55,8 @@ interface RawOverview {
   previous: RawTotals;
   trend: RawTrendPoint[];
   topModels: RawModelUsage[];
+  /** 全量模型用量（不截断），用于「查看全部」饼图；后端未返回时回退到 topModels。 */
+  allModels?: RawModelUsage[];
   recentCalls: RawRecentCall[];
 }
 
@@ -81,6 +85,8 @@ export interface ModelUsage {
 
 export interface RecentCall {
   id: string;
+  agentId: string | null;
+  agentName: string | null;
   model: string;
   provider: string;
   totalTokens: number;
@@ -100,6 +106,7 @@ export interface DashboardOverview {
   previous: DashboardTotals;
   trend: TrendPoint[];
   topModels: ModelUsage[];
+  allModels: ModelUsage[];
   recentCalls: RecentCall[];
 }
 
@@ -138,8 +145,16 @@ function normalize(raw: RawOverview): DashboardOverview {
       calls: n(m.calls),
       tokens: n(m.tokens),
     })),
+    // 后端未返回 allModels 时回退到 topModels，保证「查看全部」饼图始终有数据。
+    allModels: (raw.allModels ?? raw.topModels ?? []).map((m) => ({
+      model: m.model,
+      calls: n(m.calls),
+      tokens: n(m.tokens),
+    })),
     recentCalls: (raw.recentCalls ?? []).map((c) => ({
       id: String(c.id),
+      agentId: c.agentId != null ? String(c.agentId) : null,
+      agentName: c.agentName ?? null,
       model: c.model ?? '—',
       provider: c.provider ?? '',
       totalTokens: n(c.totalTokens),

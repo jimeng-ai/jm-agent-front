@@ -358,3 +358,166 @@ export function BarChart({ labels, data, height = 240, unitSuffix = 'K' }: BarCh
     </div>
   );
 }
+
+type PieDatum = { label: string; value: number };
+
+/** 扇区配色：前两个沿用图表主色，其余取一组高区分度的固定色。 */
+const PIE_COLORS = [
+  'var(--chart-1)',
+  'var(--chart-2)',
+  '#f59e0b',
+  '#ef4444',
+  '#06b6d4',
+  '#a855f7',
+  '#ec4899',
+  '#84cc16',
+  '#f97316',
+  '#14b8a6',
+];
+
+type PieChartProps = {
+  data: PieDatum[];
+  size?: number;
+  thickness?: number;
+};
+
+/**
+ * 环形饼图：用 stroke-dasharray 画各扇段，右侧带图例与占比。无第三方依赖，
+ * 与本文件其余 SVG 图表风格一致。空数据时不渲染（由调用方给空态）。
+ */
+export function PieChart({ data, size = 200, thickness = 26 }: PieChartProps) {
+  const [hover, setHover] = useState<number | null>(null);
+  const total = data.reduce((s, d) => s + d.value, 0);
+  const r = (size - thickness) / 2;
+  const cx = size / 2;
+  const cy = size / 2;
+  const circ = 2 * Math.PI * r;
+
+  // 顺时针累计每段的弧长偏移；rotate(-90) 让起点落在 12 点方向。
+  let acc = 0;
+  const segments = data.map((d, i) => {
+    const frac = total > 0 ? d.value / total : 0;
+    const dash = frac * circ;
+    const seg = { d, i, color: PIE_COLORS[i % PIE_COLORS.length], dash, offset: -acc };
+    acc += dash;
+    return seg;
+  });
+
+  return (
+    <div style={{ display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' }}>
+      <svg
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        style={{ flex: '0 0 auto' }}
+      >
+        <g transform={`rotate(-90 ${cx} ${cy})`}>
+          <circle
+            cx={cx}
+            cy={cy}
+            r={r}
+            fill="none"
+            stroke="var(--divider)"
+            strokeWidth={thickness}
+          />
+          {segments.map((s) => (
+            <circle
+              key={s.i}
+              cx={cx}
+              cy={cy}
+              r={r}
+              fill="none"
+              stroke={s.color}
+              strokeWidth={hover === s.i ? thickness + 5 : thickness}
+              strokeDasharray={`${s.dash.toFixed(2)} ${(circ - s.dash).toFixed(2)}`}
+              strokeDashoffset={s.offset.toFixed(2)}
+              style={{ transition: 'stroke-width .15s', cursor: 'pointer' }}
+              onMouseEnter={() => setHover(s.i)}
+              onMouseLeave={() => setHover(null)}
+            />
+          ))}
+        </g>
+        <text
+          x={cx}
+          y={cy - 2}
+          textAnchor="middle"
+          fill="var(--text)"
+          fontSize="20"
+          fontWeight={600}
+          fontFamily="var(--font-mono)"
+        >
+          {total.toLocaleString()}
+        </text>
+        <text x={cx} y={cy + 16} textAnchor="middle" fill="var(--text-3)" fontSize="11">
+          次调用
+        </text>
+      </svg>
+      <div
+        style={{
+          flex: '1 1 200px',
+          minWidth: 180,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+        }}
+      >
+        {segments.map((s) => {
+          const pct = total > 0 ? (s.d.value / total) * 100 : 0;
+          return (
+            <div
+              key={s.i}
+              onMouseEnter={() => setHover(s.i)}
+              onMouseLeave={() => setHover(null)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 12,
+                opacity: hover == null || hover === s.i ? 1 : 0.5,
+              }}
+            >
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 3,
+                  background: s.color,
+                  flex: '0 0 auto',
+                }}
+              />
+              <span
+                className="mono"
+                style={{
+                  flex: 1,
+                  color: 'var(--text)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {s.d.label}
+              </span>
+              <span
+                className="mono"
+                style={{ color: 'var(--text-2)', fontVariantNumeric: 'tabular-nums' }}
+              >
+                {s.d.value.toLocaleString()}
+              </span>
+              <span
+                className="mono"
+                style={{
+                  color: 'var(--text-3)',
+                  width: 48,
+                  textAlign: 'right',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {pct.toFixed(1)}%
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

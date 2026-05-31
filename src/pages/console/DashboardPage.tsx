@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
+import { Modal } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { agentApi } from '@/features/agent/api';
 import { pluginApi } from '@/features/plugin/api';
 import { kbApi } from '@/features/knowledge/api';
 import { dashboardApi } from '@/features/dashboard/api';
-import { AreaChart, BarChart, Sparkline } from '@/components/atlas/Charts';
+import { AreaChart, BarChart, PieChart, Sparkline } from '@/components/atlas/Charts';
 import {
   PlusIcon,
   UploadIcon,
@@ -118,6 +119,8 @@ const RANGE_OPTIONS: { value: Range; label: string }[] = [
 export default function DashboardPage() {
   const navigate = useNavigate();
   const [range, setRange] = useState<Range>('30d');
+  // 「模型用量 Top」的「查看全部」弹窗：展示时间范围内全部模型的调用分布（饼图）。
+  const [modelsOpen, setModelsOpen] = useState(false);
   const days = range === '7d' ? 7 : range === '30d' ? 30 : 90;
 
   // 单一数据源 + 时间范围作为 query key：选择器即全局控制整个仪表盘。
@@ -162,6 +165,12 @@ export default function DashboardPage() {
   const topModels = data?.topModels ?? [];
   const maxModelCalls = Math.max(1, ...topModels.map((m) => m.calls));
   const recentCalls = data?.recentCalls ?? [];
+  // 饼图数据：优先用全量模型，回退到 topModels；按调用次数分布。
+  const modelPie = (data?.allModels ?? topModels).map((m) => ({
+    label: m.model,
+    value: m.calls,
+  }));
+  const modelPieTotal = modelPie.reduce((s, d) => s + d.value, 0);
 
   const todayLabel = (() => {
     const d = new Date();
@@ -390,7 +399,7 @@ export default function DashboardPage() {
             <button
               type="button"
               className="atlas-btn ghost sm"
-              onClick={() => navigate('/console/agents')}
+              onClick={() => setModelsOpen(true)}
             >
               查看全部 <ArrowRightIcon size={12} className="icon" />
             </button>
@@ -454,8 +463,8 @@ export default function DashboardPage() {
         <div className="atlas-card">
           <div className="atlas-card-head">
             <div>
-              <div className="h">最近调用</div>
-              <div className="sub">当前工作区</div>
+              <div className="h">最近使用</div>
+              <div className="sub">当前工作区 · 按 Agent</div>
             </div>
           </div>
           <div>
@@ -472,8 +481,8 @@ export default function DashboardPage() {
                       ●
                     </span>
                     <div style={{ minWidth: 0 }}>
-                      <span className="who mono" style={{ fontSize: 12 }}>
-                        {c.model}
+                      <span className="who" style={{ fontSize: 12 }}>
+                        {c.agentName ?? '未知 Agent'}
                       </span>{' '}
                       <span className="what">
                         {c.totalTokens.toLocaleString()} tokens
@@ -490,6 +499,28 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* 模型用量「查看全部」：时间范围内全部模型的调用分布饼图 */}
+      <Modal
+        open={modelsOpen}
+        onCancel={() => setModelsOpen(false)}
+        footer={null}
+        width={560}
+        title={`模型用量分布（近 ${rangeText} 天）`}
+      >
+        {modelPie.length === 0 ? (
+          <div style={{ padding: 24, color: 'var(--text-3)', fontSize: 13 }}>
+            {loading ? '加载中…' : '该时间范围内暂无模型调用记录'}
+          </div>
+        ) : (
+          <div style={{ padding: '8px 4px 4px' }}>
+            <PieChart data={modelPie} />
+            <div style={{ marginTop: 16, fontSize: 12, color: 'var(--text-3)' }} className="mono">
+              共 {modelPieTotal.toLocaleString()} 次调用 · {modelPie.length} 个模型
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Quick actions */}
       <div className="atlas-card pad">
