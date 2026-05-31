@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE: ghcr.io/spider615/jm-agent-front
+  IMAGE: ghcr.io/jimeng-ai/jm-agent-front
   CONTAINER: jm-agent-front
   PORT: 10012
 
