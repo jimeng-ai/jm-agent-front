@@ -1,30 +1,29 @@
 import { Form, Input, Select, Tabs, Button, Space, Tag, Typography, AutoComplete } from 'antd';
 import { PlusOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { useMemo } from 'react';
-import { nanoid } from 'nanoid';
 import type { HttpMethod } from '@/api/types';
-import type { FieldDef, FieldType } from '@/features/plugin/utils/schema';
+import type { FieldDef } from '@/features/plugin/utils/schema';
 import {
   type HttpForm,
   type HeaderRow,
-  type OutputField,
   buildPreview,
   BODY_TYPE_OPTIONS,
   COMMON_HEADER_KEYS,
   COMMON_HEADER_VALUES,
   COMMON_HEADER_PRESETS,
 } from '@/features/plugin/utils/mapping';
-import JsonPathPreview from './JsonPathPreview';
+import OutputParamsEditor from './OutputParamsEditor';
 
 interface Props {
   value: HttpForm;
   onChange: (v: HttpForm) => void;
   /** 入参字段（含位置），用于 Query/Body 派生与请求预览 */
   fields: FieldDef[];
+  /** 插件基础信息里的 Base URL，工具只写路径时用它补全域名 */
+  baseUrl?: string;
 }
 
 const METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
-const OUTPUT_TYPES: FieldType[] = ['string', 'number', 'boolean', 'object', 'array'];
 
 const PH = /\{\{\s*([a-zA-Z_]\w*)\s*\}\}/g;
 function shortVars(tpl: string): string[] {
@@ -39,7 +38,7 @@ const codeBox: React.CSSProperties = {
   fontFamily: 'Menlo, monospace',
 };
 
-export default function HttpMappingForm({ value: v, onChange, fields }: Props) {
+export default function HttpMappingForm({ value: v, onChange, fields, baseUrl }: Props) {
   const update = (patch: Partial<HttpForm>) => onChange({ ...v, ...patch });
 
   const inputNames = useMemo(() => fields.map((f) => f.name).filter(Boolean), [fields]);
@@ -47,7 +46,10 @@ export default function HttpMappingForm({ value: v, onChange, fields }: Props) {
   const bodyFields = fields.filter((f) => f.name && f.location === 'body');
   const noBody = v.method === 'GET' || v.method === 'DELETE';
 
-  const preview = buildPreview(fields, v);
+  const preview = buildPreview(fields, v, baseUrl);
+  // 只写了相对路径却没配 baseUrl → 运行时无域名会失败，提示一下
+  const urlIsAbsolute = /^https?:\/\//i.test((v.urlTemplate || '').trim());
+  const missingBaseUrl = !!v.urlTemplate && !urlIsAbsolute && !(baseUrl ?? '').trim();
 
   // 未声明变量校验（仅 URL + header 值里手写的 {{x}}；query/body 自动拼装无需手写）
   const usedVars = [
@@ -63,15 +65,14 @@ export default function HttpMappingForm({ value: v, onChange, fields }: Props) {
   const removeHeader = (idx: number) =>
     update({ headers: v.headers.filter((_, i) => i !== idx) });
 
-  const setOutput = (idx: number, patch: Partial<OutputField>) =>
-    update({ outputs: v.outputs.map((o, i) => (i === idx ? { ...o, ...patch } : o)) });
-  const addOutput = () =>
-    update({ outputs: [...v.outputs, { id: nanoid(), name: '', path: '', type: 'string' }] });
-  const removeOutput = (idx: number) =>
-    update({ outputs: v.outputs.filter((_, i) => i !== idx) });
-
   return (
     <Form layout="vertical">
+      <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
+        <InfoCircleOutlined /> 这里配置工具被调用时实际发出的 HTTP 请求。<b>只需填接口路径</b>（如{' '}
+        <code>/simpleWeather/query</code>），域名取自「基础信息」里的 Base URL。上方「入参字段」会按各自的
+        传入方法自动拼进来：<b>query_param</b> 拼成 <code>?a=..&amp;b=..</code>、<b>body_param</b>{' '}
+        拼进请求体、<b>path_param</b> 替换路径里的 <code>{'{{变量}}'}</code>。
+      </Typography.Paragraph>
       <Space.Compact style={{ width: '100%' }}>
         <Select<HttpMethod>
           value={v.method}
@@ -82,9 +83,16 @@ export default function HttpMappingForm({ value: v, onChange, fields }: Props) {
         <Input
           value={v.urlTemplate}
           onChange={(e) => update({ urlTemplate: e.target.value })}
-          placeholder="基础 URL，如 https://api.x.com/weather/{{id}}（只写路径，?参数自动生成）"
+          placeholder="接口路径，如 /simpleWeather/query（域名取自基础信息 Base URL；也可填完整 URL）"
         />
       </Space.Compact>
+      {missingBaseUrl && (
+        <div style={{ marginTop: 4 }}>
+          <Typography.Text type="warning">
+            <InfoCircleOutlined /> 基础信息里未配置 Base URL，请去「基础信息」填写域名，或在此填完整 URL。
+          </Typography.Text>
+        </div>
+      )}
 
       {pathFields.length > 0 && (
         <div style={{ marginTop: 8 }}>
@@ -210,50 +218,12 @@ export default function HttpMappingForm({ value: v, onChange, fields }: Props) {
           },
           {
             key: 'extract',
-            label: '响应抽取',
+            label: '输出参数',
             children: (
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  <InfoCircleOutlined /> 配置要返回给 Agent
-                  的字段：输出字段名 + 从响应取值的 JSONPath。不配置则返回完整响应。
-                </Typography.Text>
-                {v.outputs.map((o, idx) => (
-                  <Space.Compact key={o.id} style={{ width: '100%' }}>
-                    <Input
-                      style={{ width: 150 }}
-                      placeholder="输出字段名"
-                      value={o.name}
-                      onChange={(e) => setOutput(idx, { name: e.target.value })}
-                    />
-                    <Input
-                      style={{ width: '100%' }}
-                      placeholder="来源路径，如 $.result.realtime.temperature"
-                      value={o.path}
-                      onChange={(e) => setOutput(idx, { path: e.target.value })}
-                    />
-                    <Select<FieldType>
-                      style={{ width: 110 }}
-                      value={o.type}
-                      onChange={(t) => setOutput(idx, { type: t })}
-                      options={OUTPUT_TYPES.map((t) => ({ label: t, value: t }))}
-                    />
-                    <Input
-                      style={{ width: 150 }}
-                      placeholder="说明(可选)"
-                      value={o.description}
-                      onChange={(e) => setOutput(idx, { description: e.target.value })}
-                    />
-                    <Button icon={<DeleteOutlined />} onClick={() => removeOutput(idx)} />
-                  </Space.Compact>
-                ))}
-                <Button icon={<PlusOutlined />} onClick={addOutput} block type="dashed">
-                  添加输出字段
-                </Button>
-                <Typography.Text type="secondary" style={{ fontSize: 12, marginTop: 8 }}>
-                  调试 JSONPath（粘贴样例响应试取值，不影响配置）
-                </Typography.Text>
-                <JsonPathPreview />
-              </Space>
+              <OutputParamsEditor
+                value={v.outputs}
+                onChange={(outputs) => update({ outputs })}
+              />
             ),
           },
         ]}

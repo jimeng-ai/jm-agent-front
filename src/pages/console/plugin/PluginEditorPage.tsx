@@ -271,6 +271,7 @@ export default function PluginEditorPage() {
         open={toolDrawerOpen}
         pluginId={id}
         tool={editingTool}
+        baseUrl={plugin.baseUrl}
         onClose={() => setToolDrawerOpen(false)}
         onSaved={() => qc.invalidateQueries({ queryKey: ['plugin', id, 'tools'] })}
       />

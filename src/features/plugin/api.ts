@@ -183,9 +183,21 @@ export interface TestPayload {
 }
 
 export interface TestResult {
-  request?: unknown;
-  response?: unknown;
+  request?: {
+    method?: string;
+    url?: string;
+    headers?: Record<string, string>;
+    body?: string;
+  };
+  /** 渲染后的等价 curl 命令 */
+  curl?: string;
+  /** 第三方返回的 HTTP 状态码 */
+  status?: number;
+  /** 原始响应体 */
+  response?: string;
+  /** 按「输出参数」抽取后的结果（或错误对象） */
   extracted?: unknown;
+  /** 前端网络/接口层错误 */
   error?: string;
 }
 

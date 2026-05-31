@@ -22,6 +22,8 @@ interface Props {
   open: boolean;
   pluginId: string;
   tool?: PluginTool;
+  /** 插件基础信息的 Base URL，传给 HTTP 映射做路径补全与预览 */
+  baseUrl?: string;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -32,7 +34,7 @@ interface ToolFormValues {
   enabled: boolean;
 }
 
-export default function ToolDrawer({ open, pluginId, tool, onClose, onSaved }: Props) {
+export default function ToolDrawer({ open, pluginId, tool, baseUrl, onClose, onSaved }: Props) {
   const { message } = App.useApp();
   const [form] = Form.useForm<ToolFormValues>();
   const [fields, setFields] = useState<FieldDef[]>([]);
@@ -122,17 +124,15 @@ export default function ToolDrawer({ open, pluginId, tool, onClose, onSaved }: P
           <Switch />
         </Form.Item>
 
-        <Divider>入参字段</Divider>
+        <Divider>配置输入参数</Divider>
         <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-          逐个配置工具的输入字段（LLM 调用时填入），并指定每个参数的位置：Path / Query / Body
+          声明工具的输入字段（LLM 调用时填入），并用「传入方法」指定每个参数拼到 query /
+          body / path。填了「默认值」的参数视为固定值，不暴露给 LLM（适合 API Key）。
         </Typography.Text>
         <InputSchemaEditor value={fields} onChange={setFields} />
 
         <Divider>HTTP 映射</Divider>
-        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-          配置工具实际调用的 HTTP 端点；Query/Body 参数按上方位置自动拼装
-        </Typography.Text>
-        <HttpMappingForm value={httpForm} onChange={setHttpForm} fields={fields} />
+        <HttpMappingForm value={httpForm} onChange={setHttpForm} fields={fields} baseUrl={baseUrl} />
       </Form>
     </Drawer>
   );

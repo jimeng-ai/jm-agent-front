@@ -13,11 +13,27 @@ export interface FieldDef {
   required?: boolean;
   /** 该入参放到 URL 路径 / Query / Body，仅顶层字段使用，默认 query */
   location?: ParamLocation;
+  /**
+   * 固定值/默认值（仅顶层字段）。填写后该参数视为「固定值」：
+   * 不进入给 LLM 的 inputSchema、调用时直接以该值拼进请求（适合 API Key 等）。
+   */
+  defaultValue?: string;
   enumValues?: string[];
   fields?: FieldDef[];
   itemType?: Exclude<FieldType, 'array'>;
   itemFields?: FieldDef[];
   itemEnumValues?: string[];
+}
+
+/** 固定参数随 inputSchema 持久化的结构（不进入 properties，故不暴露给 LLM） */
+export interface FixedParamWire {
+  name: string;
+  type: FieldType;
+  location: ParamLocation;
+  value: string;
+  description?: string;
+  /** 顶层字段中的原始序号，用于回填时还原顺序 */
+  order: number;
 }
 
 type JsonSchema = {
@@ -27,7 +43,14 @@ type JsonSchema = {
   required?: string[];
   enum?: unknown[];
   items?: JsonSchema;
+  /** 厂商扩展：固定参数列表，LLM 会忽略未知字段 */
+  'x-fixed-params'?: FixedParamWire[];
 };
+
+/** 是否为「固定值」字段（填了默认值即固定值） */
+export function isFixedField(f: FieldDef): boolean {
+  return !!f.defaultValue && f.defaultValue.trim() !== '';
+}
 
 export function newField(partial?: Partial<FieldDef>): FieldDef {
   return {
@@ -86,12 +109,26 @@ function fieldToSchema(field: FieldDef): JsonSchema {
 
 export function fieldsToJsonSchema(fields: FieldDef[]): Record<string, unknown> {
   const root: JsonSchema = { type: 'object', properties: {}, required: [] };
-  fields.forEach((f) => {
+  const fixed: FixedParamWire[] = [];
+  fields.forEach((f, idx) => {
     if (!f.name) return;
+    // 固定值字段不进 properties（即不暴露给 LLM），单独存入 x-fixed-params 以便回填
+    if (isFixedField(f)) {
+      fixed.push({
+        name: f.name,
+        type: f.type,
+        location: f.location ?? 'query',
+        value: f.defaultValue!.trim(),
+        description: f.description?.trim() || undefined,
+        order: idx,
+      });
+      return;
+    }
     root.properties![f.name] = fieldToSchema(f);
     if (f.required) root.required!.push(f.name);
   });
   if (root.required!.length === 0) delete root.required;
+  if (fixed.length > 0) root['x-fixed-params'] = fixed;
   return root as Record<string, unknown>;
 }
 
@@ -153,10 +190,41 @@ function schemaToField(name: string, schema: JsonSchema, required: boolean): Fie
   }
 }
 
+function fixedToField(fw: FixedParamWire): FieldDef {
+  return {
+    id: nanoid(),
+    name: fw.name ?? '',
+    type: (fw.type as FieldType) ?? 'string',
+    required: false,
+    description: fw.description,
+    location: (fw.location as ParamLocation) ?? 'query',
+    defaultValue: fw.value ?? '',
+  };
+}
+
 export function jsonSchemaToFields(schema: Record<string, unknown> | undefined): FieldDef[] {
   if (!schema || typeof schema !== 'object') return [];
   const s = schema as JsonSchema;
-  if (s.type !== 'object' || !s.properties) return [];
+
+  // 普通字段（来自 properties，保持插入顺序）
   const req = new Set(s.required ?? []);
-  return Object.entries(s.properties).map(([k, v]) => schemaToField(k, v, req.has(k)));
+  const normal: FieldDef[] =
+    s.properties && typeof s.properties === 'object'
+      ? Object.entries(s.properties).map(([k, v]) => schemaToField(k, v, req.has(k)))
+      : [];
+
+  // 固定字段（来自 x-fixed-params），按 order 插回原始位置以保持顺序稳定
+  const fixedWire = Array.isArray(s['x-fixed-params']) ? s['x-fixed-params'] : [];
+  const fixed = fixedWire
+    .map((fw) => ({
+      order: typeof fw.order === 'number' ? fw.order : Number.MAX_SAFE_INTEGER,
+      field: fixedToField(fw),
+    }))
+    .sort((a, b) => a.order - b.order);
+
+  const result = [...normal];
+  fixed.forEach(({ order, field }) => {
+    result.splice(Math.min(order, result.length), 0, field);
+  });
+  return result;
 }

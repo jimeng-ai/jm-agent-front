@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid';
-import type { FieldDef, FieldType, ParamLocation } from './schema';
+import { isFixedField, type FieldDef, type FieldType, type ParamLocation } from './schema';
 import type { HttpMethod, PluginHttpMapping } from '@/api/types';
 
 /**
@@ -14,9 +14,9 @@ import type { HttpMethod, PluginHttpMapping } from '@/api/types';
  */
 
 export const LOCATION_OPTIONS: { label: string; value: ParamLocation }[] = [
-  { label: 'Query 参数', value: 'query' },
-  { label: 'Body 参数', value: 'body' },
-  { label: 'Path 路径', value: 'path' },
+  { label: 'query_param', value: 'query' },
+  { label: 'body_param', value: 'body' },
+  { label: 'path_param', value: 'path' },
 ];
 
 export const DEFAULT_BODY_MIME = 'application/json';
@@ -64,9 +64,24 @@ export const COMMON_HEADER_PRESETS: { label: string; row: HeaderRow }[] = [
 export interface OutputField {
   id: string;
   name: string;
-  path: string; // JSONPath，如 $.result.realtime.temperature
+  /** 来源 JSONPath 覆盖（仅顶层有意义）；留空则默认取 $.<name> */
+  path: string;
   type: FieldType;
   description?: string;
+  /** 仅作元信息：该字段是否一定出现在响应里 */
+  required?: boolean;
+  /** type=object 的子参数（仅描述返回对象的结构，后端按整段对象返回） */
+  fields?: OutputField[];
+  /** type=array 的元素类型 */
+  itemType?: Exclude<FieldType, 'array'>;
+  /** 元素为 object 时的子参数 */
+  itemFields?: OutputField[];
+}
+
+/** 输出字段最终生效的来源路径：自定义优先，否则按字段名取顶层 $.<name> */
+export function outputPath(o: OutputField): string {
+  const p = o.path?.trim();
+  return p || `$.${o.name.trim()}`;
 }
 
 export interface HeaderRow {
@@ -89,16 +104,44 @@ export function emptyHttpForm(): HttpForm {
 
 const SHORT_PH = /\{\{\s*([a-zA-Z_]\w*)\s*\}\}/g; // {{name}}（无命名空间）
 
-/** 短名占位 → 后端命名空间占位：{{city}} → {{input.city}}（仅对已声明入参生效） */
-export function toBackendTemplate(tpl: string, inputNames: Set<string>): string {
+/**
+ * 把模板里的短名占位 {{name}} 逐个交给 replace() 决定替换成什么：
+ * - 普通入参 → {{input.name}}（后端运行时再填值）
+ * - 固定值入参 → 直接替换成字面量
+ * - 未声明（如 {{secrets.x}} 含点不匹配）→ 原样保留
+ */
+export function applyTemplateVars(
+  tpl: string,
+  replace: (name: string) => string | undefined,
+): string {
   if (!tpl) return tpl;
-  return tpl.replace(SHORT_PH, (m, n) => (inputNames.has(n) ? `{{input.${n}}}` : m));
+  return tpl.replace(SHORT_PH, (m, n) => replace(n) ?? m);
 }
 
 /** 反向：{{input.city}} → {{city}}，便于在表单里展示 */
 export function toDisplayTemplate(tpl: string): string {
   if (!tpl) return tpl;
   return tpl.replace(/\{\{\s*input\.([a-zA-Z_]\w*)\s*\}\}/g, (_m, n) => `{{${n}}}`);
+}
+
+/** 固定值按类型转成 JS 值（用于 JSON body 时区分数字/布尔/字符串） */
+function coerceLiteral(value: string, type: FieldType): unknown {
+  const v = (value ?? '').trim();
+  if (type === 'number') {
+    const n = Number(v);
+    return v !== '' && Number.isFinite(n) ? n : v;
+  }
+  if (type === 'boolean') {
+    if (v === 'true') return true;
+    if (v === 'false') return false;
+    return v;
+  }
+  return v;
+}
+
+/** 固定值用于 query / path / form 的字符串形态（非 JSON，统一取原始字符串） */
+function fixedAsString(f: FieldDef): string {
+  return String(coerceLiteral(f.defaultValue ?? '', f.type));
 }
 
 function inputNamesFromTemplate(tpl: string): string[] {
@@ -113,17 +156,66 @@ function needsJsonQuote(t: FieldType): boolean {
   return t === 'string' || t === 'enum';
 }
 
+interface OutputWire {
+  name?: string;
+  path?: string;
+  type?: string;
+  desc?: string;
+  required?: boolean;
+  fields?: OutputWire[];
+  itemType?: string;
+  itemFields?: OutputWire[];
+}
+
+function serializeOne(o: OutputField, topLevel: boolean): OutputWire {
+  const w: OutputWire = { name: o.name.trim(), type: o.type };
+  if (topLevel) w.path = outputPath(o); // 顶层才有来源路径；子字段在返回对象内部
+  if (o.description?.trim()) w.desc = o.description.trim();
+  if (o.required) w.required = true;
+  if (o.type === 'object') {
+    w.fields = (o.fields ?? []).filter((c) => c.name.trim()).map((c) => serializeOne(c, false));
+  }
+  if (o.type === 'array') {
+    w.itemType = o.itemType ?? 'string';
+    if (o.itemType === 'object') {
+      w.itemFields = (o.itemFields ?? [])
+        .filter((c) => c.name.trim())
+        .map((c) => serializeOne(c, false));
+    }
+  }
+  return w;
+}
+
 export function serializeOutputs(outputs: OutputField[]): string | undefined {
-  const valid = outputs.filter((o) => o.name.trim() && o.path.trim());
+  const valid = outputs.filter((o) => o.name.trim());
   if (valid.length === 0) return undefined;
-  return JSON.stringify(
-    valid.map((o) => ({
-      name: o.name.trim(),
-      path: o.path.trim(),
-      type: o.type,
-      desc: o.description?.trim() || undefined,
-    })),
-  );
+  return JSON.stringify(valid.map((o) => serializeOne(o, true)));
+}
+
+function parseOne(w: OutputWire, topLevel: boolean): OutputField {
+  const name = w.name ?? '';
+  const type = (w.type as FieldType) ?? 'string';
+  const rawPath = (w.path ?? '').trim();
+  // 与默认 $.<name> 相同的视为「未自定义」，路径框留空更清爽
+  const path = topLevel && rawPath !== `$.${name}` ? rawPath : '';
+  const o: OutputField = {
+    id: nanoid(),
+    name,
+    path,
+    type,
+    description: w.desc,
+    required: !!w.required,
+  };
+  if (type === 'object') {
+    o.fields = Array.isArray(w.fields) ? w.fields.map((c) => parseOne(c, false)) : [];
+  }
+  if (type === 'array') {
+    o.itemType = (w.itemType as Exclude<FieldType, 'array'>) ?? 'string';
+    if (o.itemType === 'object') {
+      o.itemFields = Array.isArray(w.itemFields) ? w.itemFields.map((c) => parseOne(c, false)) : [];
+    }
+  }
+  return o;
 }
 
 export function parseOutputs(raw?: string): OutputField[] {
@@ -131,15 +223,9 @@ export function parseOutputs(raw?: string): OutputField[] {
   const s = raw.trim();
   if (!s.startsWith('[')) return []; // 旧版单条 JSONPath，无既有数据，忽略
   try {
-    const arr = JSON.parse(s) as Array<{ name?: string; path?: string; type?: string; desc?: string }>;
+    const arr = JSON.parse(s) as OutputWire[];
     if (!Array.isArray(arr)) return [];
-    return arr.map((o) => ({
-      id: nanoid(),
-      name: o.name ?? '',
-      path: o.path ?? '',
-      type: (o.type as FieldType) ?? 'string',
-      description: o.desc,
-    }));
+    return arr.map((w) => parseOne(w, true));
   } catch {
     return [];
   }
@@ -147,15 +233,23 @@ export function parseOutputs(raw?: string): OutputField[] {
 
 /** 由「入参字段(含位置) + 表单」组装出后端可用的 mapping 模型 */
 export function buildMapping(fields: FieldDef[], form: HttpForm): PluginHttpMapping {
-  const inputNames = new Set(fields.map((f) => f.name).filter(Boolean));
+  const declared = fields.filter((f) => f.name);
   const noBody = form.method === 'GET' || form.method === 'DELETE';
 
-  const queryFields = fields.filter((f) => f.name && (f.location ?? 'query') === 'query');
-  const bodyFields = fields.filter((f) => f.name && f.location === 'body');
+  // url / header 里的 {{name}}：固定值 → 字面量；普通入参 → {{input.name}}
+  const byName = new Map(declared.map((f) => [f.name, f] as const));
+  const replaceVar = (n: string): string | undefined => {
+    const f = byName.get(n);
+    if (!f) return undefined; // 未声明（如 secrets/env）保留原样
+    return isFixedField(f) ? fixedAsString(f) : `{{input.${n}}}`;
+  };
+
+  const queryFields = declared.filter((f) => (f.location ?? 'query') === 'query');
+  const bodyFields = declared.filter((f) => f.location === 'body');
 
   const queryTemplate: Record<string, string> = {};
   queryFields.forEach((f) => {
-    queryTemplate[f.name] = `{{input.${f.name}}}`;
+    queryTemplate[f.name] = isFixedField(f) ? fixedAsString(f) : `{{input.${f.name}}}`;
   });
 
   let bodyTemplate: string | undefined;
@@ -167,14 +261,22 @@ export function buildMapping(fields: FieldDef[], form: HttpForm): PluginHttpMapp
         '{' +
         bodyFields
           .map((f) => {
+            const key = JSON.stringify(f.name);
+            if (isFixedField(f)) {
+              return `${key}: ${JSON.stringify(coerceLiteral(f.defaultValue ?? '', f.type))}`;
+            }
             const ph = `{{input.${f.name}}}`;
-            return `${JSON.stringify(f.name)}: ${needsJsonQuote(f.type) ? `"${ph}"` : ph}`;
+            return `${key}: ${needsJsonQuote(f.type) ? `"${ph}"` : ph}`;
           })
           .join(', ') +
         '}';
     } else {
       bodyTemplate = bodyFields
-        .map((f) => `${encodeURIComponent(f.name)}={{input.${f.name}}}`)
+        .map((f) =>
+          isFixedField(f)
+            ? `${encodeURIComponent(f.name)}=${encodeURIComponent(fixedAsString(f))}`
+            : `${encodeURIComponent(f.name)}={{input.${f.name}}}`,
+        )
         .join('&');
     }
   }
@@ -182,12 +284,12 @@ export function buildMapping(fields: FieldDef[], form: HttpForm): PluginHttpMapp
   const headersTemplate: Record<string, string> = {};
   form.headers.forEach((h) => {
     const key = h.key.trim();
-    if (key) headersTemplate[key] = toBackendTemplate(h.value, inputNames);
+    if (key) headersTemplate[key] = applyTemplateVars(h.value, replaceVar);
   });
 
   return {
     method: form.method,
-    urlTemplate: toBackendTemplate(form.urlTemplate, inputNames),
+    urlTemplate: applyTemplateVars(form.urlTemplate, replaceVar),
     headersTemplate,
     queryTemplate,
     bodyTemplate: noBody ? undefined : bodyTemplate,
@@ -229,22 +331,53 @@ export function disassembleMapping(m?: PluginHttpMapping): Disassembled {
   return { form, locations };
 }
 
-/** 把推断出的位置回填到入参字段上（顶层字段） */
+/**
+ * 把推断出的位置回填到入参字段上（顶层字段）。
+ * 字段自带 location（来自 x-fixed-params 的固定字段）优先，其次按 mapping 推断，最后默认 query。
+ */
 export function applyLocations(
   fields: FieldDef[],
   locations: Record<string, ParamLocation>,
 ): FieldDef[] {
   return fields.map((f) => ({
     ...f,
-    location: locations[f.name] ?? f.location ?? 'query',
+    location: f.location ?? locations[f.name] ?? 'query',
   }));
 }
 
+/**
+ * 拼接最终 URL（与后端 PluginHttpInvoker.resolveUrl 一致）：
+ * urlTemplate 是绝对地址则原样；否则视为路径，前缀插件 baseUrl。
+ */
+export function resolveUrl(baseUrl: string | undefined, url: string): string {
+  const u = (url ?? '').trim();
+  if (/^https?:\/\//i.test(u)) return u;
+  let base = (baseUrl ?? '').trim();
+  if (!base) return u;
+  if (base.endsWith('/')) base = base.slice(0, -1);
+  if (!u) return base;
+  return base + (u.startsWith('/') ? u : '/' + u);
+}
+
 /** 生成「请求预览」文本，供表单实时展示，提升可读性 */
-export function buildPreview(fields: FieldDef[], form: HttpForm): { line: string; body?: string } {
-  const queryFields = fields.filter((f) => f.name && (f.location ?? 'query') === 'query');
-  const url = form.urlTemplate || '(未填写 URL)';
-  const qs = queryFields.map((f) => `${f.name}={{${f.name}}}`).join('&');
+export function buildPreview(
+  fields: FieldDef[],
+  form: HttpForm,
+  baseUrl?: string,
+): { line: string; body?: string } {
+  const declared = fields.filter((f) => f.name);
+  const queryFields = declared.filter((f) => (f.location ?? 'query') === 'query');
+  // path 固定值在预览里替换成字面量，便于直观确认
+  const pathOnly = (form.urlTemplate || '').replace(SHORT_PH, (m, n) => {
+    const f = declared.find((x) => x.name === n);
+    return f && isFixedField(f) ? fixedAsString(f) : m;
+  });
+  const url = form.urlTemplate ? resolveUrl(baseUrl, pathOnly) : '(未填写 URL)';
+  const qs = queryFields
+    .map((f) =>
+      isFixedField(f) ? `${f.name}=${encodeURIComponent(fixedAsString(f))}` : `${f.name}={{${f.name}}}`,
+    )
+    .join('&');
   const line = `${form.method} ${url}${qs ? (url.includes('?') ? '&' : '?') + qs : ''}`;
   const mapping = buildMapping(fields, form);
   return { line, body: mapping.bodyTemplate };
