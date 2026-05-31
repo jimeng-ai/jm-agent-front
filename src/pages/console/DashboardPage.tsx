@@ -213,24 +213,6 @@ export default function DashboardPage() {
         <div className="dash-range">
           <Segments<Range> value={range} onChange={setRange} options={RANGE_OPTIONS} />
         </div>
-        <div className="actions">
-          <button
-            type="button"
-            className="atlas-btn"
-            onClick={() => navigate('/console/knowledge')}
-          >
-            <UploadIcon size={14} className="icon" />
-            导入文档
-          </button>
-          <button
-            type="button"
-            className="atlas-btn primary"
-            onClick={() => navigate('/console/agents')}
-          >
-            <PlusIcon size={14} className="icon" />
-            新建 Agent
-          </button>
-        </div>
       </div>
 
       {/* KPI row */}
