@@ -86,7 +86,9 @@ export default function ChatPanel({
         const last = prev[prev.length - 1];
         if (!last || last.role !== 'assistant') return prev;
         return prev.map((m) =>
-          m.id === last.id ? { ...m, content: sse.text, citations: sse.citations } : m,
+          m.id === last.id
+            ? { ...m, content: sse.text, citations: sse.citations, segments: sse.segments }
+            : m,
         );
       });
     }
@@ -101,7 +103,7 @@ export default function ChatPanel({
         );
       });
     }
-  }, [sse.status, sse.text, sse.citations, sse.error]);
+  }, [sse.status, sse.text, sse.citations, sse.segments, sse.error]);
 
   const regenerate = () => {
     const lastUser = [...messages].reverse().find((m) => m.role === 'user');

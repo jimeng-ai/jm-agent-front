@@ -11,9 +11,28 @@ export interface AnswerStreamPayload {
   history?: ChatMessageHistoryItem[];
 }
 
+export interface ToolCallProgress {
+  id: string;
+  name: string;
+  desc?: string;
+  input?: unknown;
+  status?: string;
+}
+
+export interface ToolResultItem {
+  id: string;
+  name: string;
+  status: 'success' | 'error';
+  output?: unknown;
+}
+
 export interface AnswerStreamHandlers {
   onCitations?: (cites: ChatCitation[]) => void;
   onDelta?: (text: string) => void;
+  /** 模型即将调用工具（SSE progress 事件） */
+  onToolCall?: (calls: ToolCallProgress[]) => void;
+  /** 工具执行完成（SSE tool_result 事件） */
+  onToolResult?: (results: ToolResultItem[]) => void;
   onError?: (err: Error) => void;
   onDone?: () => void;
 }
@@ -55,6 +74,22 @@ export function streamAnswer(
           if (text) handlers.onDelta?.(text);
         } catch {
           handlers.onDelta?.(data);
+        }
+      } else if (event === 'progress') {
+        // 工具调用前置事件：{round, tools:[...], calls:[{id,name,desc,input,status:"running"}]}
+        try {
+          const parsed = JSON.parse(data) as { calls?: ToolCallProgress[] };
+          if (parsed.calls?.length) handlers.onToolCall?.(parsed.calls);
+        } catch {
+          /* ignore */
+        }
+      } else if (event === 'tool_result') {
+        // 工具执行结果：{round, results:[{id,name,status,output}]}
+        try {
+          const parsed = JSON.parse(data) as { results?: ToolResultItem[] };
+          if (parsed.results?.length) handlers.onToolResult?.(parsed.results);
+        } catch {
+          /* ignore */
         }
       } else if (event === 'error') {
         try {
