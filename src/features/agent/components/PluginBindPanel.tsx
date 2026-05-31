@@ -50,7 +50,8 @@ export default function PluginBindPanel({ agentId }: Props) {
     title: p.name,
     description: p.description || p.code,
   }));
-  const targetKeys = (boundQuery.data ?? []).map((p) => p.id);
+  // 后端返回的是绑定关系行(AgentPlugin)，要取其中的 pluginId 才能和左侧插件 id 对上
+  const targetKeys = (boundQuery.data ?? []).map((b) => String(b.pluginId));
 
   return (
     <>
