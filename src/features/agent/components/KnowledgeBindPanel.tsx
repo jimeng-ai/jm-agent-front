@@ -1,10 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
-import { Form, InputNumber, Select, Slider, Spin } from 'antd';
+import { Form, InputNumber, Select, Slider, Spin, Switch } from 'antd';
 import { kbApi } from '@/features/knowledge/api';
 
+export interface KbBindingValue {
+  kbIds?: string[];
+  topK?: number;
+  scoreThreshold?: number;
+  rerank?: boolean;
+}
+
 interface Props {
-  value?: { kbIds?: string[]; topK?: number; scoreThreshold?: number };
-  onChange?: (v: { kbIds?: string[]; topK?: number; scoreThreshold?: number }) => void;
+  value?: KbBindingValue;
+  onChange?: (v: KbBindingValue) => void;
 }
 
 export default function KnowledgeBindPanel({ value, onChange }: Props) {
@@ -37,7 +44,10 @@ export default function KnowledgeBindPanel({ value, onChange }: Props) {
           onChange={(v) => update({ topK: v ?? 5 })}
         />
       </Form.Item>
-      <Form.Item label={`相似度阈值 ${value?.scoreThreshold ?? 0.5}`}>
+      <Form.Item
+        label={`相似度阈值 ${value?.scoreThreshold ?? 0.5}`}
+        extra="低于该相关度（rerank 精排分，0~1）的片段会被过滤，全部低于则提示未找到。仅在开启 rerank 时生效；阈值偏高可能过滤过多，建议结合检索测试调试。"
+      >
         <Slider
           min={0}
           max={1}
@@ -45,6 +55,12 @@ export default function KnowledgeBindPanel({ value, onChange }: Props) {
           value={value?.scoreThreshold ?? 0.5}
           onChange={(v) => update({ scoreThreshold: v })}
         />
+      </Form.Item>
+      <Form.Item
+        label="Rerank 精排"
+        extra="开启后对召回结果做重排序，结果更相关但更慢；关闭则按混合检索（BM25+向量）融合分排序。"
+      >
+        <Switch checked={value?.rerank ?? true} onChange={(v) => update({ rerank: v })} />
       </Form.Item>
     </Form>
   );

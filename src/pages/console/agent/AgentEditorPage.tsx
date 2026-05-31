@@ -31,6 +31,7 @@ interface KbBinding {
   kbIds?: string[];
   topK?: number;
   scoreThreshold?: number;
+  rerank?: boolean;
 }
 
 /** 后端 JSON 字段（model_params / kb_config）以字符串返回，这里统一解析成对象。 */
@@ -54,7 +55,7 @@ export default function AgentEditorPage() {
   const { message } = App.useApp();
   const qc = useQueryClient();
   const [form] = Form.useForm();
-  const [kbBinding, setKbBinding] = useState<KbBinding>({ topK: 5, scoreThreshold: 0.5 });
+  const [kbBinding, setKbBinding] = useState<KbBinding>({ topK: 5, scoreThreshold: 0.5, rerank: true });
 
   const agentQuery = useQuery({
     queryKey: ['agent', 'detail', id],
@@ -70,6 +71,7 @@ export default function AgentEditorPage() {
         kbIds: Array.isArray(kb.kbIds) ? (kb.kbIds as string[]).map(String) : undefined,
         topK: typeof kb.topK === 'number' ? kb.topK : 5,
         scoreThreshold: typeof kb.scoreThreshold === 'number' ? kb.scoreThreshold : 0.5,
+        rerank: typeof kb.rerank === 'boolean' ? kb.rerank : true,
       });
     }
   }, [agentQuery.data]);
@@ -152,6 +154,7 @@ export default function AgentEditorPage() {
               kbIds: kbBinding.kbIds ?? [],
               topK: kbBinding.topK ?? 5,
               scoreThreshold: kbBinding.scoreThreshold ?? 0.5,
+              rerank: kbBinding.rerank ?? true,
             }),
           };
           saveMut.mutate(payload);

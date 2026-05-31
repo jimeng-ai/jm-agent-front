@@ -1,4 +1,4 @@
-import { Avatar, Space, Tag, Tooltip, Button } from 'antd';
+import { Avatar, Button } from 'antd';
 import {
   CopyOutlined,
   RobotOutlined,
@@ -10,11 +10,16 @@ import {
 import { App } from 'antd';
 import dayjs from 'dayjs';
 import Markdown from '@/components/Markdown';
+import CitationReferences from './CitationReferences';
 import type { ChatMessage, ToolCallView } from '@/features/chat-admin/types';
 
 interface Props {
   message: ChatMessage;
-  onCitationClick?: (index: number) => void;
+}
+
+/** 去掉模型可能残留的引用标记（如 [chunk_id=123_0]）。新链路已禁止输出，这里兜底旧消息/越界情况。 */
+function stripRefMarkers(text: string): string {
+  return text.replace(/\s*\[chunk_id=[^\]]*\]/g, '');
 }
 
 /** 消息时间：当天只显示时分秒，跨天补上日期 */
@@ -78,7 +83,7 @@ function ToolCallPill({ tc }: { tc: ToolCallView }) {
   );
 }
 
-export default function MessageBubble({ message, onCitationClick }: Props) {
+export default function MessageBubble({ message }: Props) {
   const { message: toast } = App.useApp();
   const isUser = message.role === 'user';
 
@@ -109,37 +114,22 @@ export default function MessageBubble({ message, onCitationClick }: Props) {
             const isLast = i === message.segments!.length - 1;
             return (
               <div key={`s${i}`} className="chat-bubble-assistant" style={{ marginBottom: 8 }}>
-                <Markdown content={seg.text} cursor={isLast && message.status === 'streaming'} />
+                <Markdown
+                  content={stripRefMarkers(seg.text)}
+                  cursor={isLast && message.status === 'streaming'}
+                />
               </div>
             );
           })
         ) : (
           <div className="chat-bubble-assistant">
             <Markdown
-              content={message.content || (message.status === 'streaming' ? '…' : '')}
+              content={stripRefMarkers(message.content) || (message.status === 'streaming' ? '…' : '')}
               cursor={message.status === 'streaming'}
             />
           </div>
         )}
-        {!isUser && message.citations && message.citations.length > 0 && (
-          <Space size={[4, 4]} wrap style={{ marginTop: 6 }}>
-            {message.citations.map((c) => (
-              <Tooltip
-                key={c.index}
-                title={
-                  <div style={{ maxWidth: 360 }}>
-                    <div style={{ fontWeight: 600 }}>{c.docTitle ?? '引用片段'}</div>
-                    <div style={{ fontSize: 12, marginTop: 4 }}>{c.content}</div>
-                  </div>
-                }
-              >
-                <Tag color="blue" style={{ cursor: 'pointer' }} onClick={() => onCitationClick?.(c.index)}>
-                  [{c.index}] {c.docTitle ?? '片段'}
-                </Tag>
-              </Tooltip>
-            ))}
-          </Space>
-        )}
+        {!isUser && <CitationReferences citations={message.citations} />}
         {!isUser && message.status === 'done' && message.content && (
           <div style={{ marginTop: 4 }}>
             <Button
@@ -147,7 +137,7 @@ export default function MessageBubble({ message, onCitationClick }: Props) {
               size="small"
               icon={<CopyOutlined />}
               onClick={() => {
-                navigator.clipboard.writeText(message.content);
+                navigator.clipboard.writeText(stripRefMarkers(message.content));
                 toast.success('已复制');
               }}
             >

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Drawer, Input, Space, Tag, Typography } from 'antd';
+import { Button, Input, Space, Tag, Typography } from 'antd';
 import { SendOutlined, StopOutlined, ReloadOutlined } from '@ant-design/icons';
 import MessageBubble from './MessageBubble';
 import { useSSE } from '@/features/chat-admin/hooks/useSSE';
@@ -42,7 +42,6 @@ export default function ChatPanel({
 }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>(() => initialMessages ?? []);
   const [input, setInput] = useState('');
-  const [citationOpen, setCitationOpen] = useState<ChatCitation | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sse = useSSE();
 
@@ -141,16 +140,7 @@ export default function ChatPanel({
             </Typography.Text>
           </div>
         ) : (
-          messages.map((m) => (
-            <MessageBubble
-              key={m.id}
-              message={m}
-              onCitationClick={(idx) => {
-                const c = m.citations?.find((x) => x.index === idx);
-                if (c) setCitationOpen(c);
-              }}
-            />
-          ))
+          messages.map((m) => <MessageBubble key={m.id} message={m} />)
         )}
       </div>
 
@@ -192,20 +182,6 @@ export default function ChatPanel({
           </Button>
         </Space.Compact>
       </div>
-
-      <Drawer
-        open={!!citationOpen}
-        onClose={() => setCitationOpen(null)}
-        title={citationOpen ? `引用 [${citationOpen.index}]` : ''}
-        width={480}
-      >
-        {citationOpen && (
-          <div>
-            <Typography.Title level={5}>{citationOpen.docTitle ?? '未知文档'}</Typography.Title>
-            <Typography.Paragraph>{citationOpen.content}</Typography.Paragraph>
-          </div>
-        )}
-      </Drawer>
     </div>
   );
 }

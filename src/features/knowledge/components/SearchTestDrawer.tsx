@@ -67,7 +67,12 @@ export default function SearchTestDrawer({ kbId, open, onClose }: Props) {
               <Space direction="vertical" style={{ width: '100%' }}>
                 <Space>
                   <Tag color="blue">#{idx + 1}</Tag>
-                  <Tag>score: {h.score?.toFixed(3)}</Tag>
+                  <Tag>
+                    score:{' '}
+                    {h.score != null && Number.isFinite(Number(h.score))
+                      ? Number(h.score).toFixed(3)
+                      : '—'}
+                  </Tag>
                   {h.docTitle && <Typography.Text type="secondary">{h.docTitle}</Typography.Text>}
                 </Space>
                 <Typography.Paragraph style={{ marginBottom: 0 }}>{h.content}</Typography.Paragraph>

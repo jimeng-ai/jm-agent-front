@@ -79,7 +79,7 @@ export interface Agent extends BaseEntity {
         maxTokens?: number;
       }
     | string;
-  /** 知识库绑定配置 JSON 字符串：{kbIds, topK, scoreThreshold} */
+  /** 知识库绑定配置 JSON 字符串：{kbIds, topK, scoreThreshold, rerank} */
   kbConfig?: string;
   status: EntityStatus;
 }
@@ -174,6 +174,10 @@ export interface ChatCitation {
   chunkId: string;
   content: string;
   docTitle?: string;
+  headingPath?: string;
+  pageNum?: number;
+  /** 统一相关度分（精排分优先，否则 RRF 分）。后端 Hutool 序列化为数字，旧消息可能缺省 */
+  score?: number | string;
 }
 
 export interface ChatMessageHistoryItem {
