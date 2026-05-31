@@ -8,12 +8,27 @@ import {
   CloseCircleOutlined,
 } from '@ant-design/icons';
 import { App } from 'antd';
+import dayjs from 'dayjs';
 import Markdown from '@/components/Markdown';
 import type { ChatMessage, ToolCallView } from '@/features/chat-admin/types';
 
 interface Props {
   message: ChatMessage;
   onCitationClick?: (index: number) => void;
+}
+
+/** 消息时间：当天只显示时分秒，跨天补上日期 */
+function formatClock(ts: number): string {
+  const d = dayjs(ts);
+  return d.isSame(dayjs(), 'day') ? d.format('HH:mm:ss') : d.format('YYYY-MM-DD HH:mm');
+}
+
+/** 总耗时：毫秒 → 人类可读。先取整秒再拆分，避免分钟边界出现「X 分 60 秒」。 */
+function formatElapsed(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)} 毫秒`;
+  const total = Math.round(ms / 1000);
+  if (total < 60) return `${(ms / 1000).toFixed(1)} 秒`;
+  return `${Math.floor(total / 60)} 分 ${total % 60} 秒`;
 }
 
 function formatToolInput(input: unknown): string {
@@ -143,6 +158,21 @@ export default function MessageBubble({ message, onCitationClick }: Props) {
         {message.status === 'error' && message.errorMessage && (
           <div style={{ color: '#ff4d4f', fontSize: 12, marginTop: 4 }}>
             错误：{message.errorMessage}
+          </div>
+        )}
+        {message.status !== 'streaming' && (
+          <div
+            style={{
+              marginTop: 4,
+              fontSize: 11,
+              color: '#bfbfbf',
+              textAlign: isUser ? 'right' : 'left',
+            }}
+          >
+            {formatClock(message.createdAt)}
+            {!isUser && message.elapsedMs != null && (
+              <span> · 总耗时 {formatElapsed(message.elapsedMs)}</span>
+            )}
           </div>
         )}
       </div>

@@ -8,7 +8,17 @@ interface State {
   text: string;
   citations: ChatCitation[];
   segments: MessageSegment[];
+  /** 本轮回答总耗时（毫秒），done 后有值 */
+  elapsedMs?: number;
   error?: string;
+}
+
+/** done 回调携带的最终结果（用于落库 / 更新消息） */
+export interface SseDoneResult {
+  text: string;
+  citations: ChatCitation[];
+  segments: MessageSegment[];
+  elapsedMs: number;
 }
 
 export function useSSE() {
@@ -22,6 +32,7 @@ export function useSSE() {
   const textBufferRef = useRef('');
   const segmentsRef = useRef<MessageSegment[]>([]);
   const rafRef = useRef<number | null>(null);
+  const startedAtRef = useRef(0);
 
   // 把文本增量追加到「当前文本片段」；若上一片段是工具调用，则开启新文本片段（实现交错顺序）
   const appendText = useCallback((delta: string) => {
@@ -59,13 +70,14 @@ export function useSSE() {
   const start = useCallback(
     async (
       payload: AnswerStreamPayload,
-      onDoneFinalText?: (text: string, citations: ChatCitation[]) => void,
+      onDoneFinalText?: (result: SseDoneResult) => void,
     ) => {
       abortRef.current?.abort();
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       textBufferRef.current = '';
       segmentsRef.current = [];
+      startedAtRef.current = performance.now();
       setState({ status: 'streaming', text: '', citations: [], segments: [] });
 
       let citations: ChatCitation[] = [];
@@ -123,13 +135,23 @@ export function useSSE() {
               rafRef.current = null;
             }
             const finalText = textBufferRef.current;
+            // 流已结束：任何仍处于 running 的工具段都不会再有结果（正常完成会收到
+            // tool_result；中断/卸载 abort 或后端漏发则停在 running）。规整为 error，
+            // 否则落库后刷新会看到一个永远转圈的工具。
+            const finalSegments: MessageSegment[] = segmentsRef.current.map((s) =>
+              s.type === 'tool' && s.call.status === 'running'
+                ? { type: 'tool', call: { ...s.call, status: 'error' as const } }
+                : s,
+            );
+            const elapsedMs = Math.round(performance.now() - startedAtRef.current);
             setState({
               status: 'done',
               text: finalText,
               citations,
-              segments: [...segmentsRef.current],
+              segments: finalSegments,
+              elapsedMs,
             });
-            onDoneFinalText?.(finalText, citations);
+            onDoneFinalText?.({ text: finalText, citations, segments: finalSegments, elapsedMs });
           },
         },
         ctrl.signal,

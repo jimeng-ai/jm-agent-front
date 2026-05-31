@@ -1,5 +1,6 @@
 import { del, get, post, put } from '@/api/client';
 import type { ChatCitation } from '@/api/types';
+import type { MessageSegment } from '@/features/chat-admin/types';
 
 /**
  * 对话会话 / 消息持久化接口（落库到 data-service 的 chat_conversation / chat_message）。
@@ -22,6 +23,10 @@ export interface MessageView {
   role: 'user' | 'assistant';
   content: string;
   citations?: ChatCitation[] | null;
+  /** 有序片段（含工具调用过程），可空 */
+  segments?: MessageSegment[] | null;
+  /** 助手生成总耗时（毫秒），可空。后端 Long 经全局 JacksonConfig 序列化为字符串，故含 string */
+  elapsedMs?: number | string | null;
   createTime: string | null;
 }
 
@@ -34,6 +39,10 @@ export interface AppendMessagePayload {
   role: 'user' | 'assistant';
   content: string;
   citations?: ChatCitation[];
+  /** 有序片段（含工具调用过程）；仅含工具调用的助手消息才需要传 */
+  segments?: MessageSegment[];
+  /** 助手生成总耗时（毫秒） */
+  elapsedMs?: number;
 }
 
 export const conversationApi = {

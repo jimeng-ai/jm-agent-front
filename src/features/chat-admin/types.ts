@@ -26,8 +26,10 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   citations?: ChatCitation[];
-  /** 流式期间的有序片段；历史消息只有 content（无 segments）时回退渲染 content */
+  /** 有序片段（叙述 → 工具 → 答案）；含工具调用时落库，刷新后据此还原过程。无 segments 时回退渲染 content */
   segments?: MessageSegment[];
+  /** 本轮助手回答总耗时（毫秒）；仅 assistant 消息有值 */
+  elapsedMs?: number;
   status?: ChatStatus;
   errorMessage?: string;
   createdAt: number;

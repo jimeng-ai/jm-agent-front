@@ -3,8 +3,16 @@ import { Button, Drawer, Input, Space, Tag, Typography } from 'antd';
 import { SendOutlined, StopOutlined, ReloadOutlined } from '@ant-design/icons';
 import MessageBubble from './MessageBubble';
 import { useSSE } from '@/features/chat-admin/hooks/useSSE';
-import { newMessage, type ChatMessage } from '@/features/chat-admin/types';
+import { newMessage, type ChatMessage, type MessageSegment } from '@/features/chat-admin/types';
 import type { ChatCitation, ChatMessageHistoryItem } from '@/api/types';
+
+/** 助手回复完成时回传的元信息（用于持久化）。 */
+export interface AssistantMessageMeta {
+  citations?: ChatCitation[];
+  /** 仅含工具调用的回复才有，用于刷新后还原过程 */
+  segments?: MessageSegment[];
+  elapsedMs?: number;
+}
 
 interface Props {
   agentId?: string;
@@ -18,7 +26,7 @@ interface Props {
   /** 每次用户发送消息时回调（用于持久化用户消息）。 */
   onSubmit?: (text: string) => void;
   /** assistant 回复完成时回调（用于持久化助手消息）。 */
-  onAssistantMessage?: (text: string, citations?: ChatCitation[]) => void;
+  onAssistantMessage?: (text: string, meta: AssistantMessageMeta) => void;
 }
 
 export default function ChatPanel({
@@ -67,15 +75,18 @@ export default function ChatPanel({
         rerank,
         history,
       },
-      (finalText, citations) => {
+      ({ text: finalText, citations, segments, elapsedMs }) => {
+        // 仅含工具调用的回复才落库 segments；纯文本回复刷新后回退渲染 content 即可。
+        const hasTool = segments.some((s) => s.type === 'tool');
+        const persistedSegments = hasTool ? segments : undefined;
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsg.id
-              ? { ...m, content: finalText, citations, status: 'done' }
+              ? { ...m, content: finalText, citations, segments, elapsedMs, status: 'done' }
               : m,
           ),
         );
-        onAssistantMessage?.(finalText, citations);
+        onAssistantMessage?.(finalText, { citations, segments: persistedSegments, elapsedMs });
       },
     );
   };

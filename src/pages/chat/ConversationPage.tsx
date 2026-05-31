@@ -4,10 +4,9 @@ import { Avatar, Empty, Spin, Typography, message } from 'antd';
 import { RobotOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
 import { agentApi } from '@/features/agent/api';
-import ChatPanel from '@/features/chat-admin/components/ChatPanel';
+import ChatPanel, { type AssistantMessageMeta } from '@/features/chat-admin/components/ChatPanel';
 import { conversationApi, type MessageView } from '@/features/chat-admin/conversationApi';
 import type { ChatMessage } from '@/features/chat-admin/types';
-import type { ChatCitation } from '@/api/types';
 
 function toChatMessage(m: MessageView): ChatMessage {
   return {
@@ -15,6 +14,10 @@ function toChatMessage(m: MessageView): ChatMessage {
     role: m.role,
     content: m.content,
     citations: m.citations ?? undefined,
+    // 含工具调用的历史消息：还原「叙述 → 工具 → 答案」交错过程
+    segments: m.segments ?? undefined,
+    // 后端 Long 经全局 JacksonConfig 序列化为字符串，这里转回 number 以符合 ChatMessage 契约
+    elapsedMs: m.elapsedMs == null ? undefined : Number(m.elapsedMs),
     status: 'done',
     createdAt: m.createTime ? new Date(m.createTime).getTime() : Date.now(),
   };
@@ -77,10 +80,16 @@ export default function ConversationPage() {
     }
   };
 
-  const handleAssistantMessage = async (text: string, citations?: ChatCitation[]) => {
+  const handleAssistantMessage = async (text: string, meta: AssistantMessageMeta) => {
     try {
       const id = convIdRef.current ?? (await ensureConversation(text));
-      await conversationApi.appendMessage(id, { role: 'assistant', content: text, citations });
+      await conversationApi.appendMessage(id, {
+        role: 'assistant',
+        content: text,
+        citations: meta.citations,
+        segments: meta.segments,
+        elapsedMs: meta.elapsedMs,
+      });
       refreshList();
     } catch {
       /* 助手消息保存失败不打断对话；用户消息已落库 */
