@@ -2,9 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { App, Button, Input, Space, Tag, Typography, Upload, type UploadProps } from 'antd';
 import { SendOutlined, StopOutlined, ReloadOutlined, PaperClipOutlined } from '@ant-design/icons';
 import MessageBubble from './MessageBubble';
+import AttachmentThumb from './AttachmentThumb';
 import { useSSE } from '@/features/chat-admin/hooks/useSSE';
-import { newMessage, type ChatMessage, type MessageSegment } from '@/features/chat-admin/types';
-import { uploadAgentFile, type AgentFileView } from '@/api/agentFiles';
+import {
+  newMessage,
+  type ChatAttachment,
+  type ChatMessage,
+  type MessageSegment,
+} from '@/features/chat-admin/types';
+import { uploadAgentFile } from '@/api/agentFiles';
 import type { ChatCitation, ChatMessageHistoryItem } from '@/api/types';
 
 /** 助手回复完成时回传的元信息（用于持久化）。 */
@@ -24,8 +30,8 @@ interface Props {
   placeholder?: string;
   /** 初始消息（用于恢复已落库的会话历史）。 */
   initialMessages?: ChatMessage[];
-  /** 每次用户发送消息时回调（用于持久化用户消息）。 */
-  onSubmit?: (text: string) => void;
+  /** 每次用户发送消息时回调（用于持久化用户消息 + 其附件）。 */
+  onSubmit?: (text: string, attachments?: ChatAttachment[]) => void;
   /** assistant 回复完成时回调（用于持久化助手消息）。 */
   onAssistantMessage?: (text: string, meta: AssistantMessageMeta) => void;
 }
@@ -44,7 +50,7 @@ export default function ChatPanel({
   const { message: toast } = App.useApp();
   const [messages, setMessages] = useState<ChatMessage[]>(() => initialMessages ?? []);
   const [input, setInput] = useState('');
-  const [attached, setAttached] = useState<AgentFileView[]>([]);
+  const [attached, setAttached] = useState<ChatAttachment[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sse = useSSE();
 
@@ -67,8 +73,10 @@ export default function ChatPanel({
     const fileIds = attached.map((a) => String(a.fileId));
     const mode: 'rag' | 'exec' = fileIds.length > 0 ? 'exec' : 'rag';
 
-    onSubmit?.(queryText);
     const userMsg = newMessage('user', queryText);
+    // 把附件挂到用户消息上，便于气泡里显示缩略图/可预览（会话内有效）
+    if (attached.length > 0) userMsg.attachments = attached;
+    onSubmit?.(queryText, userMsg.attachments);
     const assistantMsg = newMessage('assistant', '');
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
     setInput('');
@@ -134,11 +142,18 @@ export default function ChatPanel({
   const isStreaming = sse.status === 'streaming';
 
   const uploadFile: UploadProps['customRequest'] = async (options) => {
+    const file = options.file as File;
+    // 本地预览 URL（会话内有效）：图片放大、文档新标签预览都用它
+    const localUrl = URL.createObjectURL(file);
     try {
-      const res = await uploadAgentFile(options.file as File);
-      setAttached((prev) => [...prev, res]);
+      const res = await uploadAgentFile(file);
+      setAttached((prev) => [
+        ...prev,
+        { fileId: res.fileId, filename: res.filename, contentType: res.contentType ?? file.type, url: localUrl },
+      ]);
       options.onSuccess?.(res);
     } catch (e) {
+      URL.revokeObjectURL(localUrl);
       options.onError?.(e as Error);
       toast.error(`文件上传失败：${(e as Error).message}`);
     }
@@ -156,18 +171,9 @@ export default function ChatPanel({
         ) : (
           messages.map((m) => <MessageBubble key={m.id} message={m} />)
         )}
-        {isStreaming && sse.files.length > 0 && (
-          <div style={{ fontSize: 12, color: '#8c8c8c', padding: '0 8px 8px' }}>
-            {sse.files.map((f) => (
-              <span key={f.filename} style={{ marginRight: 12 }}>
-                📎 {f.filename} · {f.phase === 'ready' ? '已就绪' : f.phase === 'pulling' ? '准备中…' : f.phase}
-              </span>
-            ))}
-          </div>
-        )}
       </div>
 
-      <div style={{ borderTop: '1px solid #f0f0f0', padding: 12, background: '#fff' }}>
+      <div style={{ padding: '8px 0 14px', background: '#fff' }}>
         {!simple && messages.length > 0 && (
           <Space style={{ marginBottom: 8 }}>
             {isStreaming ? (
@@ -184,28 +190,25 @@ export default function ChatPanel({
           </Space>
         )}
         {attached.length > 0 && (
-          <div style={{ marginBottom: 8 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 10, padding: '0 2px' }}>
             {attached.map((a, i) => (
-              <Tag
-                key={`${a.fileId}`}
-                closable
-                onClose={() => setAttached((prev) => prev.filter((_, j) => j !== i))}
-                style={{ marginBottom: 4 }}
-              >
-                📎 {a.filename}
-              </Tag>
+              <AttachmentThumb
+                key={`${a.fileId}-${i}`}
+                item={a}
+                onRemove={() => setAttached((prev) => prev.filter((_, j) => j !== i))}
+              />
             ))}
           </div>
         )}
-        <Space.Compact style={{ width: '100%' }}>
-          <Upload customRequest={uploadFile} showUploadList={false} multiple disabled={isStreaming}>
-            <Button icon={<PaperClipOutlined />} disabled={isStreaming} title="上传文件交给 Agent 处理" />
-          </Upload>
+        {/* 卡片式输入：文本框在上，底部一行只放「上传文件」和「发送」两个按钮 */}
+        <div className="chat-input-box">
           <Input.TextArea
+            variant="borderless"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="输入消息，Enter 发送，Shift+Enter 换行"
-            autoSize={{ minRows: 1, maxRows: 6 }}
+            autoSize={{ minRows: 1, maxRows: 8 }}
+            style={{ padding: 0, fontSize: 14, resize: 'none' }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -213,15 +216,29 @@ export default function ChatPanel({
               }
             }}
           />
-          <Button
-            type="primary"
-            icon={<SendOutlined />}
-            onClick={() => input.trim() && !isStreaming && submit(input.trim())}
-            disabled={!input.trim() || isStreaming}
-          >
-            发送
-          </Button>
-        </Space.Compact>
+          <div style={{ display: 'flex', alignItems: 'center', marginTop: 8 }}>
+            <Upload customRequest={uploadFile} showUploadList={false} multiple disabled={isStreaming}>
+              <Button
+                type="text"
+                icon={<PaperClipOutlined />}
+                disabled={isStreaming}
+                title="上传文件交给 Agent 处理"
+              />
+            </Upload>
+            <div style={{ flex: 1 }} />
+            <Button
+              type="primary"
+              icon={<SendOutlined />}
+              onClick={() => input.trim() && !isStreaming && submit(input.trim())}
+              disabled={!input.trim() || isStreaming}
+            >
+              发送
+            </Button>
+          </div>
+        </div>
+        <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-3)', marginTop: 8 }}>
+          Agent 可能调用工具或检索知识库，回答可能不准确，重要决策请二次确认
+        </div>
       </div>
     </div>
   );

@@ -186,7 +186,11 @@ a {
 .atlas-app {
   display: grid;
   grid-template-columns: var(--layout-sidebar-w) 1fr;
+  /* 行锁定到视口高度（minmax 的 0 下限允许子项收缩，使内部 overflow 区域生效）。
+     不写则隐式行是 auto，长内容会把网格撑过 100vh → 整页滚动、底部被挤出视口。 */
+  grid-template-rows: minmax(0, 1fr);
   height: 100vh;
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -378,6 +382,8 @@ a {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -813,7 +819,10 @@ a {
 .chat-app {
   display: grid;
   grid-template-columns: var(--layout-sidebar-w) 264px 1fr;
+  /* 同 .atlas-app：行锁视口高度，否则长会话内容撑爆 100vh → 整页滚动、输入框/账号信息被挤出。 */
+  grid-template-rows: minmax(0, 1fr);
   height: 100vh;
+  overflow: hidden;
   background: var(--bg);
 }
 @media (max-width: 1100px) {
@@ -942,6 +951,7 @@ a {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   background: var(--bg);
   overflow: hidden;
 }
@@ -1132,9 +1142,49 @@ a {
 .chat-conversation-body {
   flex: 1;
   min-height: 0;
-  max-width: 900px;
   width: 100%;
+  /* 居中 + 限宽：两侧留对称留白，消息与输入框共用同一列宽（max-width 可按口味调） */
+  max-width: 860px;
   align-self: center;
+  /* 让 ChatPanel(height:100%) 的内部 flex 滚动链有确定父高度 */
+  display: flex;
+  flex-direction: column;
+}
+
+/* 输入框卡片：文本框在上、底部一行工具栏（上传 + 发送）；聚焦高亮 */
+.chat-input-box {
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  padding: 10px 12px;
+  background: #fff;
+  transition:
+    border-color 120ms,
+    box-shadow 120ms;
+}
+.chat-input-box:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+/* 文件预览弹窗里渲染的 HTML（xlsx → 表格、docx → 文档） */
+.file-preview-html {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.file-preview-html table {
+  border-collapse: collapse;
+  width: max-content;
+  max-width: 100%;
+}
+.file-preview-html td,
+.file-preview-html th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+.file-preview-html img {
+  max-width: 100%;
 }
 
 /* ==========================================================================

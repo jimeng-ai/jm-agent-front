@@ -1,6 +1,6 @@
 import { del, get, post, put } from '@/api/client';
 import type { ChatCitation } from '@/api/types';
-import type { MessageSegment } from '@/features/chat-admin/types';
+import type { ChatAttachment, MessageSegment } from '@/features/chat-admin/types';
 
 /**
  * 对话会话 / 消息持久化接口（落库到 data-service 的 chat_conversation / chat_message）。
@@ -25,6 +25,8 @@ export interface MessageView {
   citations?: ChatCitation[] | null;
   /** 有序片段（含工具调用过程），可空 */
   segments?: MessageSegment[] | null;
+  /** 用户消息附件（fileId/filename/contentType），可空 */
+  attachments?: ChatAttachment[] | null;
   /** 助手生成总耗时（毫秒），可空。后端 Long 经全局 JacksonConfig 序列化为字符串，故含 string */
   elapsedMs?: number | string | null;
   createTime: string | null;
@@ -41,6 +43,8 @@ export interface AppendMessagePayload {
   citations?: ChatCitation[];
   /** 有序片段（含工具调用过程）；仅含工具调用的助手消息才需要传 */
   segments?: MessageSegment[];
+  /** 用户消息附件（fileId/filename/contentType），刷新/历史会话据此还原缩略图与预览 */
+  attachments?: ChatAttachment[];
   /** 助手生成总耗时（毫秒） */
   elapsedMs?: number;
 }

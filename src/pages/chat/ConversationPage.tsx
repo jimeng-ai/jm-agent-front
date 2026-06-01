@@ -6,7 +6,7 @@ import { useParams } from 'react-router-dom';
 import { agentApi } from '@/features/agent/api';
 import ChatPanel, { type AssistantMessageMeta } from '@/features/chat-admin/components/ChatPanel';
 import { conversationApi, type MessageView } from '@/features/chat-admin/conversationApi';
-import type { ChatMessage } from '@/features/chat-admin/types';
+import type { ChatAttachment, ChatMessage } from '@/features/chat-admin/types';
 
 function toChatMessage(m: MessageView): ChatMessage {
   return {
@@ -16,6 +16,8 @@ function toChatMessage(m: MessageView): ChatMessage {
     citations: m.citations ?? undefined,
     // 含工具调用的历史消息：还原「叙述 → 工具 → 答案」交错过程
     segments: m.segments ?? undefined,
+    // 用户消息附件：刷新/历史会话据 fileId 还原缩略图与预览（url 为空时按 fileId 取流）
+    attachments: m.attachments ?? undefined,
     // 后端 Long 经全局 JacksonConfig 序列化为字符串，这里转回 number 以符合 ChatMessage 契约
     elapsedMs: m.elapsedMs == null ? undefined : Number(m.elapsedMs),
     status: 'done',
@@ -69,11 +71,17 @@ export default function ConversationPage() {
     return createPromiseRef.current;
   };
 
-  const handleUserMessage = async (text: string) => {
+  const handleUserMessage = async (text: string, attachments?: ChatAttachment[]) => {
     if (!agentId) return;
     try {
       const id = await ensureConversation(text);
-      await conversationApi.appendMessage(id, { role: 'user', content: text });
+      // 只持久化元信息（url 是会话内本地 object URL，刷新即失效；重进时按 fileId 取流）
+      const persisted = attachments?.map((a) => ({
+        fileId: a.fileId,
+        filename: a.filename,
+        contentType: a.contentType,
+      }));
+      await conversationApi.appendMessage(id, { role: 'user', content: text, attachments: persisted });
       refreshList();
     } catch (e) {
       message.error('消息未能保存：' + (e instanceof Error ? e.message : '未知错误'));

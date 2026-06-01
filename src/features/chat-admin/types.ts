@@ -33,6 +33,15 @@ export type MessageSegment =
   | { type: 'tool'; call: ToolCallView }
   | { type: 'artifact'; artifact: ArtifactRef };
 
+/** 用户消息携带的上传附件（缩略图/预览用）。url 为本地 object URL：会话内有效，
+ *  刷新后失效（要持久化预览需后端提供按 fileId 取输入文件的接口）。 */
+export interface ChatAttachment {
+  fileId: string | number;
+  filename: string;
+  contentType?: string;
+  url?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -40,6 +49,8 @@ export interface ChatMessage {
   citations?: ChatCitation[];
   /** 有序片段（叙述 → 工具 → 答案）；含工具调用时落库，刷新后据此还原过程。无 segments 时回退渲染 content */
   segments?: MessageSegment[];
+  /** 用户消息的上传附件（图片显示缩略图、文档显示文件块），会话内预览用 */
+  attachments?: ChatAttachment[];
   /** 本轮助手回答总耗时（毫秒）；仅 assistant 消息有值 */
   elapsedMs?: number;
   status?: ChatStatus;

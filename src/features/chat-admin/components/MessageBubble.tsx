@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Avatar, Button } from 'antd';
 import {
   CopyOutlined,
@@ -9,13 +9,23 @@ import {
   CloseCircleOutlined,
   DownloadOutlined,
   FileOutlined,
+  DownOutlined,
+  RightOutlined,
+  CodeOutlined,
 } from '@ant-design/icons';
 import { App } from 'antd';
 import dayjs from 'dayjs';
 import Markdown from '@/components/Markdown';
 import CitationReferences from './CitationReferences';
+import AttachmentThumb from './AttachmentThumb';
 import { downloadArtifact } from '@/api/agentFiles';
-import type { ArtifactRef, ChatMessage, ToolCallView } from '@/features/chat-admin/types';
+import type {
+  ArtifactRef,
+  ChatMessage,
+  ChatStatus,
+  MessageSegment,
+  ToolCallView,
+} from '@/features/chat-admin/types';
 
 interface Props {
   message: ChatMessage;
@@ -143,6 +153,104 @@ function ArtifactCard({ artifact }: { artifact: ArtifactRef }) {
   );
 }
 
+/** 思考计时器：用户发消息后、模型尚未输出内容时，实时显示已用秒数（每 100ms 走动）。 */
+function ThinkingTimer({ startedAt }: { startedAt: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 100);
+    return () => clearInterval(id);
+  }, []);
+  const sec = Math.max(0, (now - startedAt) / 1000);
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: '#8c8c8c' }}>
+      <LoadingOutlined spin />
+      思考中 {sec.toFixed(1)} 秒
+    </span>
+  );
+}
+
+/** 把连续的工具步骤聚成一个可折叠块：流式中默认展开（看实时进度），完成/历史默认收起。 */
+function ToolProcessGroup({ calls, defaultOpen }: { calls: ToolCallView[]; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(!!defaultOpen);
+  const running = calls.some((c) => c.status === 'running');
+  return (
+    <div
+      style={{
+        marginBottom: 8,
+        border: '1px solid #eee',
+        borderRadius: 8,
+        background: '#fafafa',
+        overflow: 'hidden',
+      }}
+    >
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          width: '100%',
+          padding: '6px 10px',
+          border: 'none',
+          background: 'transparent',
+          cursor: 'pointer',
+          fontSize: 12,
+          color: '#595959',
+          textAlign: 'left',
+        }}
+      >
+        {open ? <DownOutlined style={{ fontSize: 10 }} /> : <RightOutlined style={{ fontSize: 10 }} />}
+        <CodeOutlined />
+        <span>执行过程 · {calls.length} 步</span>
+        {running && <LoadingOutlined spin style={{ marginLeft: 4 }} />}
+        <span style={{ marginLeft: 'auto', color: '#bfbfbf' }}>{open ? '收起' : '展开'}</span>
+      </button>
+      {open && (
+        <div style={{ padding: '4px 10px 8px' }}>
+          {calls.map((tc) => (
+            <ToolCallPill key={tc.id} tc={tc} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 按真实顺序渲染助手片段：连续 tool 片段折叠成「执行过程」块，text/artifact 原样穿插。 */
+function renderSegments(segments: MessageSegment[], status?: ChatStatus): ReactNode[] {
+  const out: ReactNode[] = [];
+  let run: ToolCallView[] = [];
+  const flush = () => {
+    if (run.length) {
+      out.push(<ToolProcessGroup key={`tg-${run[0].id}`} calls={run} defaultOpen={status === 'streaming'} />);
+      run = [];
+    }
+  };
+  segments.forEach((seg, i) => {
+    if (seg.type === 'tool') {
+      run.push(seg.call);
+      return;
+    }
+    flush();
+    if (seg.type === 'artifact') {
+      out.push(
+        <div key={`a${i}`} style={{ marginBottom: 8 }}>
+          <ArtifactCard artifact={seg.artifact} />
+        </div>,
+      );
+    } else {
+      const isLast = i === segments.length - 1;
+      out.push(
+        <div key={`s${i}`} className="chat-bubble-assistant" style={{ marginBottom: 8 }}>
+          <Markdown content={stripRefMarkers(seg.text)} cursor={isLast && status === 'streaming'} />
+        </div>,
+      );
+    }
+  });
+  flush();
+  return out;
+}
+
 export default function MessageBubble({ message }: Props) {
   const { message: toast } = App.useApp();
   const isUser = message.role === 'user';
@@ -158,43 +266,46 @@ export default function MessageBubble({ message }: Props) {
       {!isUser && <Avatar icon={<RobotOutlined />} style={{ marginRight: 8 }} />}
       <div style={{ maxWidth: '80%' }}>
         {isUser ? (
-          <div className="chat-bubble-user">
-            <div style={{ whiteSpace: 'pre-wrap' }}>{message.content}</div>
-          </div>
-        ) : message.segments && message.segments.length > 0 ? (
-          // 有序片段：叙述文本 → 工具调用 → 答案，按真实发生顺序交错渲染
-          message.segments.map((seg, i) => {
-            if (seg.type === 'tool') {
-              return (
-                <div key={`t${i}`} style={{ marginBottom: 8 }}>
-                  <ToolCallPill tc={seg.call} />
-                </div>
-              );
-            }
-            if (seg.type === 'artifact') {
-              return (
-                <div key={`a${i}`} style={{ marginBottom: 8 }}>
-                  <ArtifactCard artifact={seg.artifact} />
-                </div>
-              );
-            }
-            const isLast = i === message.segments!.length - 1;
-            return (
-              <div key={`s${i}`} className="chat-bubble-assistant" style={{ marginBottom: 8 }}>
-                <Markdown
-                  content={stripRefMarkers(seg.text)}
-                  cursor={isLast && message.status === 'streaming'}
-                />
+          <>
+            {message.attachments && message.attachments.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                  justifyContent: 'flex-end',
+                  marginBottom: 6,
+                }}
+              >
+                {message.attachments.map((a, i) => (
+                  <AttachmentThumb key={`${a.fileId}-${i}`} item={a} />
+                ))}
               </div>
-            );
-          })
+            )}
+            {message.content && (
+              <div className="chat-bubble-user">
+                <div style={{ whiteSpace: 'pre-wrap' }}>{message.content}</div>
+              </div>
+            )}
+          </>
         ) : (
-          <div className="chat-bubble-assistant">
-            <Markdown
-              content={stripRefMarkers(message.content) || (message.status === 'streaming' ? '…' : '')}
-              cursor={message.status === 'streaming'}
-            />
-          </div>
+          <>
+            {message.segments && message.segments.length > 0 ? (
+              // 有序片段：叙述文本 → 「执行过程」折叠块 → 产物 → 答案，按真实发生顺序交错渲染
+              renderSegments(message.segments, message.status)
+            ) : message.content ? (
+              <div className="chat-bubble-assistant">
+                <Markdown content={stripRefMarkers(message.content)} cursor={message.status === 'streaming'} />
+              </div>
+            ) : null}
+            {/* 只要还在流式（初始思考 / 步骤之间 / 生成文字中），常驻一个走动的计时器，
+                让用户始终知道模型仍在运行。完成后由底部「总耗时」接管。 */}
+            {message.status === 'streaming' && (
+              <div style={{ marginTop: message.content || message.segments?.length ? 6 : 0 }}>
+                <ThinkingTimer startedAt={message.createdAt} />
+              </div>
+            )}
+          </>
         )}
         {!isUser && <CitationReferences citations={message.citations} />}
         {!isUser && message.status === 'done' && message.content && (
