@@ -23,7 +23,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { agentApi } from '@/features/agent/api';
-import { AVAILABLE_MODELS, DEFAULT_SYSTEM_PROMPT } from '@/features/agent/constants';
+import { AVAILABLE_MODELS, DEFAULT_MAX_TEMP, DEFAULT_SYSTEM_PROMPT } from '@/features/agent/constants';
 import PluginBindPanel from '@/features/agent/components/PluginBindPanel';
 import KnowledgeBindPanel from '@/features/agent/components/KnowledgeBindPanel';
 
@@ -56,6 +56,11 @@ export default function AgentEditorPage() {
   const qc = useQueryClient();
   const [form] = Form.useForm();
   const [kbBinding, setKbBinding] = useState<KbBinding>({ topK: 5, scoreThreshold: 0.5, rerank: true });
+
+  // Temperature 滑块上限随所选模型变化：Claude=1，GPT=2（见 AVAILABLE_MODELS.maxTemp）。
+  const selectedModel = Form.useWatch('model', form);
+  const maxTemp =
+    AVAILABLE_MODELS.find((m) => m.value === selectedModel)?.maxTemp ?? DEFAULT_MAX_TEMP;
 
   const agentQuery = useQuery({
     queryKey: ['agent', 'detail', id],
@@ -206,10 +211,21 @@ export default function AgentEditorPage() {
               children: (
                 <Card style={{ maxWidth: 560 }}>
                   <Form.Item label="模型" name="model" rules={[{ required: true }]}>
-                    <Select options={AVAILABLE_MODELS} />
+                    <Select
+                      options={AVAILABLE_MODELS}
+                      onChange={(val) => {
+                        // 切到上限更低的模型（如 GPT→Claude）时，把已超限的 temperature 夹回上限内。
+                        const nextMax =
+                          AVAILABLE_MODELS.find((m) => m.value === val)?.maxTemp ?? DEFAULT_MAX_TEMP;
+                        const cur = form.getFieldValue(['modelParams', 'temperature']);
+                        if (typeof cur === 'number' && cur > nextMax) {
+                          form.setFieldValue(['modelParams', 'temperature'], nextMax);
+                        }
+                      }}
+                    />
                   </Form.Item>
                   <Form.Item label="Temperature" name={['modelParams', 'temperature']}>
-                    <Slider min={0} max={2} step={0.05} />
+                    <Slider min={0} max={maxTemp} step={0.05} />
                   </Form.Item>
                   <Form.Item label="Top P" name={['modelParams', 'topP']}>
                     <Slider min={0} max={1} step={0.05} />
