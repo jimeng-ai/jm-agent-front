@@ -62,7 +62,7 @@ The chat-admin SSE event protocol (`src/features/chat-admin/api.ts` `streamAnswe
 
 ## Deploy / SSE-sensitive serving
 Built into an nginx image (`Dockerfile`). Two nginx configs, selected by `ARG NGINX_CONF`:
-- `nginx.deploy.conf` (default) — backend at `host.docker.internal:10011` (single-host / local Mac)
+- `nginx.deploy.conf` (default) — backend at the **production** gateway `host.docker.internal:20011` (single-host / local Mac; published 20011→container 10011, host 10011 left for the local IDE so the deployed front-end never hits your dev backend)
 - `nginx.conf` — backend at `data-service-gateway:8080` (docker-compose network)
 
 **SSE requires `proxy_buffering off` + `X-Accel-Buffering: no` + long `proxy_read_timeout`** in nginx, or streaming stalls. `client_max_body_size 100m` for document uploads. SPA fallback `try_files $uri /index.html`. Push to `main` auto-deploys via self-hosted runner (`.github/workflows/deploy.yml`).
