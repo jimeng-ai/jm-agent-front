@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Spin } from 'antd';
+import { App, Spin } from 'antd';
+import { CloseOutlined } from '@ant-design/icons';
 import {
   conversationApi,
   type ConversationView,
@@ -41,6 +42,7 @@ export default function ConversationsPanel() {
   const navigate = useNavigate();
   const { conversationId: activeId } = useParams();
   const queryClient = useQueryClient();
+  const { modal, message } = App.useApp();
   const [q, setQ] = useState('');
 
   const listQ = useQuery({
@@ -54,9 +56,22 @@ export default function ConversationsPanel() {
       await conversationApi.remove(id);
       queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
       if (id === activeId) navigate('/chat');
+      message.success('会话已删除');
     } catch {
-      /* ignore */
+      message.error('删除失败，请重试');
     }
+  };
+
+  // 删除前弹确认框；X 按钮与中键删除都走这里。
+  const confirmDelete = (s: ConversationView) => {
+    modal.confirm({
+      title: '删除会话',
+      content: `确定删除「${s.title}」吗？删除后不可恢复。`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: () => onDelete(s.id),
+    });
   };
 
   const groups = useMemo(() => {
@@ -112,26 +127,39 @@ export default function ConversationsPanel() {
             <div key={g.label} className="chat-conv-group">
               <div className="chat-conv-group-label">{g.label}</div>
               {g.items.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  className={'chat-conv-item' + (s.id === activeId ? ' active' : '')}
-                  onClick={() => navigate(`/chat/c/${s.id}`)}
-                  onAuxClick={(e) => {
-                    // 中键删除该会话
-                    if (e.button === 1) {
-                      e.preventDefault();
-                      onDelete(s.id);
-                    }
-                  }}
-                  title={s.title}
-                >
-                  <div className="chat-conv-item-title">{s.title}</div>
-                  <div className="chat-conv-item-meta">
-                    <span className="agent">{s.agentName}</span>
-                    <span className="time">{timeLabel(tsOf(s))}</span>
-                  </div>
-                </button>
+                <div key={s.id} className="chat-conv-item-wrap">
+                  <button
+                    type="button"
+                    className={'chat-conv-item' + (s.id === activeId ? ' active' : '')}
+                    onClick={() => navigate(`/chat/c/${s.id}`)}
+                    onAuxClick={(e) => {
+                      // 中键删除该会话（同样先弹确认框）
+                      if (e.button === 1) {
+                        e.preventDefault();
+                        confirmDelete(s);
+                      }
+                    }}
+                    title={s.title}
+                  >
+                    <div className="chat-conv-item-title">{s.title}</div>
+                    <div className="chat-conv-item-meta">
+                      <span className="agent">{s.agentName}</span>
+                      <span className="time">{timeLabel(tsOf(s))}</span>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    className="chat-conv-del"
+                    aria-label="删除会话"
+                    title="删除会话"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      confirmDelete(s);
+                    }}
+                  >
+                    <CloseOutlined />
+                  </button>
+                </div>
               ))}
             </div>
           ))
