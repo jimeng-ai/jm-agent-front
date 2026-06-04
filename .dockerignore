@@ -1,0 +1,10 @@
+# 不要把宿主的 node_modules/dist 带进构建上下文。
+# 否则 Dockerfile 的 `COPY . .` 会用宿主(darwin-arm64)的 node_modules 覆盖容器内
+# `npm install` 装好的 linux 原生包(esbuild/rollup),导致构建非确定性失败。
+node_modules
+dist
+dist-ssr
+.git
+*.log
+tsconfig.tsbuildinfo
+.DS_Store
