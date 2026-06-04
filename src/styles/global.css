@@ -5,11 +5,10 @@
 
 :root {
   --font-sans:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'Roboto',
-    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
-    'Helvetica Neue', Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', 'Cascadia Mono',
-    Menlo, Consolas, monospace;
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'Roboto', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-mono:
+    ui-monospace, 'SF Mono', 'JetBrains Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
   --font-display: var(--font-sans);
 
   --slate-50: #f8fafc;
@@ -919,7 +918,10 @@ a {
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 120ms, background 120ms, color 120ms;
+  transition:
+    opacity 120ms,
+    background 120ms,
+    color 120ms;
 }
 .chat-conv-item-wrap:hover .chat-conv-del {
   opacity: 1;
@@ -1262,6 +1264,57 @@ a {
   padding-left: 12px;
   color: #666;
   margin: 0.6em 0;
+}
+
+/* ==========================================================================
+   人设 Prompt 左右分栏：左编辑、右 Markdown 实时预览
+   ========================================================================== */
+.prompt-split {
+  display: flex;
+  gap: 16px;
+  align-items: stretch; /* 两列等高 */
+}
+/* 左右两列等宽；min-width/min-height:0 让内部 textarea、长文能正常滚动而非撑破 flex 列 */
+.prompt-split__col {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.prompt-split__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  margin-bottom: 8px;
+}
+/* textarea 撑满该列剩余高度并内部滚动（不用 autoSize，靠 flex 定高） */
+.prompt-split__textarea.ant-input {
+  flex: 1 1 auto;
+  min-height: 0;
+  resize: none;
+}
+.prompt-split__hint {
+  margin-top: 6px;
+  font-size: 12px;
+}
+.prompt-split__preview {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  background: #fafafa;
+  padding: 12px 16px;
+}
+@media (max-width: 900px) {
+  .prompt-split {
+    flex-direction: column;
+  }
+  .prompt-split__col {
+    height: 50%;
+  }
 }
 
 .chat-bubble-user {

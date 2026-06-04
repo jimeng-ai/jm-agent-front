@@ -23,9 +23,14 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { agentApi } from '@/features/agent/api';
-import { AVAILABLE_MODELS, DEFAULT_MAX_TEMP, DEFAULT_SYSTEM_PROMPT } from '@/features/agent/constants';
+import {
+  AVAILABLE_MODELS,
+  DEFAULT_MAX_TEMP,
+  DEFAULT_SYSTEM_PROMPT,
+} from '@/features/agent/constants';
 import PluginBindPanel from '@/features/agent/components/PluginBindPanel';
 import KnowledgeBindPanel from '@/features/agent/components/KnowledgeBindPanel';
+import PromptSplitEditor from '@/features/agent/components/PromptSplitEditor';
 
 interface KbBinding {
   kbIds?: string[];
@@ -55,7 +60,11 @@ export default function AgentEditorPage() {
   const { message } = App.useApp();
   const qc = useQueryClient();
   const [form] = Form.useForm();
-  const [kbBinding, setKbBinding] = useState<KbBinding>({ topK: 5, scoreThreshold: 0.5, rerank: true });
+  const [kbBinding, setKbBinding] = useState<KbBinding>({
+    topK: 5,
+    scoreThreshold: 0.5,
+    rerank: true,
+  });
 
   // Temperature 滑块上限随所选模型变化：Claude=1，GPT=2（见 AVAILABLE_MODELS.maxTemp）。
   const selectedModel = Form.useWatch('model', form);
@@ -192,15 +201,8 @@ export default function AgentEditorPage() {
               label: '人设 Prompt',
               children: (
                 <Card>
-                  <Form.Item
-                    label="System Prompt"
-                    name="systemPrompt"
-                    extra="定义 Agent 的角色、风格、约束。变量占位：{{user_name}} 等。"
-                  >
-                    <Input.TextArea
-                      rows={16}
-                      style={{ fontFamily: 'Menlo, monospace', fontSize: 13 }}
-                    />
+                  <Form.Item name="systemPrompt" noStyle>
+                    <PromptSplitEditor />
                   </Form.Item>
                 </Card>
               ),
@@ -216,7 +218,8 @@ export default function AgentEditorPage() {
                       onChange={(val) => {
                         // 切到上限更低的模型（如 GPT→Claude）时，把已超限的 temperature 夹回上限内。
                         const nextMax =
-                          AVAILABLE_MODELS.find((m) => m.value === val)?.maxTemp ?? DEFAULT_MAX_TEMP;
+                          AVAILABLE_MODELS.find((m) => m.value === val)?.maxTemp ??
+                          DEFAULT_MAX_TEMP;
                         const cur = form.getFieldValue(['modelParams', 'temperature']);
                         if (typeof cur === 'number' && cur > nextMax) {
                           form.setFieldValue(['modelParams', 'temperature'], nextMax);
@@ -252,7 +255,8 @@ export default function AgentEditorPage() {
                 <Card>
                   <KnowledgeBindPanel value={kbBinding} onChange={setKbBinding} />
                   <Typography.Text type="secondary">
-                    绑定后，与该 Agent 对话时会自动在所选知识库中检索并基于命中内容作答（带引用）；不绑定则为纯人设对话。保存后生效。
+                    绑定后，与该 Agent
+                    对话时会自动在所选知识库中检索并基于命中内容作答（带引用）；不绑定则为纯人设对话。保存后生效。
                   </Typography.Text>
                 </Card>
               ),
