@@ -1387,7 +1387,8 @@ a {
   color: #fff;
   padding: 10px 14px;
   border-radius: 12px 12px 2px 12px;
-  max-width: 80%;
+  /* 外层气泡列已 maxWidth:80%，这里再叠 80% 会变成 64% 并在右侧留白；填满本列即可。 */
+  max-width: 100%;
   word-break: break-word;
 }
 
@@ -1396,6 +1397,7 @@ a {
   color: var(--text);
   padding: 10px 14px;
   border-radius: 12px 12px 12px 2px;
-  max-width: 80%;
+  /* 同上：外层列已限 80%，气泡填满本列，避免双重 80% 叠加后的右侧留白。 */
+  max-width: 100%;
   word-break: break-word;
 }

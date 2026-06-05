@@ -187,6 +187,7 @@ function ArtifactCard({ artifact }: { artifact: ArtifactRef }) {
 
   // 图片预览失败时退化为普通文件 chip，保证至少能下载。
   if (isImage && !previewErr) {
+    // 图片预览成功时不再展示下方文件名/下载条：点击图片即可放大查看（antd Image 自带预览）。
     return (
       <div className="artifact-card artifact-card--image">
         {src ? (
@@ -197,7 +198,6 @@ function ArtifactCard({ artifact }: { artifact: ArtifactRef }) {
             <Spin />
           </div>
         )}
-        {fileBar}
       </div>
     );
   }
