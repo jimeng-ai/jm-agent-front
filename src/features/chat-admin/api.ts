@@ -9,6 +9,8 @@ export interface AnswerStreamPayload {
   rerank?: boolean;
   docIds?: string[];
   history?: ChatMessageHistoryItem[];
+  /** true=调试台预览：读 Agent 实时草稿配置；缺省=对话端，只读已发布快照（未发布则后端拒绝）。 */
+  preview?: boolean;
 }
 
 export interface ToolCallProgress {

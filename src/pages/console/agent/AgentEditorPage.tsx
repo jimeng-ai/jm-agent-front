@@ -12,6 +12,7 @@ import {
   Spin,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import {
@@ -90,10 +91,22 @@ export default function AgentEditorPage() {
     }
   }, [agentQuery.data]);
 
+  // 后端 model_params / kb_config 为 JSON 字符串列：必须序列化成字符串提交，否则存不进去。
+  const buildPayload = (v: Record<string, unknown>): Record<string, unknown> => ({
+    ...v,
+    modelParams: JSON.stringify(v.modelParams ?? {}),
+    kbConfig: JSON.stringify({
+      kbIds: kbBinding.kbIds ?? [],
+      topK: kbBinding.topK ?? 5,
+      scoreThreshold: kbBinding.scoreThreshold ?? 0.5,
+      rerank: kbBinding.rerank ?? true,
+    }),
+  });
+
   const saveMut = useMutation({
     mutationFn: (v: Record<string, unknown>) => agentApi.update(id, v),
     onSuccess: () => {
-      message.success('已保存');
+      message.success('已保存草稿（调试台生效）');
       qc.invalidateQueries({ queryKey: ['agent', 'detail', id] });
     },
   });
@@ -101,10 +114,31 @@ export default function AgentEditorPage() {
   const publishMut = useMutation({
     mutationFn: () => agentApi.publish(id),
     onSuccess: () => {
-      message.success('已发布');
+      message.success('已发布（对话端已更新为当前内容）');
       qc.invalidateQueries({ queryKey: ['agent', 'detail', id] });
     },
   });
+
+  const [publishing, setPublishing] = useState(false);
+
+  // 发布 = 先保存当前表单、再发布（打快照）。否则会用上次保存的内容发布、漏掉未保存的改动。
+  const handlePublish = async () => {
+    let v: Record<string, unknown>;
+    try {
+      v = await form.validateFields();
+    } catch {
+      return; // 校验未过：AntD 已高亮对应字段
+    }
+    setPublishing(true);
+    try {
+      await agentApi.update(id, buildPayload(v));
+      await publishMut.mutateAsync();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '发布失败');
+    } finally {
+      setPublishing(false);
+    }
+  };
 
   if (agentQuery.isLoading) return <Spin />;
   const agent = agentQuery.data;
@@ -129,17 +163,25 @@ export default function AgentEditorPage() {
           >
             调试台
           </Button>
-          <Button icon={<SaveOutlined />} onClick={() => form.submit()} loading={saveMut.isPending}>
-            保存草稿
-          </Button>
-          <Button
-            type="primary"
-            icon={<SendOutlined />}
-            onClick={() => publishMut.mutate()}
-            loading={publishMut.isPending}
-          >
-            发布
-          </Button>
+          <Tooltip title="保存当前编辑。仅在「调试台」生效，不影响对话端用户。">
+            <Button
+              icon={<SaveOutlined />}
+              onClick={() => form.submit()}
+              loading={saveMut.isPending}
+            >
+              保存草稿
+            </Button>
+          </Tooltip>
+          <Tooltip title="保存并发布。对话端将更新为当前内容，终端用户才能体验到本次改动。">
+            <Button
+              type="primary"
+              icon={<SendOutlined />}
+              onClick={handlePublish}
+              loading={publishing || publishMut.isPending}
+            >
+              发布
+            </Button>
+          </Tooltip>
         </Space>
       </Space>
 
@@ -159,20 +201,7 @@ export default function AgentEditorPage() {
             },
           };
         })()}
-        onFinish={(v) => {
-          // 后端 model_params / kb_config 为 JSON 字符串列：必须序列化成字符串提交，否则存不进去。
-          const payload: Record<string, unknown> = {
-            ...v,
-            modelParams: JSON.stringify(v.modelParams ?? {}),
-            kbConfig: JSON.stringify({
-              kbIds: kbBinding.kbIds ?? [],
-              topK: kbBinding.topK ?? 5,
-              scoreThreshold: kbBinding.scoreThreshold ?? 0.5,
-              rerank: kbBinding.rerank ?? true,
-            }),
-          };
-          saveMut.mutate(payload);
-        }}
+        onFinish={(v) => saveMut.mutate(buildPayload(v))}
       >
         <Tabs
           items={[

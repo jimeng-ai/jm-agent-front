@@ -10,6 +10,8 @@ export interface AgentExecPayload {
   /** 本轮附带的输入文件 ID（来自 /agent/files 上传） */
   fileIds?: string[];
   history?: ChatMessageHistoryItem[];
+  /** true=调试台预览：读 Agent 实时草稿配置；缺省=对话端，只读已发布快照（未发布则后端拒绝）。 */
+  preview?: boolean;
 }
 
 export interface FileStatusEvent {
@@ -50,8 +52,15 @@ export function streamAgentExec(
       try {
         switch (event) {
           case 'claude-delta': {
-            const p = JSON.parse(data) as { type?: string; delta?: { type?: string; text?: string } };
-            if (p.type === 'content_block_delta' && p.delta?.type === 'text_delta' && p.delta.text) {
+            const p = JSON.parse(data) as {
+              type?: string;
+              delta?: { type?: string; text?: string };
+            };
+            if (
+              p.type === 'content_block_delta' &&
+              p.delta?.type === 'text_delta' &&
+              p.delta.text
+            ) {
               handlers.onDelta?.(p.delta.text);
             }
             break;

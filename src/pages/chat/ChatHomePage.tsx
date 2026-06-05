@@ -26,7 +26,17 @@ function AgentCard({ agent, index, onOpen }: { agent: Agent; index: number; onOp
           {glyph}
         </div>
         <div className="chat-agent-card-title">
-          <div className="name">{agent.name}</div>
+          <div className="name">
+            {agent.name}
+            {agent.status === 'PUBLISHED' && agent.hasUnpublishedChanges && (
+              <span
+                className="chat-agent-draft-badge"
+                title="该 Agent 有改动尚未发布，对话端仍使用上次发布的版本"
+              >
+                有草稿未发布
+              </span>
+            )}
+          </div>
           <div className="model mono">{agent.model || 'claude-sonnet-4.5'}</div>
         </div>
         <span className={'chat-agent-status' + (agent.status === 'PUBLISHED' ? ' published' : '')}>

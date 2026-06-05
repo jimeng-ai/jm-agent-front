@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Avatar, Button } from 'antd';
+import { Avatar, Button, Image, Spin } from 'antd';
 import {
   CopyOutlined,
   RobotOutlined,
@@ -18,7 +18,7 @@ import dayjs from 'dayjs';
 import Markdown from '@/components/Markdown';
 import CitationReferences from './CitationReferences';
 import AttachmentThumb from './AttachmentThumb';
-import { downloadArtifact } from '@/api/agentFiles';
+import { downloadArtifact, fetchArtifactBlob } from '@/api/agentFiles';
 import type {
   ArtifactRef,
   ChatMessage,
@@ -69,7 +69,12 @@ function ToolCallPill({ tc }: { tc: ToolCallView }) {
     ) : (
       <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
     );
-  const verb = tc.status === 'running' ? '正在调用工具' : tc.status === 'success' ? '已调用工具' : '工具调用失败';
+  const verb =
+    tc.status === 'running'
+      ? '正在调用工具'
+      : tc.status === 'success'
+        ? '已调用工具'
+        : '工具调用失败';
   const inputStr = formatToolInput(tc.input);
   return (
     <div>
@@ -117,10 +122,42 @@ function ToolCallPill({ tc }: { tc: ToolCallView }) {
   );
 }
 
-/** 代码执行 Agent 产物：文件名 + 下载按钮（带鉴权头取 blob 触发下载）。 */
+/** 产物是否为图片：优先看 contentType，回退看扩展名。 */
+function isImageArtifact(a: ArtifactRef): boolean {
+  if (a.contentType?.toLowerCase().startsWith('image/')) return true;
+  return /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(a.filename);
+}
+
+/**
+ * 代码执行 Agent 产物。
+ * - 图片：内联预览缩略图（antd Image 自带点击放大 / 缩放工具栏）+ 文件名 + 下载。
+ * - 其它：文件名 + 下载按钮。
+ * 下载端点需鉴权头，预览用 fetchArtifactBlob 取 blob 转 objectURL（裸 <img src> 取不到）。
+ */
 function ArtifactCard({ artifact }: { artifact: ArtifactRef }) {
   const { message: toast } = App.useApp();
   const [loading, setLoading] = useState(false);
+  const isImage = isImageArtifact(artifact);
+  const [src, setSrc] = useState<string>();
+  const [previewErr, setPreviewErr] = useState(false);
+
+  useEffect(() => {
+    if (!isImage) return;
+    let cancelled = false;
+    let url: string | undefined;
+    fetchArtifactBlob(artifact.artifactId)
+      .then((blob) => {
+        if (cancelled) return;
+        url = URL.createObjectURL(blob);
+        setSrc(url);
+      })
+      .catch(() => !cancelled && setPreviewErr(true));
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [artifact.artifactId, isImage]);
+
   const onDownload = async () => {
     setLoading(true);
     try {
@@ -131,26 +168,41 @@ function ArtifactCard({ artifact }: { artifact: ArtifactRef }) {
       setLoading(false);
     }
   };
-  return (
-    <div
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 8,
-        fontSize: 13,
-        background: '#f6ffed',
-        border: '1px solid #b7eb8f',
-        borderRadius: 6,
-        padding: '4px 10px',
-      }}
-    >
+
+  const fileBar = (
+    <div className="artifact-card__bar">
       <FileOutlined style={{ color: '#52c41a' }} />
-      <span>{artifact.filename}</span>
-      <Button type="link" size="small" icon={<DownloadOutlined />} loading={loading} onClick={onDownload}>
+      <span className="artifact-card__name">{artifact.filename}</span>
+      <Button
+        type="link"
+        size="small"
+        icon={<DownloadOutlined />}
+        loading={loading}
+        onClick={onDownload}
+      >
         下载
       </Button>
     </div>
   );
+
+  // 图片预览失败时退化为普通文件 chip，保证至少能下载。
+  if (isImage && !previewErr) {
+    return (
+      <div className="artifact-card artifact-card--image">
+        {src ? (
+          // antd Image 默认开启预览：点击即放大，带缩放/旋转工具栏
+          <Image src={src} alt={artifact.filename} rootClassName="artifact-card__img" />
+        ) : (
+          <div className="artifact-card__img-loading">
+            <Spin />
+          </div>
+        )}
+        {fileBar}
+      </div>
+    );
+  }
+
+  return <div className="artifact-card">{fileBar}</div>;
 }
 
 /** 思考计时器：用户发消息后、模型尚未输出内容时，实时显示已用秒数（每 100ms 走动）。 */
@@ -170,7 +222,13 @@ function ThinkingTimer({ startedAt }: { startedAt: number }) {
 }
 
 /** 把连续的工具步骤聚成一个可折叠块：流式中默认展开（看实时进度），完成/历史默认收起。 */
-function ToolProcessGroup({ calls, defaultOpen }: { calls: ToolCallView[]; defaultOpen?: boolean }) {
+function ToolProcessGroup({
+  calls,
+  defaultOpen,
+}: {
+  calls: ToolCallView[];
+  defaultOpen?: boolean;
+}) {
   const [open, setOpen] = useState(!!defaultOpen);
   const running = calls.some((c) => c.status === 'running');
   return (
@@ -199,7 +257,11 @@ function ToolProcessGroup({ calls, defaultOpen }: { calls: ToolCallView[]; defau
           textAlign: 'left',
         }}
       >
-        {open ? <DownOutlined style={{ fontSize: 10 }} /> : <RightOutlined style={{ fontSize: 10 }} />}
+        {open ? (
+          <DownOutlined style={{ fontSize: 10 }} />
+        ) : (
+          <RightOutlined style={{ fontSize: 10 }} />
+        )}
         <CodeOutlined />
         <span>执行过程 · {calls.length} 步</span>
         {running && <LoadingOutlined spin style={{ marginLeft: 4 }} />}
@@ -222,7 +284,13 @@ function renderSegments(segments: MessageSegment[], status?: ChatStatus): ReactN
   let run: ToolCallView[] = [];
   const flush = () => {
     if (run.length) {
-      out.push(<ToolProcessGroup key={`tg-${run[0].id}`} calls={run} defaultOpen={status === 'streaming'} />);
+      out.push(
+        <ToolProcessGroup
+          key={`tg-${run[0].id}`}
+          calls={run}
+          defaultOpen={status === 'streaming'}
+        />,
+      );
       run = [];
     }
   };
@@ -295,7 +363,10 @@ export default function MessageBubble({ message }: Props) {
               renderSegments(message.segments, message.status)
             ) : message.content ? (
               <div className="chat-bubble-assistant">
-                <Markdown content={stripRefMarkers(message.content)} cursor={message.status === 'streaming'} />
+                <Markdown
+                  content={stripRefMarkers(message.content)}
+                  cursor={message.status === 'streaming'}
+                />
               </div>
             ) : null}
             {/* 只要还在流式（初始思考 / 步骤之间 / 生成文字中），常驻一个走动的计时器，

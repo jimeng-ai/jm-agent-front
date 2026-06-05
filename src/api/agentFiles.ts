@@ -39,11 +39,25 @@ export async function resolveAttachmentUrl(att: {
   return URL.createObjectURL(blob);
 }
 
+/** 取产物内容 → Blob（与下载同端点同鉴权）。用于图片类产物的内联预览/放大，不能用裸 <img src>。 */
+export async function fetchArtifactBlob(artifactId: string | number): Promise<Blob> {
+  const { token, tenantId } = useAuthStore.getState();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = token;
+  if (tenantId) headers['X-Tenant-Id'] = tenantId;
+  const resp = await fetch(`${baseURL}/agent/artifacts/${artifactId}/download`, { headers });
+  if (!resp.ok) throw new Error(`预览失败 HTTP ${resp.status}`);
+  return resp.blob();
+}
+
 /**
  * 下载产物。产物下载端点经网关，需要带 Authorization / X-Tenant-Id 头，
  * 所以不能用裸 <a href>，这里用 fetch 取 blob 再触发下载（与 sse.ts 同套鉴权）。
  */
-export async function downloadArtifact(artifactId: string | number, filename?: string): Promise<void> {
+export async function downloadArtifact(
+  artifactId: string | number,
+  filename?: string,
+): Promise<void> {
   const { token, tenantId } = useAuthStore.getState();
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = token;

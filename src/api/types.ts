@@ -82,6 +82,8 @@ export interface Agent extends BaseEntity {
   /** 知识库绑定配置 JSON 字符串：{kbIds, topK, scoreThreshold, rerank} */
   kbConfig?: string;
   status: EntityStatus;
+  /** 已发布但实时配置/插件绑定领先于发布快照（即有未发布的草稿改动）。仅 PUBLISHED 时可能为 true。 */
+  hasUnpublishedChanges?: boolean;
 }
 
 export type PluginAuthType = 'NONE' | 'BEARER' | 'BASIC' | 'API_KEY' | 'HMAC';

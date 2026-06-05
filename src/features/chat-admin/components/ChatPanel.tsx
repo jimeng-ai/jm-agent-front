@@ -27,6 +27,8 @@ interface Props {
   topK?: number;
   rerank?: boolean;
   simple?: boolean;
+  /** true=调试台：用 Agent 实时草稿配置；缺省=对话端，只读已发布快照（未发布则后端拒绝对话）。 */
+  preview?: boolean;
   placeholder?: string;
   /** 初始消息（用于恢复已落库的会话历史）。 */
   initialMessages?: ChatMessage[];
@@ -42,6 +44,7 @@ export default function ChatPanel({
   topK,
   rerank,
   simple,
+  preview,
   placeholder,
   initialMessages,
   onSubmit,
@@ -83,7 +86,7 @@ export default function ChatPanel({
     setAttached([]);
 
     sse.start(
-      { agentId, kbId, query: queryText, topK, rerank, history, fileIds },
+      { agentId, kbId, query: queryText, topK, rerank, history, fileIds, preview },
       ({ text: finalText, citations, segments, elapsedMs }) => {
         // 含工具调用 / 产物的回复才落库 segments；纯文本回复刷新后回退渲染 content 即可。
         const rich = segments.some((s) => s.type === 'tool' || s.type === 'artifact');
@@ -118,9 +121,7 @@ export default function ChatPanel({
         const last = prev[prev.length - 1];
         if (!last || last.role !== 'assistant') return prev;
         return prev.map((m) =>
-          m.id === last.id
-            ? { ...m, status: 'error', errorMessage: sse.error ?? '未知错误' }
-            : m,
+          m.id === last.id ? { ...m, status: 'error', errorMessage: sse.error ?? '未知错误' } : m,
         );
       });
     }
@@ -149,7 +150,12 @@ export default function ChatPanel({
       const res = await uploadAgentFile(file);
       setAttached((prev) => [
         ...prev,
-        { fileId: res.fileId, filename: res.filename, contentType: res.contentType ?? file.type, url: localUrl },
+        {
+          fileId: res.fileId,
+          filename: res.filename,
+          contentType: res.contentType ?? file.type,
+          url: localUrl,
+        },
       ]);
       options.onSuccess?.(res);
     } catch (e) {
@@ -190,7 +196,15 @@ export default function ChatPanel({
           </Space>
         )}
         {attached.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 10, padding: '0 2px' }}>
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 12,
+              marginBottom: 10,
+              padding: '0 2px',
+            }}
+          >
             {attached.map((a, i) => (
               <AttachmentThumb
                 key={`${a.fileId}-${i}`}
@@ -217,7 +231,12 @@ export default function ChatPanel({
             }}
           />
           <div style={{ display: 'flex', alignItems: 'center', marginTop: 8 }}>
-            <Upload customRequest={uploadFile} showUploadList={false} multiple disabled={isStreaming}>
+            <Upload
+              customRequest={uploadFile}
+              showUploadList={false}
+              multiple
+              disabled={isStreaming}
+            >
               <Button
                 type="text"
                 icon={<PaperClipOutlined />}

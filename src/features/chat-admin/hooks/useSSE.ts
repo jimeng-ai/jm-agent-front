@@ -96,7 +96,14 @@ export function useSSE() {
       segmentsRef.current = [];
       artifactsRef.current = [];
       startedAtRef.current = performance.now();
-      setState({ status: 'streaming', text: '', citations: [], segments: [], artifacts: [], files: [] });
+      setState({
+        status: 'streaming',
+        text: '',
+        citations: [],
+        segments: [],
+        artifacts: [],
+        files: [],
+      });
 
       let citations: ChatCitation[] = [];
 
@@ -106,7 +113,9 @@ export function useSSE() {
         appendText(delta);
         scheduleFlush();
       };
-      const onToolCall = (calls: { id: string; name: string; desc?: string; input?: unknown }[]) => {
+      const onToolCall = (
+        calls: { id: string; name: string; desc?: string; input?: unknown }[],
+      ) => {
         for (const c of calls) {
           const idx = segmentsRef.current.findIndex((s) => s.type === 'tool' && s.call.id === c.id);
           const seg: MessageSegment = {
@@ -118,7 +127,9 @@ export function useSSE() {
         }
         commit();
       };
-      const onToolResult = (results: { id: string; name: string; status: 'success' | 'error' }[]) => {
+      const onToolResult = (
+        results: { id: string; name: string; status: 'success' | 'error' }[],
+      ) => {
         for (const r of results) {
           const idx = segmentsRef.current.findIndex((s) => s.type === 'tool' && s.call.id === r.id);
           if (idx >= 0) {
@@ -127,7 +138,10 @@ export function useSSE() {
               segmentsRef.current[idx] = { type: 'tool', call: { ...seg.call, status: r.status } };
             }
           } else {
-            segmentsRef.current.push({ type: 'tool', call: { id: r.id, name: r.name, status: r.status } });
+            segmentsRef.current.push({
+              type: 'tool',
+              call: { id: r.id, name: r.name, status: r.status },
+            });
           }
         }
         commit();
@@ -158,7 +172,13 @@ export function useSSE() {
           files: [],
           elapsedMs,
         });
-        onDoneFinalText?.({ text: finalText, citations, segments: finalSegments, artifacts, elapsedMs });
+        onDoneFinalText?.({
+          text: finalText,
+          citations,
+          segments: finalSegments,
+          artifacts,
+          elapsedMs,
+        });
       };
 
       if (opts?.mode === 'exec') {
@@ -169,6 +189,7 @@ export function useSSE() {
             query: payload.query,
             fileIds: payload.fileIds,
             history: payload.history,
+            preview: payload.preview,
           },
           {
             onDelta,
@@ -176,11 +197,16 @@ export function useSSE() {
             onToolResult,
             onError,
             onCodeOutput: (c) => {
-              const idx = segmentsRef.current.findIndex((s) => s.type === 'tool' && s.call.id === c.id);
+              const idx = segmentsRef.current.findIndex(
+                (s) => s.type === 'tool' && s.call.id === c.id,
+              );
               if (idx >= 0) {
                 const seg = segmentsRef.current[idx];
                 if (seg.type === 'tool') {
-                  segmentsRef.current[idx] = { type: 'tool', call: { ...seg.call, output: c.output } };
+                  segmentsRef.current[idx] = {
+                    type: 'tool',
+                    call: { ...seg.call, output: c.output },
+                  };
                 }
               } else {
                 segmentsRef.current.push({

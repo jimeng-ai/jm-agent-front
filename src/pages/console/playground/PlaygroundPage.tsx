@@ -70,7 +70,14 @@ export default function PlaygroundPage() {
             styles={{ body: { height: 'calc(100% - 38px)', padding: 0 } }}
             title="对话"
           >
-            <ChatPanel key={panelKey} agentId={agentId} kbId={kbId} topK={5} rerank={false} />
+            <ChatPanel
+              key={panelKey}
+              agentId={agentId}
+              kbId={kbId}
+              topK={5}
+              rerank={false}
+              preview
+            />
           </Card>
         </Col>
       </Row>
