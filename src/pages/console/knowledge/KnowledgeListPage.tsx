@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Card, Col, Empty, Form, Input, Modal, Popconfirm, Row, Space, App } from 'antd';
-import { PlusOutlined, DeleteOutlined, BookOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, BookOutlined, ShareAltOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { kbApi } from '@/features/knowledge/api';
+import ShareModal from '@/features/rbac/components/ShareModal';
 
 export default function KnowledgeListPage() {
   const navigate = useNavigate();
   const { message } = App.useApp();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [shareTarget, setShareTarget] = useState<{ id: string; name: string } | null>(null);
   const [form] = Form.useForm();
 
   const { data, isLoading } = useQuery({
@@ -54,6 +56,13 @@ export default function KnowledgeListPage() {
                 hoverable
                 onClick={() => navigate(`/console/knowledge/${kb.id}`)}
                 actions={[
+                  <ShareAltOutlined
+                    key="share"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShareTarget({ id: kb.id, name: kb.name });
+                    }}
+                  />,
                   <Popconfirm
                     key="del"
                     title="确认删除？文档与索引将一并清理"
@@ -70,7 +79,14 @@ export default function KnowledgeListPage() {
                 <Card.Meta
                   avatar={<BookOutlined style={{ fontSize: 32, color: '#1677ff' }} />}
                   title={kb.name}
-                  description={kb.description || '—'}
+                  description={
+                    <>
+                      <div>{kb.description || '—'}</div>
+                      <div style={{ marginTop: 4, color: '#999', fontSize: 12 }}>
+                        创建人：{kb.creatorName ?? '-'}
+                      </div>
+                    </>
+                  }
                 />
               </Card>
             </Col>
@@ -94,6 +110,14 @@ export default function KnowledgeListPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <ShareModal
+        open={!!shareTarget}
+        resourceType="KNOWLEDGE_BASE"
+        resourceId={shareTarget?.id}
+        resourceName={shareTarget?.name}
+        onClose={() => setShareTarget(null)}
+      />
 
       <Space />
     </div>

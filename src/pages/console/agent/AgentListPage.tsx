@@ -7,10 +7,12 @@ import {
   ExperimentOutlined,
   PlusOutlined,
   SendOutlined,
+  ShareAltOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { agentApi } from '@/features/agent/api';
+import ShareModal from '@/features/rbac/components/ShareModal';
 import type { Agent } from '@/api/types';
 
 export default function AgentListPage() {
@@ -18,6 +20,7 @@ export default function AgentListPage() {
   const { message } = App.useApp();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [shareTarget, setShareTarget] = useState<Agent | null>(null);
   const [form] = Form.useForm();
 
   const { data, isLoading } = useQuery({
@@ -100,6 +103,12 @@ export default function AgentListPage() {
           },
           { title: '更新时间', dataIndex: 'updateTime', width: 180 },
           {
+            title: '创建人',
+            dataIndex: 'creatorName',
+            width: 120,
+            render: (v) => v ?? '-',
+          },
+          {
             title: '操作',
             width: 260,
             render: (_, row) => (
@@ -117,6 +126,13 @@ export default function AgentListPage() {
                   onClick={() => navigate(`/console/playground/${row.id}`)}
                 >
                   调试
+                </Button>
+                <Button
+                  size="small"
+                  icon={<ShareAltOutlined />}
+                  onClick={() => setShareTarget(row)}
+                >
+                  分享
                 </Button>
                 {row.status === 'PUBLISHED' ? (
                   <Popconfirm
@@ -162,6 +178,14 @@ export default function AgentListPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <ShareModal
+        open={!!shareTarget}
+        resourceType="AGENT"
+        resourceId={shareTarget?.id}
+        resourceName={shareTarget?.name}
+        onClose={() => setShareTarget(null)}
+      />
     </div>
   );
 }

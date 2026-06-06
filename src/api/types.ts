@@ -39,6 +39,8 @@ export interface BaseEntity {
   tenantId?: string;
   createTime?: string;
   updateTime?: string;
+  /** 创建人显示名（后端读时解析 create_user，非持久化）。 */
+  creatorName?: string;
 }
 
 export interface AdminUser {

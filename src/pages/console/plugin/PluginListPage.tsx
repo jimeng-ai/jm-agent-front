@@ -6,16 +6,19 @@ import {
   DownloadOutlined,
   PlusOutlined,
   SendOutlined,
+  ShareAltOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { pluginApi } from '@/features/plugin/api';
+import ShareModal from '@/features/rbac/components/ShareModal';
 
 export default function PluginListPage() {
   const { message } = App.useApp();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [shareTarget, setShareTarget] = useState<{ id: string; name: string } | null>(null);
   const [form] = Form.useForm();
 
   const { data, isLoading } = useQuery({
@@ -76,6 +79,13 @@ export default function PluginListPage() {
                 hoverable
                 onClick={() => navigate(`/console/plugins/${p.id}`)}
                 actions={[
+                  <ShareAltOutlined
+                    key="share"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShareTarget({ id: p.id, name: p.name });
+                    }}
+                  />,
                   p.status === 'PUBLISHED' ? (
                     <Popconfirm
                       key="unpublish"
@@ -124,7 +134,14 @@ export default function PluginListPage() {
                       </Tag>
                     </span>
                   }
-                  description={p.description || p.baseUrl || '—'}
+                  description={
+                    <>
+                      <div>{p.description || p.baseUrl || '—'}</div>
+                      <div style={{ marginTop: 4, color: '#999', fontSize: 12 }}>
+                        创建人：{p.creatorName ?? '-'}
+                      </div>
+                    </>
+                  }
                 />
               </Card>
             </Col>
@@ -151,6 +168,14 @@ export default function PluginListPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <ShareModal
+        open={!!shareTarget}
+        resourceType="PLUGIN"
+        resourceId={shareTarget?.id}
+        resourceName={shareTarget?.name}
+        onClose={() => setShareTarget(null)}
+      />
     </div>
   );
 }
