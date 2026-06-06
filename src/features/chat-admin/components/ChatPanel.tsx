@@ -72,8 +72,15 @@ export default function ChatPanel({
   );
 
   const submit = (queryText: string) => {
-    // 有附件 → 走代码执行 / 文件处理 Agent；否则走 RAG 问答
-    const fileIds = attached.map((a) => String(a.fileId));
+    // 路由策略：本会话只要出现过附件，后续轮次也持续走沙箱(exec)——否则掉回 RAG 链路会
+    // 丢掉文件上下文与生图工具（生图能力只在沙箱链路有）。做法：把本会话累积的所有附件
+    // fileId（含刷新后从 initialMessages 恢复的历史消息）连同本轮新附件去重后一起带给 exec，
+    // 沙箱据此把早先发的图也铺进 /work，多轮即可记住图 + 继续生图。
+    const newFileIds = attached.map((a) => String(a.fileId));
+    const priorFileIds = messages.flatMap((m) =>
+      (m.attachments ?? []).map((a) => String(a.fileId)),
+    );
+    const fileIds = Array.from(new Set([...priorFileIds, ...newFileIds]));
     const mode: 'rag' | 'exec' = fileIds.length > 0 ? 'exec' : 'rag';
 
     const userMsg = newMessage('user', queryText);

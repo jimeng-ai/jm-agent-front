@@ -134,29 +134,34 @@ function isImageArtifact(a: ArtifactRef): boolean {
  * - 其它：文件名 + 下载按钮。
  * 下载端点需鉴权头，预览用 fetchArtifactBlob 取 blob 转 objectURL（裸 <img src> 取不到）。
  */
-function ArtifactCard({ artifact }: { artifact: ArtifactRef }) {
-  const { message: toast } = App.useApp();
-  const [loading, setLoading] = useState(false);
-  const isImage = isImageArtifact(artifact);
+/** 取产物图片 blob 并转 objectURL（下载端点需鉴权头，裸 <img src> 取不到）；组件卸载时回收。 */
+function useArtifactBlobUrl(artifactId: string | number, enabled: boolean) {
   const [src, setSrc] = useState<string>();
-  const [previewErr, setPreviewErr] = useState(false);
-
+  const [err, setErr] = useState(false);
   useEffect(() => {
-    if (!isImage) return;
+    if (!enabled) return;
     let cancelled = false;
     let url: string | undefined;
-    fetchArtifactBlob(artifact.artifactId)
+    fetchArtifactBlob(artifactId)
       .then((blob) => {
         if (cancelled) return;
         url = URL.createObjectURL(blob);
         setSrc(url);
       })
-      .catch(() => !cancelled && setPreviewErr(true));
+      .catch(() => !cancelled && setErr(true));
     return () => {
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [artifact.artifactId, isImage]);
+  }, [artifactId, enabled]);
+  return { src, err };
+}
+
+function ArtifactCard({ artifact }: { artifact: ArtifactRef }) {
+  const { message: toast } = App.useApp();
+  const [loading, setLoading] = useState(false);
+  const isImage = isImageArtifact(artifact);
+  const { src, err: previewErr } = useArtifactBlobUrl(artifact.artifactId, isImage);
 
   const onDownload = async () => {
     setLoading(true);
@@ -203,6 +208,67 @@ function ArtifactCard({ artifact }: { artifact: ArtifactRef }) {
   }
 
   return <div className="artifact-card">{fileBar}</div>;
+}
+
+/** 网格里的单张产物缩略图：固定高度、cover 裁切；点击由外层 Image.PreviewGroup 放大并可左右切换。 */
+function GridImage({ artifact }: { artifact: ArtifactRef }) {
+  const { src, err } = useArtifactBlobUrl(artifact.artifactId, true);
+  // 预览失败时退化为可下载的文件 chip（ArtifactCard 自带 previewErr 兜底）。
+  if (err) return <ArtifactCard artifact={artifact} />;
+  return (
+    <div
+      style={{
+        height: 132,
+        borderRadius: 8,
+        overflow: 'hidden',
+        background: '#f5f5f5',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      {src ? (
+        <Image
+          src={src}
+          alt={artifact.filename}
+          width="100%"
+          height={132}
+          style={{ objectFit: 'cover' }}
+        />
+      ) : (
+        <Spin />
+      )}
+    </div>
+  );
+}
+
+/** 多张图片产物：网格缩略图布局，避免每张占一整行把对话拉得太长；点任一张放大并可左右切换浏览整组。 */
+function ArtifactImageGrid({ artifacts }: { artifacts: ArtifactRef[] }) {
+  // 单张时退化为原来的内联预览，保持小批量场景观感不变。
+  if (artifacts.length === 1) {
+    return (
+      <div style={{ marginBottom: 8 }}>
+        <ArtifactCard artifact={artifacts[0]} />
+      </div>
+    );
+  }
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <Image.PreviewGroup>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+            gap: 8,
+          }}
+        >
+          {artifacts.map((a) => (
+            <GridImage key={a.artifactId} artifact={a} />
+          ))}
+        </div>
+      </Image.PreviewGroup>
+    </div>
+  );
 }
 
 /** 思考计时器：用户发消息后、模型尚未输出内容时，实时显示已用秒数（每 100ms 走动）。 */
@@ -282,6 +348,7 @@ function ToolProcessGroup({
 function renderSegments(segments: MessageSegment[], status?: ChatStatus): ReactNode[] {
   const out: ReactNode[] = [];
   let run: ToolCallView[] = [];
+  let imgRun: ArtifactRef[] = [];
   const flush = () => {
     if (run.length) {
       out.push(
@@ -294,19 +361,33 @@ function renderSegments(segments: MessageSegment[], status?: ChatStatus): ReactN
       run = [];
     }
   };
+  // 连续的图片产物合并成一个网格，避免每张各占一行把对话拉得过长。
+  const flushImgs = () => {
+    if (imgRun.length) {
+      out.push(<ArtifactImageGrid key={`ig-${imgRun[0].artifactId}`} artifacts={imgRun} />);
+      imgRun = [];
+    }
+  };
   segments.forEach((seg, i) => {
     if (seg.type === 'tool') {
+      flushImgs();
       run.push(seg.call);
       return;
     }
     flush();
     if (seg.type === 'artifact') {
-      out.push(
-        <div key={`a${i}`} style={{ marginBottom: 8 }}>
-          <ArtifactCard artifact={seg.artifact} />
-        </div>,
-      );
+      if (isImageArtifact(seg.artifact)) {
+        imgRun.push(seg.artifact);
+      } else {
+        flushImgs();
+        out.push(
+          <div key={`a${i}`} style={{ marginBottom: 8 }}>
+            <ArtifactCard artifact={seg.artifact} />
+          </div>,
+        );
+      }
     } else {
+      flushImgs();
       const isLast = i === segments.length - 1;
       out.push(
         <div key={`s${i}`} className="chat-bubble-assistant" style={{ marginBottom: 8 }}>
@@ -316,6 +397,7 @@ function renderSegments(segments: MessageSegment[], status?: ChatStatus): ReactN
     }
   });
   flush();
+  flushImgs();
   return out;
 }
 
