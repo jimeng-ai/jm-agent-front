@@ -3,10 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Spin } from 'antd';
 import { CloseOutlined } from '@ant-design/icons';
-import {
-  conversationApi,
-  type ConversationView,
-} from '@/features/chat-admin/conversationApi';
+import { conversationApi, type ConversationView } from '@/features/chat-admin/conversationApi';
+import { agentApi } from '@/features/agent/api';
+import { glyphColor } from '@/utils/glyph';
 import { PlusIcon, SearchIcon } from '@/components/icons/AtlasIcons';
 
 function startOfDay(ts: number): number {
@@ -51,6 +50,15 @@ export default function ConversationsPanel() {
   });
   const sessions = useMemo(() => listQ.data ?? [], [listQ.data]);
 
+  // 会话行只带 agentId/agentName，没带头像：复用对话首页同一份 Agent 列表缓存，
+  // 据 agentId 查头像（react-query 同 key 自动去重，不会多发请求）。
+  const agentsQ = useQuery({ queryKey: ['chat', 'agents'], queryFn: () => agentApi.list() });
+  const avatarOf = useMemo(() => {
+    const m = new Map<string, string | undefined>();
+    for (const a of agentsQ.data ?? []) m.set(String(a.id), a.avatarUrl);
+    return m;
+  }, [agentsQ.data]);
+
   const onDelete = async (id: string) => {
     try {
       await conversationApi.remove(id);
@@ -78,8 +86,7 @@ export default function ConversationsPanel() {
     const kw = q.trim().toLowerCase();
     const filtered = [...sessions]
       .filter(
-        (s) =>
-          !kw || s.title.toLowerCase().includes(kw) || s.agentName.toLowerCase().includes(kw),
+        (s) => !kw || s.title.toLowerCase().includes(kw) || s.agentName.toLowerCase().includes(kw),
       )
       .sort((a, b) => tsOf(b) - tsOf(a));
     const order: Array<'今天' | '昨天' | '更早'> = ['今天', '昨天', '更早'];
@@ -141,10 +148,29 @@ export default function ConversationsPanel() {
                     }}
                     title={s.title}
                   >
-                    <div className="chat-conv-item-title">{s.title}</div>
-                    <div className="chat-conv-item-meta">
-                      <span className="agent">{s.agentName}</span>
-                      <span className="time">{timeLabel(tsOf(s))}</span>
+                    {avatarOf.get(String(s.agentId)) ? (
+                      <img
+                        className="chat-conv-item-avatar"
+                        src={avatarOf.get(String(s.agentId))}
+                        alt={s.agentName}
+                      />
+                    ) : (
+                      <div
+                        className="chat-conv-item-avatar glyph"
+                        style={{
+                          background: glyphColor(s.agentName).bg,
+                          color: glyphColor(s.agentName).fg,
+                        }}
+                      >
+                        {s.agentName?.slice(0, 1) || 'A'}
+                      </div>
+                    )}
+                    <div className="chat-conv-item-main">
+                      <div className="chat-conv-item-title">{s.title}</div>
+                      <div className="chat-conv-item-meta">
+                        <span className="agent">{s.agentName}</span>
+                        <span className="time">{timeLabel(tsOf(s))}</span>
+                      </div>
                     </div>
                   </button>
                   <button

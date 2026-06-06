@@ -71,7 +71,8 @@ export interface Agent extends BaseEntity {
   code: string;
   name: string;
   description?: string;
-  avatar?: string;
+  /** 头像 URL（后端字段名为 avatarUrl，对应列 avatar_url）。 */
+  avatarUrl?: string;
   systemPrompt?: string;
   model?: string;
   modelParams?:
@@ -83,6 +84,11 @@ export interface Agent extends BaseEntity {
     | string;
   /** 知识库绑定配置 JSON 字符串：{kbIds, topK, scoreThreshold, rerank} */
   kbConfig?: string;
+  /**
+   * 对话空状态的预设引导问题。后端以 JSON 数组字符串存储，
+   * 经 {@link agentApi} 在 API 边界双向转换为字符串数组。
+   */
+  presetQuestions?: string[];
   status: EntityStatus;
   /** 已发布但实时配置/插件绑定领先于发布快照（即有未发布的草稿改动）。仅 PUBLISHED 时可能为 true。 */
   hasUnpublishedChanges?: boolean;

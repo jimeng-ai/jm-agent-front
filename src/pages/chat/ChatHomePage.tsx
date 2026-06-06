@@ -22,9 +22,13 @@ function AgentCard({ agent, index, onOpen }: { agent: Agent; index: number; onOp
   return (
     <button type="button" className="chat-agent-card" onClick={onOpen}>
       <div className="chat-agent-card-head">
-        <div className="chat-agent-glyph" style={{ background: color.bg, color: color.fg }}>
-          {glyph}
-        </div>
+        {agent.avatarUrl ? (
+          <img className="chat-agent-glyph" src={agent.avatarUrl} alt={agent.name} />
+        ) : (
+          <div className="chat-agent-glyph" style={{ background: color.bg, color: color.fg }}>
+            {glyph}
+          </div>
+        )}
         <div className="chat-agent-card-title">
           <div className="name">
             {agent.name}

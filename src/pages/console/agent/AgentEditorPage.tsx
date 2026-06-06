@@ -18,6 +18,8 @@ import {
 import {
   ArrowLeftOutlined,
   ExperimentOutlined,
+  MinusCircleOutlined,
+  PlusOutlined,
   SaveOutlined,
   SendOutlined,
 } from '@ant-design/icons';
@@ -32,6 +34,7 @@ import {
 import PluginBindPanel from '@/features/agent/components/PluginBindPanel';
 import KnowledgeBindPanel from '@/features/agent/components/KnowledgeBindPanel';
 import PromptSplitEditor from '@/features/agent/components/PromptSplitEditor';
+import AvatarUpload from '@/features/agent/components/AvatarUpload';
 
 interface KbBinding {
   kbIds?: string[];
@@ -69,6 +72,8 @@ export default function AgentEditorPage() {
 
   // Temperature 滑块上限随所选模型变化：Claude=1，GPT=2（见 AVAILABLE_MODELS.maxTemp）。
   const selectedModel = Form.useWatch('model', form);
+  // 头像占位首字随名称变化。
+  const watchedName = Form.useWatch('name', form);
   const maxTemp =
     AVAILABLE_MODELS.find((m) => m.value === selectedModel)?.maxTemp ?? DEFAULT_MAX_TEMP;
 
@@ -219,8 +224,35 @@ export default function AgentEditorPage() {
                   <Form.Item label="描述" name="description">
                     <Input.TextArea rows={3} />
                   </Form.Item>
-                  <Form.Item label="头像 URL" name="avatar">
-                    <Input placeholder="https://..." />
+                  <Form.Item label="头像" name="avatarUrl">
+                    <AvatarUpload name={watchedName} />
+                  </Form.Item>
+                  <Form.Item
+                    label="预设问题"
+                    tooltip="对话为空时展示的引导问题，用户点一下即可发送。每行一个，最多展示 4 个。"
+                  >
+                    <Form.List name="presetQuestions">
+                      {(fields, { add, remove }) => (
+                        <Space direction="vertical" style={{ width: '100%' }} size={8}>
+                          {fields.map((field) => (
+                            <Space key={field.key} style={{ width: '100%' }} align="baseline">
+                              <Form.Item {...field} noStyle>
+                                <Input
+                                  style={{ width: 520 }}
+                                  placeholder="例如：推荐一套 CRM 方案"
+                                />
+                              </Form.Item>
+                              <MinusCircleOutlined onClick={() => remove(field.name)} />
+                            </Space>
+                          ))}
+                          {fields.length < 6 && (
+                            <Button type="dashed" icon={<PlusOutlined />} onClick={() => add('')}>
+                              添加预设问题
+                            </Button>
+                          )}
+                        </Space>
+                      )}
+                    </Form.List>
                   </Form.Item>
                 </Card>
               ),

@@ -240,8 +240,16 @@ export function useSSE() {
           payload,
           {
             onCitations: (cs) => {
-              citations = cs;
-              setState((s) => ({ ...s, citations: cs }));
+              // 多跳：一次回答里模型可能多次调用 rag.search，每次来一批 citations。
+              // 累积合并而非覆盖，并按 chunkId 去重（CitationReferences 假定来源已按 chunkId 去重），
+              // 否则后到的检索来源会把先到的冲掉，「参考来源」只剩最后一次检索的文档。
+              // Map 保留首次插入顺序：已有来源位置不变，新去重后的来源追加在后。
+              const merged = new Map<string, ChatCitation>();
+              for (const c of [...citations, ...cs]) {
+                merged.set(c.chunkId ?? `${c.docId}#${c.content ?? ''}`, c);
+              }
+              citations = [...merged.values()];
+              setState((s) => ({ ...s, citations }));
             },
             onDelta,
             onToolCall,

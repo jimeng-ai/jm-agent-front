@@ -11,6 +11,7 @@ import {
   type MessageSegment,
 } from '@/features/chat-admin/types';
 import { uploadAgentFile } from '@/api/agentFiles';
+import { glyphColor } from '@/utils/glyph';
 import type { ChatCitation, ChatMessageHistoryItem } from '@/api/types';
 
 /** 助手回复完成时回传的元信息（用于持久化）。 */
@@ -30,6 +31,11 @@ interface Props {
   /** true=调试台：用 Agent 实时草稿配置；缺省=对话端，只读已发布快照（未发布则后端拒绝对话）。 */
   preview?: boolean;
   placeholder?: string;
+  /** 对话为空时的引导信息（对话端传入；调试台不传，仍用 placeholder）。 */
+  agentName?: string;
+  agentDescription?: string;
+  agentAvatar?: string;
+  presetQuestions?: string[];
   /** 初始消息（用于恢复已落库的会话历史）。 */
   initialMessages?: ChatMessage[];
   /** 每次用户发送消息时回调（用于持久化用户消息 + 其附件）。 */
@@ -46,6 +52,10 @@ export default function ChatPanel({
   simple,
   preview,
   placeholder,
+  agentName,
+  agentDescription,
+  agentAvatar,
+  presetQuestions,
   initialMessages,
   onSubmit,
   onAssistantMessage,
@@ -197,11 +207,49 @@ export default function ChatPanel({
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', padding: 16 }}>
         {messages.length === 0 ? (
-          <div style={{ textAlign: 'center', color: '#999', marginTop: 80 }}>
-            <Typography.Text type="secondary">
-              {placeholder || '试着提一个问题，或上传文件让 Agent 处理'}
-            </Typography.Text>
-          </div>
+          agentName ? (
+            <div className="chat-empty">
+              {agentAvatar ? (
+                <img className="chat-empty-avatar" src={agentAvatar} alt={agentName} />
+              ) : (
+                <div
+                  className="chat-empty-avatar glyph"
+                  style={{
+                    background: glyphColor(agentName).bg,
+                    color: glyphColor(agentName).fg,
+                  }}
+                >
+                  {agentName.slice(0, 1)}
+                </div>
+              )}
+              <h2 className="chat-empty-title">我是{agentName}</h2>
+              {agentDescription && <p className="chat-empty-desc">{agentDescription}</p>}
+              {presetQuestions && presetQuestions.length > 0 && (
+                <>
+                  <div className="chat-empty-hint">试着这样问</div>
+                  <div className="chat-empty-grid">
+                    {presetQuestions.slice(0, 4).map((q, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        className="chat-empty-card"
+                        disabled={isStreaming || isUploading}
+                        onClick={() => submit(q)}
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', color: '#999', marginTop: 80 }}>
+              <Typography.Text type="secondary">
+                {placeholder || '试着提一个问题，或上传文件让 Agent 处理'}
+              </Typography.Text>
+            </div>
+          )
         ) : (
           messages.map((m) => <MessageBubble key={m.id} message={m} />)
         )}

@@ -1,12 +1,12 @@
 import { useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Avatar, Empty, Spin, Typography, message } from 'antd';
-import { RobotOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
 import { agentApi } from '@/features/agent/api';
 import ChatPanel, { type AssistantMessageMeta } from '@/features/chat-admin/components/ChatPanel';
 import { conversationApi, type MessageView } from '@/features/chat-admin/conversationApi';
 import type { ChatAttachment, ChatMessage } from '@/features/chat-admin/types';
+import { glyphColor } from '@/utils/glyph';
 
 function toChatMessage(m: MessageView): ChatMessage {
   return {
@@ -50,8 +50,7 @@ export default function ConversationPage() {
   const convIdRef = useRef<string | null>(conversationId);
   const createPromiseRef = useRef<Promise<string> | null>(null);
 
-  const refreshList = () =>
-    queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
+  const refreshList = () => queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
 
   const ensureConversation = (firstText: string): Promise<string> => {
     if (convIdRef.current) return Promise.resolve(convIdRef.current);
@@ -81,7 +80,11 @@ export default function ConversationPage() {
         filename: a.filename,
         contentType: a.contentType,
       }));
-      await conversationApi.appendMessage(id, { role: 'user', content: text, attachments: persisted });
+      await conversationApi.appendMessage(id, {
+        role: 'user',
+        content: text,
+        attachments: persisted,
+      });
       refreshList();
     } catch (e) {
       message.error('消息未能保存：' + (e instanceof Error ? e.message : '未知错误'));
@@ -129,15 +132,19 @@ export default function ConversationPage() {
     <div className="chat-conversation">
       <div className="chat-conversation-head">
         <Avatar
-          src={agent.avatar}
-          icon={!agent.avatar && <RobotOutlined />}
-          style={{ marginRight: 12 }}
-        />
+          src={agent.avatarUrl || undefined}
+          style={{
+            marginRight: 12,
+            ...(agent.avatarUrl
+              ? {}
+              : { background: glyphColor(agent.name).bg, color: glyphColor(agent.name).fg }),
+          }}
+        >
+          {!agent.avatarUrl && agent.name?.slice(0, 1)}
+        </Avatar>
         <div>
           <Typography.Text strong>{agent.name}</Typography.Text>
-          {agent.description && (
-            <div style={{ fontSize: 12, color: '#999' }}>{agent.description}</div>
-          )}
+          {agent.model && <div className="chat-conversation-model">{agent.model}</div>}
         </div>
       </div>
       <div className="chat-conversation-body">
@@ -145,6 +152,10 @@ export default function ConversationPage() {
           key={panelKey}
           agentId={agentId}
           simple
+          agentName={agent.name}
+          agentDescription={agent.description}
+          agentAvatar={agent.avatarUrl}
+          presetQuestions={agent.presetQuestions}
           initialMessages={initialMessages}
           onSubmit={handleUserMessage}
           onAssistantMessage={handleAssistantMessage}
