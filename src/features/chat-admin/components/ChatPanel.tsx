@@ -56,6 +56,8 @@ export default function ChatPanel({
   const [attached, setAttached] = useState<ChatAttachment[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sse = useSSE();
+  // 有附件仍在上传中：禁用发送，避免把临时占位 id 当作 fileId 发出去
+  const isUploading = attached.some((a) => a.uploading);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -76,7 +78,7 @@ export default function ChatPanel({
     // 丢掉文件上下文与生图工具（生图能力只在沙箱链路有）。做法：把本会话累积的所有附件
     // fileId（含刷新后从 initialMessages 恢复的历史消息）连同本轮新附件去重后一起带给 exec，
     // 沙箱据此把早先发的图也铺进 /work，多轮即可记住图 + 继续生图。
-    const newFileIds = attached.map((a) => String(a.fileId));
+    const newFileIds = attached.filter((a) => !a.uploading).map((a) => String(a.fileId));
     const priorFileIds = messages.flatMap((m) =>
       (m.attachments ?? []).map((a) => String(a.fileId)),
     );
@@ -153,19 +155,38 @@ export default function ChatPanel({
     const file = options.file as File;
     // 本地预览 URL（会话内有效）：图片放大、文档新标签预览都用它
     const localUrl = URL.createObjectURL(file);
+    // 临时占位 id：上传一开始就把缩略图（带 loading 态）显示出来，避免上传期间界面无反馈，
+    // 用户感觉「选完图片半天才冒出来」。上传完成后据此换成真实 fileId，失败则据此移除。
+    const tempId = `uploading-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setAttached((prev) => [
+      ...prev,
+      {
+        fileId: tempId,
+        filename: file.name,
+        contentType: file.type,
+        url: localUrl,
+        uploading: true,
+      },
+    ]);
     try {
       const res = await uploadAgentFile(file);
-      setAttached((prev) => [
-        ...prev,
-        {
-          fileId: res.fileId,
-          filename: res.filename,
-          contentType: res.contentType ?? file.type,
-          url: localUrl,
-        },
-      ]);
+      // 上传成功：把占位项替换为真实 fileId 并清除 loading 态（保留同一个本地预览 url）
+      setAttached((prev) =>
+        prev.map((a) =>
+          a.fileId === tempId
+            ? {
+                fileId: res.fileId,
+                filename: res.filename,
+                contentType: res.contentType ?? file.type,
+                url: localUrl,
+              }
+            : a,
+        ),
+      );
       options.onSuccess?.(res);
     } catch (e) {
+      // 上传失败：移除占位项并回收本地 URL
+      setAttached((prev) => prev.filter((a) => a.fileId !== tempId));
       URL.revokeObjectURL(localUrl);
       options.onError?.(e as Error);
       toast.error(`文件上传失败：${(e as Error).message}`);
@@ -233,7 +254,7 @@ export default function ChatPanel({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                if (input.trim() && !isStreaming) submit(input.trim());
+                if (input.trim() && !isStreaming && !isUploading) submit(input.trim());
               }
             }}
           />
@@ -255,8 +276,8 @@ export default function ChatPanel({
             <Button
               type="primary"
               icon={<SendOutlined />}
-              onClick={() => input.trim() && !isStreaming && submit(input.trim())}
-              disabled={!input.trim() || isStreaming}
+              onClick={() => input.trim() && !isStreaming && !isUploading && submit(input.trim())}
+              disabled={!input.trim() || isStreaming || isUploading}
             >
               发送
             </Button>

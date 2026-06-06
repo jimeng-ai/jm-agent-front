@@ -40,6 +40,8 @@ export interface ChatAttachment {
   filename: string;
   contentType?: string;
   url?: string;
+  /** 上传进行中：缩略图先用本地 url 占位并显示 loading；上传完成后置 false 并换成真实 fileId */
+  uploading?: boolean;
 }
 
 export interface ChatMessage {

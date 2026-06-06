@@ -21,7 +21,8 @@ function fileIcon(name: string) {
   if (/\.(xlsx?|csv|tsv)$/i.test(name)) return <FileExcelOutlined style={{ color: '#22a06b' }} />;
   if (/\.pdf$/i.test(name)) return <FilePdfOutlined style={{ color: '#e5484d' }} />;
   if (/\.docx?$/i.test(name)) return <FileWordOutlined style={{ color: '#2b7de9' }} />;
-  if (/\.(txt|md|json|log|xml|ya?ml)$/i.test(name)) return <FileTextOutlined style={{ color: '#8c8c8c' }} />;
+  if (/\.(txt|md|json|log|xml|ya?ml)$/i.test(name))
+    return <FileTextOutlined style={{ color: '#8c8c8c' }} />;
   return <FileOutlined style={{ color: '#8c8c8c' }} />;
 }
 
@@ -93,7 +94,14 @@ export default function AttachmentThumb({
             src={imgUrl}
             width={SQUARE}
             height={SQUARE}
-            style={{ objectFit: 'cover', borderRadius: 8, border: '1px solid #eee' }}
+            // 上传中先用本地图占位但不允许放大预览，待上传完成再开放
+            preview={!item.uploading}
+            style={{
+              objectFit: 'cover',
+              borderRadius: 8,
+              border: '1px solid #eee',
+              opacity: item.uploading ? 0.55 : 1,
+            }}
           />
         ) : (
           <div
@@ -110,17 +118,33 @@ export default function AttachmentThumb({
             <Spin size="small" />
           </div>
         )}
-        {removeBtn}
+        {/* 上传中：在缩略图上盖一层 loading，给「正在上传」的明确反馈 */}
+        {item.uploading && imgUrl && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'grid',
+              placeItems: 'center',
+              borderRadius: 8,
+              background: 'rgba(255,255,255,0.35)',
+            }}
+          >
+            <Spin size="small" />
+          </div>
+        )}
+        {!item.uploading && removeBtn}
       </div>
     );
   }
 
   return (
     <div style={{ position: 'relative', display: 'inline-flex' }}>
-      <Tooltip title="点击预览">
+      <Tooltip title={item.uploading ? '上传中…' : '点击预览'}>
         <button
           type="button"
-          onClick={() => setPreview(true)}
+          // 上传中禁止打开预览（文件流还没就绪）
+          onClick={() => !item.uploading && setPreview(true)}
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -130,18 +154,20 @@ export default function AttachmentThumb({
             border: '1px solid #eee',
             borderRadius: 8,
             background: '#fafafa',
-            cursor: 'pointer',
+            cursor: item.uploading ? 'default' : 'pointer',
             font: 'inherit',
             color: 'inherit',
           }}
         >
-          <span style={{ fontSize: 18, display: 'inline-flex' }}>{fileIcon(item.filename)}</span>
+          <span style={{ fontSize: 18, display: 'inline-flex' }}>
+            {item.uploading ? <Spin size="small" /> : fileIcon(item.filename)}
+          </span>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {item.filename}
           </span>
         </button>
       </Tooltip>
-      {removeBtn}
+      {!item.uploading && removeBtn}
       {preview && <FilePreviewModal item={item} onClose={() => setPreview(false)} />}
     </div>
   );
