@@ -25,6 +25,11 @@ export default function AgentListPage() {
     queryFn: () => agentApi.list(),
   });
 
+  // 统一的失败提示：axios 拦截器会抛 BizError(message = 后端 respMsg)，
+  // 之前各 mutation 都没有 onError，后端报错被 react-query 静默吞掉 → 点了「没反应」。
+  const showError = (fallback: string) => (e: unknown) =>
+    message.error(e instanceof Error && e.message ? e.message : fallback);
+
   const createMut = useMutation({
     mutationFn: agentApi.create,
     onSuccess: (a) => {
@@ -33,6 +38,7 @@ export default function AgentListPage() {
       qc.invalidateQueries({ queryKey: ['agent', 'list'] });
       navigate(`/console/agents/${a.id}`);
     },
+    onError: showError('创建失败'),
   });
 
   const delMut = useMutation({
@@ -41,6 +47,7 @@ export default function AgentListPage() {
       message.success('已删除');
       qc.invalidateQueries({ queryKey: ['agent', 'list'] });
     },
+    onError: showError('删除失败'),
   });
 
   const publishMut = useMutation({
@@ -49,6 +56,7 @@ export default function AgentListPage() {
       message.success('已发布');
       qc.invalidateQueries({ queryKey: ['agent', 'list'] });
     },
+    onError: showError('发布失败'),
   });
 
   const unpublishMut = useMutation({
@@ -57,6 +65,7 @@ export default function AgentListPage() {
       message.success('已下架');
       qc.invalidateQueries({ queryKey: ['agent', 'list'] });
     },
+    onError: showError('下架失败'),
   });
 
   return (
@@ -119,10 +128,7 @@ export default function AgentListPage() {
                     </Button>
                   </Popconfirm>
                 ) : (
-                  <Popconfirm
-                    title="发布该 Agent？"
-                    onConfirm={() => publishMut.mutate(row.id)}
-                  >
+                  <Popconfirm title="发布该 Agent？" onConfirm={() => publishMut.mutate(row.id)}>
                     <Button size="small" type="link" icon={<SendOutlined />}>
                       发布
                     </Button>
