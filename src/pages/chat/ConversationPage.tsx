@@ -1,10 +1,11 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Avatar, Empty, Spin, Typography } from 'antd';
 import { useParams } from 'react-router-dom';
 import { agentApi } from '@/features/agent/api';
 import ChatPanel from '@/features/chat-admin/components/ChatPanel';
 import { conversationApi, type MessageView } from '@/features/chat-admin/conversationApi';
+import { useActiveConversationStore } from '@/features/chat-admin/unreadStore';
 import type { ChatMessage, ChatStatus } from '@/features/chat-admin/types';
 import { glyphColor } from '@/utils/glyph';
 
@@ -59,6 +60,14 @@ export default function ConversationPage() {
   const convIdRef = useRef<string | null>(conversationId);
   const createPromiseRef = useRef<Promise<string> | null>(null);
 
+  // 把「当前正在看的会话 id」同步给全局 store，侧栏据此判定已读、不弹红点。
+  // 已有会话用 URL 的 conversationId；新会话懒创建后由 ensureConversation 补写真实 id。
+  const setActiveConversationId = useActiveConversationStore((s) => s.setActiveId);
+  useEffect(() => {
+    setActiveConversationId(conversationId);
+    return () => setActiveConversationId(null);
+  }, [conversationId, setActiveConversationId]);
+
   const refreshList = () => queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
 
   const ensureConversation = (firstText: string): Promise<string> => {
@@ -72,6 +81,8 @@ export default function ConversationPage() {
         })
         .then((c) => {
           convIdRef.current = c.id;
+          // 新会话 URL 不会变成 /chat/c/:id，这里把真实 id 写进 store，否则侧栏仍把它当未读。
+          setActiveConversationId(c.id);
           refreshList();
           return c.id;
         });

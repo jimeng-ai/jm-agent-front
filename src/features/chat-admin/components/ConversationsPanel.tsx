@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Spin } from 'antd';
 import { CloseOutlined } from '@ant-design/icons';
 import { conversationApi, type ConversationView } from '@/features/chat-admin/conversationApi';
-import { useChatUnreadStore } from '@/features/chat-admin/unreadStore';
+import { useActiveConversationStore, useChatUnreadStore } from '@/features/chat-admin/unreadStore';
 import { agentApi } from '@/features/agent/api';
 import { glyphColor } from '@/utils/glyph';
 import { PlusIcon, SearchIcon } from '@/components/icons/AtlasIcons';
@@ -40,7 +40,9 @@ function timeLabel(ts: number): string {
 
 export default function ConversationsPanel() {
   const navigate = useNavigate();
-  const { conversationId: activeId } = useParams();
+  // 侧栏是 Outlet 的兄弟节点，useParams 读不到子路由的 conversationId；
+  // 改从全局 store 取「当前正在看的会话 id」（含懒创建的新会话），才能正确把它当已读不弹红点。
+  const activeId = useActiveConversationStore((s) => s.activeId);
   const queryClient = useQueryClient();
   const { modal, message } = App.useApp();
   const [q, setQ] = useState('');

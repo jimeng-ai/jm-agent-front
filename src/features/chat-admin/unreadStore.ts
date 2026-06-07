@@ -24,6 +24,27 @@ interface ChatUnreadState {
 const sameList = (a: string[], b: string[]) =>
   a.length === b.length && a.every((x, i) => x === b[i]);
 
+/**
+ * 「当前正在看的会话 id」全局态。
+ *
+ * 为什么不能靠路由 useParams：侧栏 ConversationsPanel 是 ChatLayout 里 Outlet 的兄弟节点，
+ * 它的 useParams 只能拿到父路由 `/chat` 的参数，读不到子路由的 `:conversationId`；
+ * 且新会话是「懒创建」——创建后 URL 仍停在 `/chat/agent/:agentId`，永远不带 conversationId。
+ * 两种情况都会让侧栏把「正在看的会话」误判成未读弹红点。
+ *
+ * 由 ConversationPage 写入（URL 已有会话 + 懒创建出的新会话），侧栏读它当 activeId。
+ * 仅内存：刷新即重置，无需持久化。
+ */
+interface ActiveConversationState {
+  activeId: string | null;
+  setActiveId: (id: string | null) => void;
+}
+
+export const useActiveConversationStore = create<ActiveConversationState>((set) => ({
+  activeId: null,
+  setActiveId: (id) => set((s) => (s.activeId === id ? s : { activeId: id })),
+}));
+
 export const useChatUnreadStore = create<ChatUnreadState>()(
   persist(
     (set, get) => ({
