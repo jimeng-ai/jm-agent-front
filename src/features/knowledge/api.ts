@@ -1,5 +1,8 @@
 import { del, get, post, upload, httpClient } from '@/api/client';
-import type { KbDocument, KnowledgeBase, SearchHit } from '@/api/types';
+import { useAuthStore } from '@/stores/authStore';
+import type { KbChunk, KbDocument, KnowledgeBase, SearchHit } from '@/api/types';
+
+const baseURL = import.meta.env.VITE_API_BASE || '/data';
 
 export const kbApi = {
   list: () => get<KnowledgeBase[]>('/rag/kb'),
@@ -15,7 +18,23 @@ export const docApi = {
   upload: (kbId: string, file: File) => upload<KbDocument>(`/rag/kb/${kbId}/documents`, file),
   delete: (docId: string) => del<void>(`/rag/documents/${docId}`),
   retry: (docId: string) => post<void>(`/rag/documents/${docId}/retry`),
+  chunks: (docId: string) => get<KbChunk[]>(`/rag/documents/${docId}/chunks`),
 };
+
+/**
+ * 取文档原始文件 → Blob。预览端点经网关需带 Authorization / X-Tenant-Id 头，
+ * 不能用裸 <iframe src>，这里用 fetch 取流再生成 object URL（与 agentFiles 同套鉴权）。
+ * blob.type 即后端按文件后缀给出的 Content-Type，前端据此决定如何渲染。
+ */
+export async function fetchDocPreviewBlob(docId: string): Promise<Blob> {
+  const { token, tenantId } = useAuthStore.getState();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = token;
+  if (tenantId) headers['X-Tenant-Id'] = tenantId;
+  const resp = await fetch(`${baseURL}/rag/documents/${docId}/preview`, { headers });
+  if (!resp.ok) throw new Error(`预览失败 HTTP ${resp.status}`);
+  return resp.blob();
+}
 
 export const searchApi = {
   search: (payload: { kbId: string; query: string; topK?: number; rerank?: boolean }) =>

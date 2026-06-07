@@ -1,31 +1,32 @@
 import { useEffect, useState } from 'react';
-import { Modal, Spin, Empty, Button, Tabs } from 'antd';
-import { resolveAttachmentUrl, fetchAgentFileBlob } from '@/api/agentFiles';
+import { Button, Empty, Modal, Spin, Tabs } from 'antd';
+import { DownloadOutlined } from '@ant-design/icons';
+import { fetchDocPreviewBlob } from '@/features/knowledge/api';
 import { decodeText } from '@/utils/textDecode';
-import type { ChatAttachment } from '@/features/chat-admin/types';
+
+interface Props {
+  docId: string;
+  title: string;
+  open: boolean;
+  onClose: () => void;
+}
 
 type Kind = 'image' | 'pdf' | 'sheet' | 'docx' | 'text' | 'other';
 
-function kindOf(a: ChatAttachment): Kind {
-  const n = a.filename.toLowerCase();
-  const ct = a.contentType || '';
-  if (ct.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(n)) return 'image';
-  if (ct === 'application/pdf' || n.endsWith('.pdf')) return 'pdf';
-  if (/\.(xlsx?|csv|tsv)$/.test(n)) return 'sheet';
+// 按文件名后缀判类型，与对话端 FilePreviewModal 保持一致的渲染方式。
+function kindOf(filename: string): Kind {
+  const n = filename.toLowerCase();
+  if (/\.(png|jpe?g|gif|webp|bmp|svg)$/.test(n)) return 'image';
+  if (n.endsWith('.pdf')) return 'pdf';
+  if (/\.(xlsx?|xlsm|csv|tsv)$/.test(n)) return 'sheet';
   if (n.endsWith('.docx') || n.endsWith('.doc')) return 'docx';
-  if (/\.(txt|md|json|log|xml|ya?ml)$/.test(n)) return 'text';
+  if (/\.(txt|md|markdown|json|log|xml|ya?ml)$/.test(n)) return 'text';
   return 'other';
 }
 
-/** 内联预览：图片 / PDF(iframe) / 表格(xlsx,csv → HTML 表) / Word(docx → HTML) / 文本。 */
-export default function FilePreviewModal({
-  item,
-  onClose,
-}: {
-  item: ChatAttachment;
-  onClose: () => void;
-}) {
-  const kind = kindOf(item);
+/** 知识库文档内联预览：图片 / PDF(iframe) / 表格(xlsx,csv → HTML 表) / Word(docx → HTML) / 文本。 */
+export default function PreviewModal({ docId, title, open, onClose }: Props) {
+  const kind = kindOf(title);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
@@ -34,24 +35,30 @@ export default function FilePreviewModal({
   const [text, setText] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!open) return;
     let revoke: string | null = null;
     let cancelled = false;
-    const getBlob = async () =>
-      item.url ? await (await fetch(item.url)).blob() : await fetchAgentFileBlob(item.fileId);
 
     (async () => {
       try {
         setLoading(true);
         setError(null);
+        setUrl(null);
+        setHtml(null);
+        setSheets(null);
+        setText(null);
+        const blob = await fetchDocPreviewBlob(docId);
+        if (cancelled) return;
         if (kind === 'image' || kind === 'pdf' || kind === 'other') {
-          const u = await resolveAttachmentUrl(item);
-          if (!item.url) revoke = u;
+          const u = URL.createObjectURL(blob);
+          revoke = u;
           if (!cancelled) setUrl(u);
         } else if (kind === 'sheet') {
-          const buf = await (await getBlob()).arrayBuffer();
+          const buf = await blob.arrayBuffer();
           const XLSX = await import('xlsx');
-          const isCsv = /\.(csv|tsv)$/.test(item.filename.toLowerCase());
-          // CSV/TSV 是裸文本字节，按 array 读会用 Latin-1 解码致中文乱码：先 UTF-8/GBK 解码再以 string 交给 SheetJS。
+          const isCsv = /\.(csv|tsv)$/.test(title.toLowerCase());
+          // CSV/TSV 是裸文本字节，SheetJS 按 array 读会用 Latin-1 解码致中文乱码：
+          // 先严格 UTF-8 解码，失败再退 GBK（兼容 Excel 导出的 GBK CSV），再以 string 交给 SheetJS。
           const wb = isCsv
             ? XLSX.read(decodeText(new Uint8Array(buf)), { type: 'string' })
             : XLSX.read(buf, { type: 'array' });
@@ -61,12 +68,12 @@ export default function FilePreviewModal({
           }));
           if (!cancelled) setSheets(list);
         } else if (kind === 'docx') {
-          const buf = await (await getBlob()).arrayBuffer();
+          const buf = await blob.arrayBuffer();
           const mammoth = await import('mammoth');
           const res = await mammoth.convertToHtml({ arrayBuffer: buf });
           if (!cancelled) setHtml(res.value);
         } else if (kind === 'text') {
-          const t = decodeText(new Uint8Array(await (await getBlob()).arrayBuffer()));
+          const t = decodeText(new Uint8Array(await blob.arrayBuffer()));
           if (!cancelled) setText(t);
         }
       } catch (e) {
@@ -79,17 +86,34 @@ export default function FilePreviewModal({
       cancelled = true;
       if (revoke) URL.revokeObjectURL(revoke);
     };
-  }, [item, kind]);
+  }, [open, docId, kind, title]);
+
+  const download = async () => {
+    const blob = await fetchDocPreviewBlob(docId);
+    const u = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = u;
+    a.download = title || `document-${docId}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(u);
+  };
 
   return (
     <Modal
-      open
-      title={item.filename}
-      footer={null}
+      open={open}
+      title={title}
       onCancel={onClose}
       width={kind === 'sheet' || kind === 'pdf' ? '90%' : 860}
       style={{ top: 24 }}
       styles={{ body: { maxHeight: '78vh', overflow: 'auto' } }}
+      footer={
+        <Button icon={<DownloadOutlined />} onClick={download}>
+          下载
+        </Button>
+      }
+      destroyOnClose
     >
       {loading ? (
         <div style={{ textAlign: 'center', padding: 60 }}>
@@ -100,15 +124,11 @@ export default function FilePreviewModal({
       ) : kind === 'image' && url ? (
         <img
           src={url}
-          alt={item.filename}
+          alt={title}
           style={{ maxWidth: '100%', display: 'block', margin: '0 auto' }}
         />
       ) : kind === 'pdf' && url ? (
-        <iframe
-          src={url}
-          title={item.filename}
-          style={{ width: '100%', height: '74vh', border: 'none' }}
-        />
+        <iframe src={url} title={title} style={{ width: '100%', height: '74vh', border: 'none' }} />
       ) : kind === 'sheet' && sheets ? (
         sheets.length > 1 ? (
           <Tabs

@@ -162,12 +162,33 @@ export interface KbDocument {
   sourceType?: string;
   minioBucket?: string;
   fileHash?: string;
-  fileSize?: number;
+  /** 文件大小（字节）。后端 Long 因 numbers-as-strings 可能序列化成字符串。 */
+  fileSize?: number | string;
   status: DocStatus;
   totalChunks?: number;
   errorMessage?: string;
   createTime?: string;
   updateTime?: string;
+}
+
+/** 文档入库后产生的切片。 */
+export interface KbChunk {
+  id: string;
+  chunkId: string;
+  docId: string;
+  kbId: string;
+  chunkIndex: number;
+  /** text / table / image / code */
+  chunkType?: string;
+  /** 例如 "Ch1 > Sec1.2 > Subsection" */
+  headingPath?: string;
+  pageNum?: number;
+  /** 原始切片文本 */
+  content: string;
+  /** 带 LLM 生成上下文前缀的版本（BM25/embedding 实际使用） */
+  contextualizedContent?: string;
+  imageUrl?: string;
+  tokenCount?: number;
 }
 
 export interface SearchHit {

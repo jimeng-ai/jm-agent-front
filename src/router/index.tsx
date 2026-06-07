@@ -15,6 +15,7 @@ const PluginEditorPage = lazy(() => import('@/pages/console/plugin/PluginEditorP
 const KnowledgeListPage = lazy(() => import('@/pages/console/knowledge/KnowledgeListPage'));
 const KnowledgeDetailPage = lazy(() => import('@/pages/console/knowledge/KnowledgeDetailPage'));
 const PlaygroundPage = lazy(() => import('@/pages/console/playground/PlaygroundPage'));
+const TraceListPage = lazy(() => import('@/pages/console/trace/TraceListPage'));
 const ChatHomePage = lazy(() => import('@/pages/chat/ChatHomePage'));
 const ChatConversationPage = lazy(() => import('@/pages/chat/ConversationPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
@@ -100,6 +101,8 @@ export default function AppRouter() {
               </ModuleRoute>
             }
           />
+          {/* 调用日志：v1 不加新 module 权限，登录态即可访问 */}
+          <Route path="traces" element={<TraceListPage />} />
         </Route>
 
         <Route

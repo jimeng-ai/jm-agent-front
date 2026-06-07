@@ -16,9 +16,11 @@ import type { UploadProps } from 'antd';
 import {
   ArrowLeftOutlined,
   DeleteOutlined,
+  EyeOutlined,
   ReloadOutlined,
   SearchOutlined,
   InboxOutlined,
+  ProfileOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { docApi, kbApi } from '@/features/knowledge/api';
@@ -30,6 +32,8 @@ import {
   isPending,
 } from '@/features/knowledge/utils';
 import SearchTestDrawer from '@/features/knowledge/components/SearchTestDrawer';
+import PreviewModal from '@/features/knowledge/components/PreviewModal';
+import ChunksDrawer from '@/features/knowledge/components/ChunksDrawer';
 import type { KbDocument } from '@/api/types';
 
 const { Dragger } = Upload;
@@ -40,6 +44,8 @@ export default function KnowledgeDetailPage() {
   const { message } = App.useApp();
   const qc = useQueryClient();
   const [searchOpen, setSearchOpen] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<KbDocument | null>(null);
+  const [chunksDoc, setChunksDoc] = useState<KbDocument | null>(null);
 
   const kbQuery = useQuery({
     queryKey: ['kb', 'detail', kbId],
@@ -155,9 +161,20 @@ export default function KnowledgeDetailPage() {
           },
           {
             title: '操作',
-            width: 160,
+            width: 240,
             render: (_, row) => (
               <Space>
+                <Button size="small" icon={<EyeOutlined />} onClick={() => setPreviewDoc(row)}>
+                  预览
+                </Button>
+                <Button
+                  size="small"
+                  icon={<ProfileOutlined />}
+                  disabled={row.status !== 'DONE'}
+                  onClick={() => setChunksDoc(row)}
+                >
+                  切片
+                </Button>
                 {row.status === 'FAILED' && (
                   <Button
                     size="small"
@@ -168,10 +185,7 @@ export default function KnowledgeDetailPage() {
                     重试
                   </Button>
                 )}
-                <Popconfirm
-                  title="确认删除该文档？"
-                  onConfirm={() => delMut.mutate(row.id)}
-                >
+                <Popconfirm title="确认删除该文档？" onConfirm={() => delMut.mutate(row.id)}>
                   <Button size="small" danger icon={<DeleteOutlined />} />
                 </Popconfirm>
               </Space>
@@ -181,6 +195,23 @@ export default function KnowledgeDetailPage() {
       />
 
       <SearchTestDrawer kbId={kbId} open={searchOpen} onClose={() => setSearchOpen(false)} />
+
+      {previewDoc && (
+        <PreviewModal
+          docId={previewDoc.id}
+          title={previewDoc.title}
+          open={!!previewDoc}
+          onClose={() => setPreviewDoc(null)}
+        />
+      )}
+      {chunksDoc && (
+        <ChunksDrawer
+          docId={chunksDoc.id}
+          title={chunksDoc.title}
+          open={!!chunksDoc}
+          onClose={() => setChunksDoc(null)}
+        />
+      )}
     </div>
   );
 }

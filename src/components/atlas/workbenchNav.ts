@@ -5,6 +5,7 @@ import {
   PlugIcon,
   PlayIcon,
   SparklesIcon,
+  ListIcon,
 } from '@/components/icons/AtlasIcons';
 
 export type NavItem = {
@@ -20,9 +21,27 @@ export type NavItem = {
 export const WORKBENCH_NAV: NavItem[] = [
   { key: 'dashboard', label: '仪表盘', path: '/console/dashboard', Icon: DashboardIcon },
   { key: 'chat', label: '对话', path: '/chat', Icon: SparklesIcon, module: 'CHAT_MODULE' },
-  { key: 'agents', label: 'Agents', path: '/console/agents', Icon: AgentIcon, module: 'AGENT_MODULE' },
-  { key: 'knowledge', label: '知识库', path: '/console/knowledge', Icon: BookIcon, module: 'KB_MODULE' },
-  { key: 'plugins', label: '插件', path: '/console/plugins', Icon: PlugIcon, module: 'PLUGIN_MODULE' },
+  {
+    key: 'agents',
+    label: 'Agents',
+    path: '/console/agents',
+    Icon: AgentIcon,
+    module: 'AGENT_MODULE',
+  },
+  {
+    key: 'knowledge',
+    label: '知识库',
+    path: '/console/knowledge',
+    Icon: BookIcon,
+    module: 'KB_MODULE',
+  },
+  {
+    key: 'plugins',
+    label: '插件',
+    path: '/console/plugins',
+    Icon: PlugIcon,
+    module: 'PLUGIN_MODULE',
+  },
 ];
 
 export const DEBUG_NAV: NavItem[] = [
@@ -33,6 +52,7 @@ export const DEBUG_NAV: NavItem[] = [
     Icon: PlayIcon,
     module: 'AGENT_MODULE',
   },
+  { key: 'traces', label: '调用日志', path: '/console/traces', Icon: ListIcon },
 ];
 
 export function workbenchCrumbs(pathname: string): string[] {
