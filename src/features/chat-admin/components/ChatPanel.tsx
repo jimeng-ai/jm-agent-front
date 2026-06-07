@@ -38,10 +38,19 @@ interface Props {
   presetQuestions?: string[];
   /** 初始消息（用于恢复已落库的会话历史）。 */
   initialMessages?: ChatMessage[];
-  /** 每次用户发送消息时回调（用于持久化用户消息 + 其附件）。 */
+  /** 每次用户发送消息时回调（用于持久化用户消息 + 其附件）。仅旧直连模式用。 */
   onSubmit?: (text: string, attachments?: ChatAttachment[]) => void;
-  /** assistant 回复完成时回调（用于持久化助手消息）。 */
+  /** assistant 回复完成时回调（用于持久化助手消息）。仅旧直连模式用。 */
   onAssistantMessage?: (text: string, meta: AssistantMessageMeta) => void;
+  /**
+   * 提供则进入「服务端自持久化 + 可重连」模式（对话端）：发送走 /turns（服务端落库 user+assistant 并生成），
+   * 不再前端 appendMessage。回调懒创建会话并返回会话 id。缺省=旧直连模式（调试台）。
+   */
+  onEnsureConversation?: (firstText: string) => Promise<string>;
+  /** 进入会话时若最后一条助手消息仍在生成，传其 runId → 挂载即重连续播。 */
+  resumeRunId?: string | null;
+  /** 一轮开始/结束时回调（对话端用于刷新会话列表，清掉「正在回复」标志）。 */
+  onTurnChange?: () => void;
 }
 
 export default function ChatPanel({
@@ -59,6 +68,9 @@ export default function ChatPanel({
   initialMessages,
   onSubmit,
   onAssistantMessage,
+  onEnsureConversation,
+  resumeRunId,
+  onTurnChange,
 }: Props) {
   const { message: toast } = App.useApp();
   const [messages, setMessages] = useState<ChatMessage[]>(() => initialMessages ?? []);
@@ -66,6 +78,8 @@ export default function ChatPanel({
   const [attached, setAttached] = useState<ChatAttachment[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sse = useSSE();
+  // 提供懒创建会话回调 = 对话端：服务端自持久化 + 可重连模式。
+  const resilient = !!onEnsureConversation;
   // 有附件仍在上传中：禁用发送，避免把临时占位 id 当作 fileId 发出去
   const isUploading = attached.some((a) => a.uploading);
 
@@ -83,11 +97,11 @@ export default function ChatPanel({
     [messages],
   );
 
-  const submit = (queryText: string) => {
+  const submit = async (queryText: string) => {
     // 路由策略：本会话只要出现过附件，后续轮次也持续走沙箱(exec)——否则掉回 RAG 链路会
     // 丢掉文件上下文与生图工具（生图能力只在沙箱链路有）。做法：把本会话累积的所有附件
-    // fileId（含刷新后从 initialMessages 恢复的历史消息）连同本轮新附件去重后一起带给 exec，
-    // 沙箱据此把早先发的图也铺进 /work，多轮即可记住图 + 继续生图。
+    // fileId（含刷新后从 initialMessages 恢复的历史消息）连同本轮新附件去重后一起带过去，
+    // 沙箱据此把早先发的图也铺进 /work，多轮即可记住图 + 继续生图。对话端由服务端据此裁决 rag/exec。
     const newFileIds = attached.filter((a) => !a.uploading).map((a) => String(a.fileId));
     const priorFileIds = messages.flatMap((m) =>
       (m.attachments ?? []).map((a) => String(a.fileId)),
@@ -98,12 +112,51 @@ export default function ChatPanel({
     const userMsg = newMessage('user', queryText);
     // 把附件挂到用户消息上，便于气泡里显示缩略图/可预览（会话内有效）
     if (attached.length > 0) userMsg.attachments = attached;
-    onSubmit?.(queryText, userMsg.attachments);
     const assistantMsg = newMessage('assistant', '');
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
     setInput('');
     setAttached([]);
 
+    if (resilient) {
+      // 对话端：服务端落库 user+assistant 并生成；前端只发起 + 续播，断连/切走/刷新都不丢。
+      const persistedAttachments = userMsg.attachments?.map((a) => ({
+        fileId: a.fileId,
+        filename: a.filename,
+        contentType: a.contentType,
+      }));
+      try {
+        const convId = await onEnsureConversation!(queryText);
+        onTurnChange?.(); // 新会话先出现在列表
+        await sse.startTurn(
+          convId,
+          {
+            agentId: agentId as string,
+            query: queryText,
+            history,
+            fileIds,
+            attachments: persistedAttachments,
+            kbId: kbId ? Number(kbId) : undefined,
+            topK,
+            rerank,
+            preview,
+          },
+          () => onTurnChange?.(), // 完成后刷新（清掉「正在回复」）
+          () => onTurnChange?.(), // 占位落库后刷新（亮起「正在回复」）
+        );
+      } catch (e) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsg.id
+              ? { ...m, status: 'error', errorMessage: (e as Error)?.message ?? '发送失败' }
+              : m,
+          ),
+        );
+      }
+      return;
+    }
+
+    // 旧直连模式（调试台 Playground）：前端落库。
+    onSubmit?.(queryText, userMsg.attachments);
     sse.start(
       { agentId, kbId, query: queryText, topK, rerank, history, fileIds, preview },
       ({ text: finalText, citations, segments, elapsedMs }) => {
@@ -123,14 +176,30 @@ export default function ChatPanel({
     );
   };
 
+  // 进入会话时若最后一条助手消息仍在生成 → 挂载即重连续播（切走再回来 / 刷新 / 多窗口）。
+  useEffect(() => {
+    if (resilient && resumeRunId) {
+      sse.consume(resumeRunId, () => onTurnChange?.(), '0');
+    }
+    // 仅挂载时执行一次；resumeRunId 随 panelKey（会话切换）重建组件而变化。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (sse.status === 'streaming' || sse.status === 'done') {
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         if (!last || last.role !== 'assistant') return prev;
+        const done = sse.status === 'done';
         return prev.map((m) =>
           m.id === last.id
-            ? { ...m, content: sse.text, citations: sse.citations, segments: sse.segments }
+            ? {
+                ...m,
+                content: sse.text,
+                citations: sse.citations,
+                segments: sse.segments,
+                ...(done ? { status: 'done' as const, elapsedMs: sse.elapsedMs } : {}),
+              }
             : m,
         );
       });
@@ -144,7 +213,7 @@ export default function ChatPanel({
         );
       });
     }
-  }, [sse.status, sse.text, sse.citations, sse.segments, sse.error]);
+  }, [sse.status, sse.text, sse.citations, sse.segments, sse.error, sse.elapsedMs]);
 
   const regenerate = () => {
     const lastUser = [...messages].reverse().find((m) => m.role === 'user');
@@ -256,10 +325,15 @@ export default function ChatPanel({
       </div>
 
       <div style={{ padding: '8px 0 14px', background: '#fff' }}>
-        {!simple && messages.length > 0 && (
+        {(isStreaming || (!simple && messages.length > 0)) && (
           <Space style={{ marginBottom: 8 }}>
             {isStreaming ? (
-              <Button size="small" icon={<StopOutlined />} onClick={sse.abort}>
+              // 对话端 stop=真取消服务端生成；调试台 abort=仅断开本地直连流。
+              <Button
+                size="small"
+                icon={<StopOutlined />}
+                onClick={resilient ? sse.stop : sse.abort}
+              >
                 停止
               </Button>
             ) : (
@@ -267,8 +341,8 @@ export default function ChatPanel({
                 重新生成
               </Button>
             )}
-            {kbId && <Tag color="blue">已挂载知识库</Tag>}
-            {attached.length > 0 && <Tag color="purple">文件处理模式</Tag>}
+            {!simple && kbId && <Tag color="blue">已挂载知识库</Tag>}
+            {!simple && attached.length > 0 && <Tag color="purple">文件处理模式</Tag>}
           </Space>
         )}
         {attached.length > 0 && (

@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Spin } from 'antd';
 import { CloseOutlined } from '@ant-design/icons';
 import { conversationApi, type ConversationView } from '@/features/chat-admin/conversationApi';
+import { useChatUnreadStore } from '@/features/chat-admin/unreadStore';
 import { agentApi } from '@/features/agent/api';
 import { glyphColor } from '@/utils/glyph';
 import { PlusIcon, SearchIcon } from '@/components/icons/AtlasIcons';
@@ -47,8 +48,21 @@ export default function ConversationsPanel() {
   const listQ = useQuery({
     queryKey: ['chat', 'conversations'],
     queryFn: () => conversationApi.list(),
+    // 有会话正在生成时轮询刷新，让「正在回复」转圈在后台完成后自动清掉（无生成则不轮询）。
+    refetchInterval: (query) => (query.state.data?.some((c) => c.generating) ? 3000 : false),
   });
   const sessions = useMemo(() => listQ.data ?? [], [listQ.data]);
+
+  // 「回答完毕未查看」红点：放全局 store，切到别的菜单栏（侧栏卸载）再回来也不丢。
+  const unread = useChatUnreadStore((s) => s.unread);
+  const syncUnread = useChatUnreadStore((s) => s.sync);
+  useEffect(() => {
+    syncUnread(
+      sessions.map((s) => s.id),
+      sessions.filter((s) => s.generating).map((s) => s.id),
+      activeId,
+    );
+  }, [sessions, activeId, syncUnread]);
 
   // 会话行只带 agentId/agentName，没带头像：复用对话首页同一份 Agent 列表缓存，
   // 据 agentId 查头像（react-query 同 key 自动去重，不会多发请求）。
@@ -173,6 +187,13 @@ export default function ConversationsPanel() {
                       </div>
                     </div>
                   </button>
+                  {/* 生成中：右侧转圈；完成未查看：右上角小红点 */}
+                  {s.generating ? (
+                    <Spin size="small" className="chat-conv-spin" />
+                  ) : (
+                    unread.includes(s.id) &&
+                    s.id !== activeId && <span className="chat-conv-dot" aria-label="新回复" />
+                  )}
                   <button
                     type="button"
                     className="chat-conv-del"

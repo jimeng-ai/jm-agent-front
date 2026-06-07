@@ -1,12 +1,20 @@
 import { useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Avatar, Empty, Spin, Typography, message } from 'antd';
+import { Avatar, Empty, Spin, Typography } from 'antd';
 import { useParams } from 'react-router-dom';
 import { agentApi } from '@/features/agent/api';
-import ChatPanel, { type AssistantMessageMeta } from '@/features/chat-admin/components/ChatPanel';
+import ChatPanel from '@/features/chat-admin/components/ChatPanel';
 import { conversationApi, type MessageView } from '@/features/chat-admin/conversationApi';
-import type { ChatAttachment, ChatMessage } from '@/features/chat-admin/types';
+import type { ChatMessage, ChatStatus } from '@/features/chat-admin/types';
 import { glyphColor } from '@/utils/glyph';
+
+/** 助手消息生成状态 → 前端渲染态。COMPLETED/CANCELLED 都按已完成渲染（取消会展示已生成的部分）。 */
+function statusOf(m: MessageView): ChatStatus {
+  if (m.role !== 'assistant') return 'done';
+  if (m.status === 'GENERATING') return 'streaming';
+  if (m.status === 'FAILED') return 'error';
+  return 'done';
+}
 
 function toChatMessage(m: MessageView): ChatMessage {
   return {
@@ -20,7 +28,8 @@ function toChatMessage(m: MessageView): ChatMessage {
     attachments: m.attachments ?? undefined,
     // 后端 Long 经全局 JacksonConfig 序列化为字符串，这里转回 number 以符合 ChatMessage 契约
     elapsedMs: m.elapsedMs == null ? undefined : Number(m.elapsedMs),
-    status: 'done',
+    status: statusOf(m),
+    errorMessage: m.error ?? undefined,
     createdAt: m.createTime ? new Date(m.createTime).getTime() : Date.now(),
   };
 }
@@ -70,43 +79,6 @@ export default function ConversationPage() {
     return createPromiseRef.current;
   };
 
-  const handleUserMessage = async (text: string, attachments?: ChatAttachment[]) => {
-    if (!agentId) return;
-    try {
-      const id = await ensureConversation(text);
-      // 只持久化元信息（url 是会话内本地 object URL，刷新即失效；重进时按 fileId 取流）
-      const persisted = attachments?.map((a) => ({
-        fileId: a.fileId,
-        filename: a.filename,
-        contentType: a.contentType,
-      }));
-      await conversationApi.appendMessage(id, {
-        role: 'user',
-        content: text,
-        attachments: persisted,
-      });
-      refreshList();
-    } catch (e) {
-      message.error('消息未能保存：' + (e instanceof Error ? e.message : '未知错误'));
-    }
-  };
-
-  const handleAssistantMessage = async (text: string, meta: AssistantMessageMeta) => {
-    try {
-      const id = convIdRef.current ?? (await ensureConversation(text));
-      await conversationApi.appendMessage(id, {
-        role: 'assistant',
-        content: text,
-        citations: meta.citations,
-        segments: meta.segments,
-        elapsedMs: meta.elapsedMs,
-      });
-      refreshList();
-    } catch {
-      /* 助手消息保存失败不打断对话；用户消息已落库 */
-    }
-  };
-
   const loading = (!!conversationId && detailQ.isLoading) || (!!agentId && agentQ.isLoading);
   if (loading) {
     return (
@@ -124,7 +96,11 @@ export default function ConversationPage() {
   }
 
   const agent = agentQ.data;
-  const initialMessages = (detailQ.data?.messages ?? []).map(toChatMessage);
+  const rawMessages = detailQ.data?.messages ?? [];
+  const initialMessages = rawMessages.map(toChatMessage);
+  // 进入会话时若最后一条助手消息仍在生成 → 把它的 runId 交给 ChatPanel 重连续播。
+  const lastAssistant = [...rawMessages].reverse().find((m) => m.role === 'assistant');
+  const resumeRunId = lastAssistant?.status === 'GENERATING' ? (lastAssistant.runId ?? null) : null;
   // 切换会话时重建 ChatPanel，确保初始消息正确加载；新会话用 agentId 作为稳定 key。
   const panelKey = conversationId ? `c-${conversationId}` : `agent-${agentId}`;
 
@@ -157,8 +133,9 @@ export default function ConversationPage() {
           agentAvatar={agent.avatarUrl}
           presetQuestions={agent.presetQuestions}
           initialMessages={initialMessages}
-          onSubmit={handleUserMessage}
-          onAssistantMessage={handleAssistantMessage}
+          onEnsureConversation={ensureConversation}
+          resumeRunId={resumeRunId}
+          onTurnChange={refreshList}
           placeholder={`你好，我是 ${agent.name}。有什么可以帮你？`}
         />
       </div>

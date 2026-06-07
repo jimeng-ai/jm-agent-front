@@ -958,6 +958,29 @@ a {
   background: rgba(239, 68, 68, 0.12);
   color: #ef4444;
 }
+/* 生成中：右侧转圈（点击穿透到会话行；悬浮时让位给删除叉号） */
+.chat-conv-spin {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  transition: opacity 120ms;
+}
+.chat-conv-item-wrap:hover .chat-conv-spin {
+  opacity: 0;
+}
+/* 回答完毕且未查看：右上角小红点；点击会话查看后消失 */
+.chat-conv-dot {
+  position: absolute;
+  top: 7px;
+  right: 9px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  pointer-events: none;
+}
 .chat-conv-item {
   display: flex;
   align-items: center;

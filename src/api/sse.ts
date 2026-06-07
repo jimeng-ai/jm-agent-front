@@ -5,7 +5,8 @@ const baseURL = import.meta.env.VITE_API_BASE || '/data';
 
 export interface SseHandlers {
   onOpen?: () => void;
-  onEvent?: (event: string, data: string) => void;
+  /** id 为 SSE 帧的 `id:`（续播时回传 Last-Event-ID / ?from 用）。 */
+  onEvent?: (event: string, data: string, id?: string) => void;
   onMessage?: (text: string) => void;
   onError?: (err: Error) => void;
   onDone?: () => void;
@@ -20,6 +21,7 @@ export interface StreamOptions extends SseHandlers {
 interface SseFrame {
   event: string;
   data: string;
+  id?: string;
 }
 
 function parseFrames(buffer: string): { frames: SseFrame[]; rest: string } {
@@ -30,6 +32,7 @@ function parseFrames(buffer: string): { frames: SseFrame[]; rest: string } {
     const chunk = rest.slice(0, idx);
     rest = rest.slice(idx + 2);
     let event = 'message';
+    let id: string | undefined;
     const dataLines: string[] = [];
     for (const line of chunk.split('\n')) {
       if (!line) continue;
@@ -39,16 +42,21 @@ function parseFrames(buffer: string): { frames: SseFrame[]; rest: string } {
       const value = colon === -1 ? '' : line.slice(colon + 1).replace(/^ /, '');
       if (field === 'event') event = value;
       else if (field === 'data') dataLines.push(value);
+      else if (field === 'id') id = value;
     }
     if (dataLines.length) {
-      frames.push({ event, data: dataLines.join('\n') });
+      frames.push({ event, data: dataLines.join('\n'), id });
     }
     idx = rest.indexOf('\n\n');
   }
   return { frames, rest };
 }
 
-export async function streamSse(url: string, body: unknown, opts: StreamOptions = {}): Promise<void> {
+export async function streamSse(
+  url: string,
+  body: unknown,
+  opts: StreamOptions = {},
+): Promise<void> {
   const { token, tenantId } = useAuthStore.getState();
   const fullUrl = url.startsWith('http') ? url : `${baseURL}${url}`;
   const headers: Record<string, string> = {
@@ -98,7 +106,7 @@ export async function streamSse(url: string, body: unknown, opts: StreamOptions 
       const { frames, rest } = parseFrames(buffer);
       buffer = rest;
       for (const f of frames) {
-        opts.onEvent?.(f.event, f.data);
+        opts.onEvent?.(f.event, f.data, f.id);
         if (f.event === 'message') opts.onMessage?.(f.data);
       }
     }

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { streamAnswer, type AnswerStreamPayload } from '@/features/chat-admin/api';
 import { streamAgentExec, type FileStatusEvent } from '@/features/chat-admin/agentExecApi';
+import { consumeRun, type RunStreamHandlers } from '@/features/chat-admin/runApi';
+import { conversationApi, type TurnStartPayload } from '@/features/chat-admin/conversationApi';
 import type { ChatCitation } from '@/api/types';
 import type { ArtifactRef, MessageSegment } from '@/features/chat-admin/types';
 
@@ -47,8 +49,11 @@ export function useSSE() {
   const textBufferRef = useRef('');
   const segmentsRef = useRef<MessageSegment[]>([]);
   const artifactsRef = useRef<ArtifactRef[]>([]);
+  const citationsRef = useRef<ChatCitation[]>([]);
   const rafRef = useRef<number | null>(null);
   const startedAtRef = useRef(0);
+  /** 当前在跑的 runId（服务端生成路径），停止据此取消。 */
+  const runIdRef = useRef<string | null>(null);
 
   // 把文本增量追加到「当前文本片段」；若上一片段是工具/产物，则开启新文本片段（实现交错顺序）
   const appendText = useCallback((delta: string) => {
@@ -77,110 +82,204 @@ export function useSSE() {
 
   useEffect(
     () => () => {
+      // 卸载：仅脱离观众（abort 本地 fetch）；服务端生成路径下生成会继续，回来可重连。
       abortRef.current?.abort();
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
     },
     [],
   );
 
+  // ── 共用累积回调（start / startTurn / consume 共用同一套，读写同一组 ref）──
+  const onCitations = useCallback((cs: ChatCitation[]) => {
+    // 多跳：一次回答里模型可能多次调用 rag.search，每次来一批 citations。
+    // 累积合并而非覆盖，并按 chunkId 去重；Map 保留首次插入顺序。
+    const merged = new Map<string, ChatCitation>();
+    for (const c of [...citationsRef.current, ...cs]) {
+      merged.set(c.chunkId ?? `${c.docId}#${c.content ?? ''}`, c);
+    }
+    citationsRef.current = [...merged.values()];
+    setState((s) => ({ ...s, citations: citationsRef.current }));
+  }, []);
+
+  const onDelta = useCallback(
+    (delta: string) => {
+      textBufferRef.current += delta;
+      appendText(delta);
+      scheduleFlush();
+    },
+    [appendText, scheduleFlush],
+  );
+
+  const onToolCall = useCallback(
+    (calls: { id: string; name: string; desc?: string; input?: unknown }[]) => {
+      for (const c of calls) {
+        const idx = segmentsRef.current.findIndex((s) => s.type === 'tool' && s.call.id === c.id);
+        const seg: MessageSegment = {
+          type: 'tool',
+          call: { id: c.id, name: c.name, desc: c.desc, input: c.input, status: 'running' },
+        };
+        if (idx >= 0) segmentsRef.current[idx] = seg;
+        else segmentsRef.current.push(seg);
+      }
+      commit();
+    },
+    [commit],
+  );
+
+  const onToolResult = useCallback(
+    (results: { id: string; name: string; status: 'success' | 'error' }[]) => {
+      for (const r of results) {
+        const idx = segmentsRef.current.findIndex((s) => s.type === 'tool' && s.call.id === r.id);
+        if (idx >= 0) {
+          const seg = segmentsRef.current[idx];
+          if (seg.type === 'tool') {
+            segmentsRef.current[idx] = { type: 'tool', call: { ...seg.call, status: r.status } };
+          }
+        } else {
+          segmentsRef.current.push({
+            type: 'tool',
+            call: { id: r.id, name: r.name, status: r.status },
+          });
+        }
+      }
+      commit();
+    },
+    [commit],
+  );
+
+  const onCodeOutput = useCallback(
+    (c: { id: string; tool: string; output: string }) => {
+      const idx = segmentsRef.current.findIndex((s) => s.type === 'tool' && s.call.id === c.id);
+      if (idx >= 0) {
+        const seg = segmentsRef.current[idx];
+        if (seg.type === 'tool') {
+          segmentsRef.current[idx] = { type: 'tool', call: { ...seg.call, output: c.output } };
+        }
+      } else {
+        segmentsRef.current.push({
+          type: 'tool',
+          call: { id: c.id, name: c.tool, status: 'running', output: c.output },
+        });
+      }
+      commit();
+    },
+    [commit],
+  );
+
+  const onArtifact = useCallback(
+    (a: ArtifactRef) => {
+      artifactsRef.current.push(a);
+      segmentsRef.current.push({ type: 'artifact', artifact: a });
+      setState((s) => ({ ...s, artifacts: [...artifactsRef.current] }));
+      commit();
+    },
+    [commit],
+  );
+
+  const onFileStatus = useCallback((f: FileStatusEvent) => {
+    setState((s) => {
+      const files = [...s.files];
+      const i = files.findIndex((x) => x.filename === f.filename);
+      if (i >= 0) files[i] = f;
+      else files.push(f);
+      return { ...s, files };
+    });
+  }, []);
+
+  const onStreamError = useCallback((e: Error) => {
+    setState((s) => ({ ...s, status: 'error', error: e.message }));
+  }, []);
+
+  /** 重置累积态并进入 streaming（每次发起 / 重连前调用）。 */
+  const begin = useCallback((signal: AbortController) => {
+    abortRef.current?.abort();
+    abortRef.current = signal;
+    textBufferRef.current = '';
+    segmentsRef.current = [];
+    artifactsRef.current = [];
+    citationsRef.current = [];
+    startedAtRef.current = performance.now();
+    setState({
+      status: 'streaming',
+      text: '',
+      citations: [],
+      segments: [],
+      artifacts: [],
+      files: [],
+    });
+  }, []);
+
+  /** 生成正常终止时的收尾（与服务端 finalize 对齐：running 工具规整为 error）。 */
+  const makeFinalize = useCallback(
+    (onDoneFinalText?: (r: SseDoneResult) => void) => () => {
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      const finalText = textBufferRef.current;
+      const finalSegments: MessageSegment[] = segmentsRef.current.map((s) =>
+        s.type === 'tool' && s.call.status === 'running'
+          ? { type: 'tool', call: { ...s.call, status: 'error' as const } }
+          : s,
+      );
+      const citations = citationsRef.current;
+      const artifacts = [...artifactsRef.current];
+      const elapsedMs = Math.round(performance.now() - startedAtRef.current);
+      setState({
+        status: 'done',
+        text: finalText,
+        citations,
+        segments: finalSegments,
+        artifacts,
+        files: [],
+        elapsedMs,
+      });
+      onDoneFinalText?.({
+        text: finalText,
+        citations,
+        segments: finalSegments,
+        artifacts,
+        elapsedMs,
+      });
+    },
+    [],
+  );
+
+  const handlers = useCallback(
+    (finalize: () => void): RunStreamHandlers => ({
+      onCitations,
+      onDelta,
+      onToolCall,
+      onToolResult,
+      onCodeOutput,
+      onArtifact,
+      onFileStatus,
+      onError: onStreamError,
+      onDone: finalize,
+    }),
+    [
+      onCitations,
+      onDelta,
+      onToolCall,
+      onToolResult,
+      onCodeOutput,
+      onArtifact,
+      onFileStatus,
+      onStreamError,
+    ],
+  );
+
+  // ── 旧的直连流式（调试台 Playground 用，未落库、可测草稿）──
   const start = useCallback(
     async (
       payload: StartPayload,
       onDoneFinalText?: (result: SseDoneResult) => void,
       opts?: SseStartOptions,
     ) => {
-      abortRef.current?.abort();
       const ctrl = new AbortController();
-      abortRef.current = ctrl;
-      textBufferRef.current = '';
-      segmentsRef.current = [];
-      artifactsRef.current = [];
-      startedAtRef.current = performance.now();
-      setState({
-        status: 'streaming',
-        text: '',
-        citations: [],
-        segments: [],
-        artifacts: [],
-        files: [],
-      });
-
-      let citations: ChatCitation[] = [];
-
-      // ── 共用累积回调 ──
-      const onDelta = (delta: string) => {
-        textBufferRef.current += delta;
-        appendText(delta);
-        scheduleFlush();
-      };
-      const onToolCall = (
-        calls: { id: string; name: string; desc?: string; input?: unknown }[],
-      ) => {
-        for (const c of calls) {
-          const idx = segmentsRef.current.findIndex((s) => s.type === 'tool' && s.call.id === c.id);
-          const seg: MessageSegment = {
-            type: 'tool',
-            call: { id: c.id, name: c.name, desc: c.desc, input: c.input, status: 'running' },
-          };
-          if (idx >= 0) segmentsRef.current[idx] = seg;
-          else segmentsRef.current.push(seg);
-        }
-        commit();
-      };
-      const onToolResult = (
-        results: { id: string; name: string; status: 'success' | 'error' }[],
-      ) => {
-        for (const r of results) {
-          const idx = segmentsRef.current.findIndex((s) => s.type === 'tool' && s.call.id === r.id);
-          if (idx >= 0) {
-            const seg = segmentsRef.current[idx];
-            if (seg.type === 'tool') {
-              segmentsRef.current[idx] = { type: 'tool', call: { ...seg.call, status: r.status } };
-            }
-          } else {
-            segmentsRef.current.push({
-              type: 'tool',
-              call: { id: r.id, name: r.name, status: r.status },
-            });
-          }
-        }
-        commit();
-      };
-      const onError = (e: Error) => {
-        setState((s) => ({ ...s, status: 'error', error: e.message }));
-      };
-      const finalize = () => {
-        if (rafRef.current != null) {
-          cancelAnimationFrame(rafRef.current);
-          rafRef.current = null;
-        }
-        const finalText = textBufferRef.current;
-        // 流已结束：仍处于 running 的工具段规整为 error，否则刷新后会看到永远转圈的工具。
-        const finalSegments: MessageSegment[] = segmentsRef.current.map((s) =>
-          s.type === 'tool' && s.call.status === 'running'
-            ? { type: 'tool', call: { ...s.call, status: 'error' as const } }
-            : s,
-        );
-        const artifacts = [...artifactsRef.current];
-        const elapsedMs = Math.round(performance.now() - startedAtRef.current);
-        setState({
-          status: 'done',
-          text: finalText,
-          citations,
-          segments: finalSegments,
-          artifacts,
-          files: [],
-          elapsedMs,
-        });
-        onDoneFinalText?.({
-          text: finalText,
-          citations,
-          segments: finalSegments,
-          artifacts,
-          elapsedMs,
-        });
-      };
-
+      begin(ctrl);
+      runIdRef.current = null;
+      const h = handlers(makeFinalize(onDoneFinalText));
       if (opts?.mode === 'exec') {
         await streamAgentExec(
           {
@@ -191,90 +290,71 @@ export function useSSE() {
             history: payload.history,
             preview: payload.preview,
           },
-          {
-            onDelta,
-            onToolCall,
-            onToolResult,
-            onError,
-            onCodeOutput: (c) => {
-              const idx = segmentsRef.current.findIndex(
-                (s) => s.type === 'tool' && s.call.id === c.id,
-              );
-              if (idx >= 0) {
-                const seg = segmentsRef.current[idx];
-                if (seg.type === 'tool') {
-                  segmentsRef.current[idx] = {
-                    type: 'tool',
-                    call: { ...seg.call, output: c.output },
-                  };
-                }
-              } else {
-                segmentsRef.current.push({
-                  type: 'tool',
-                  call: { id: c.id, name: c.tool, status: 'running', output: c.output },
-                });
-              }
-              commit();
-            },
-            onArtifact: (a) => {
-              artifactsRef.current.push(a);
-              segmentsRef.current.push({ type: 'artifact', artifact: a });
-              setState((s) => ({ ...s, artifacts: [...artifactsRef.current] }));
-              commit();
-            },
-            onFileStatus: (f) => {
-              setState((s) => {
-                const files = [...s.files];
-                const i = files.findIndex((x) => x.filename === f.filename);
-                if (i >= 0) files[i] = f;
-                else files.push(f);
-                return { ...s, files };
-              });
-            },
-            onDone: finalize,
-          },
+          h,
           ctrl.signal,
         );
       } else {
-        await streamAnswer(
-          payload,
-          {
-            onCitations: (cs) => {
-              // 多跳：一次回答里模型可能多次调用 rag.search，每次来一批 citations。
-              // 累积合并而非覆盖，并按 chunkId 去重（CitationReferences 假定来源已按 chunkId 去重），
-              // 否则后到的检索来源会把先到的冲掉，「参考来源」只剩最后一次检索的文档。
-              // Map 保留首次插入顺序：已有来源位置不变，新去重后的来源追加在后。
-              const merged = new Map<string, ChatCitation>();
-              for (const c of [...citations, ...cs]) {
-                merged.set(c.chunkId ?? `${c.docId}#${c.content ?? ''}`, c);
-              }
-              citations = [...merged.values()];
-              setState((s) => ({ ...s, citations }));
-            },
-            onDelta,
-            onToolCall,
-            onToolResult,
-            onError,
-            onDone: finalize,
-          },
-          ctrl.signal,
-        );
+        await streamAnswer(payload, h, ctrl.signal);
       }
     },
-    [appendText, commit, scheduleFlush],
+    [begin, handlers, makeFinalize],
   );
 
+  // ── 服务端自持久化 + 可重连：发起一轮（落库 user+assistant，立即拿 runId 续播）──
+  const startTurn = useCallback(
+    async (
+      conversationId: string,
+      payload: TurnStartPayload,
+      onDoneFinalText?: (result: SseDoneResult) => void,
+      onCreated?: (res: { runId: string }) => void,
+    ) => {
+      const ctrl = new AbortController();
+      begin(ctrl);
+      const res = await conversationApi.startTurn(conversationId, payload);
+      runIdRef.current = res.runId;
+      // POST 返回即说明 GENERATING 占位已落库提交：此刻刷新列表，generating 标志才会亮（驱动「正在回复」转圈）。
+      onCreated?.(res);
+      await consumeRun(res.runId, handlers(makeFinalize(onDoneFinalText)), ctrl.signal, '0');
+      return res;
+    },
+    [begin, handlers, makeFinalize],
+  );
+
+  // ── 服务端自持久化 + 可重连：重连一个在跑的 run（切走再回来 / 多窗口 / 刷新）──
+  const consume = useCallback(
+    (runId: string, onDoneFinalText?: (result: SseDoneResult) => void, fromId = '0') => {
+      const ctrl = new AbortController();
+      begin(ctrl);
+      runIdRef.current = runId;
+      void consumeRun(runId, handlers(makeFinalize(onDoneFinalText)), ctrl.signal, fromId);
+    },
+    [begin, handlers, makeFinalize],
+  );
+
+  /** 真停止：取消服务端生成（中断上游 LLM / 沙箱），让 cancelled 终止帧正常流回收尾。 */
+  const stop = useCallback(() => {
+    const rid = runIdRef.current;
+    if (rid) {
+      conversationApi.cancelRun(rid).catch(() => {
+        /* 取消失败不阻断 UI */
+      });
+    }
+  }, []);
+
+  /** 仅脱离本地观众（不取消服务端生成）。 */
   const abort = useCallback(() => {
     abortRef.current?.abort();
   }, []);
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
+    runIdRef.current = null;
     textBufferRef.current = '';
     segmentsRef.current = [];
     artifactsRef.current = [];
+    citationsRef.current = [];
     setState({ status: 'idle', text: '', citations: [], segments: [], artifacts: [], files: [] });
   }, []);
 
-  return { ...state, start, abort, reset };
+  return { ...state, start, startTurn, consume, stop, abort, reset };
 }

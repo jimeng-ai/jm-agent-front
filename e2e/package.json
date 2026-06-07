@@ -1,0 +1,17 @@
+{
+  "name": "jm-agent-front-e2e",
+  "private": true,
+  "type": "module",
+  "description": "对话「发送后不丢、可离开、可重连」+ 列表未读红点 的端到端回归（Playwright，独立依赖）",
+  "scripts": {
+    "setup": "npm install && playwright install chromium",
+    "test": "node run-all.mjs",
+    "test:resilient": "node resilient-chat.mjs",
+    "test:multiwindow": "node multi-window.mjs",
+    "test:dot": "node unread-dot.mjs",
+    "test:menu": "node menu-persistence.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}
