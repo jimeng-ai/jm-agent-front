@@ -47,12 +47,12 @@ export const WORKBENCH_NAV: NavItem[] = [
 export const DEBUG_NAV: NavItem[] = [
   {
     key: 'playground',
-    label: '调试 Playground',
+    label: '调试台',
     path: '/console/playground',
     Icon: PlayIcon,
     module: 'AGENT_MODULE',
   },
-  { key: 'traces', label: '调用日志', path: '/console/traces', Icon: ListIcon },
+  { key: 'traces', label: '调用日志 · Trace', path: '/console/traces', Icon: ListIcon },
 ];
 
 export function workbenchCrumbs(pathname: string): string[] {

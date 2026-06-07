@@ -192,6 +192,33 @@ a {
   overflow: hidden;
   background: var(--bg);
 }
+/* 侧边栏收起：收窄成只剩图标的窄栏。 */
+.atlas-app.sidebar-collapsed {
+  grid-template-columns: 60px 1fr;
+}
+/* 收起态：隐藏所有文字，图标居中。 */
+.atlas-sidebar.collapsed .atlas-sidebar-brand span,
+.atlas-sidebar.collapsed .atlas-sidebar-workspace .ws-meta,
+.atlas-sidebar.collapsed .atlas-sidebar-section,
+.atlas-sidebar.collapsed .atlas-nav-item span,
+.atlas-sidebar.collapsed .atlas-sidebar-foot .who,
+.atlas-sidebar.collapsed .atlas-sidebar-foot svg {
+  display: none;
+}
+.atlas-sidebar.collapsed .atlas-sidebar-brand,
+.atlas-sidebar.collapsed .atlas-sidebar-workspace,
+.atlas-sidebar.collapsed .atlas-nav-item,
+.atlas-sidebar.collapsed .atlas-sidebar-foot {
+  justify-content: center;
+}
+.atlas-sidebar.collapsed .atlas-sidebar-workspace {
+  padding-left: 0;
+  padding-right: 0;
+}
+.atlas-sidebar.collapsed .atlas-nav {
+  padding-left: 6px;
+  padding-right: 6px;
+}
 
 .atlas-sidebar {
   background: var(--sidebar-bg);

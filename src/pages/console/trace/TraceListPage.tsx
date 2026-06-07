@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import { App, Button, Input, Segmented, Space, Table, Tooltip, Typography } from 'antd';
+import { App, Button, DatePicker, Input, Segmented, Space, Table, Tooltip, Typography } from 'antd';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
+import dayjs, { type Dayjs } from 'dayjs';
 import { useQuery } from '@tanstack/react-query';
 import { downloadTracesCsv, traceApi } from '@/features/trace/api';
 import TraceDetail from '@/features/trace/components/TraceDetail';
@@ -9,21 +10,20 @@ import type { TraceLog, TraceQuery, TraceStatus } from '@/features/trace/types';
 import { formatDuration, formatTime, num } from '@/features/trace/utils';
 
 const { Title, Text } = Typography;
+const { RangePicker } = DatePicker;
 
-const RANGE_OPTIONS = [
-  { label: '1h', value: '1h' },
-  { label: '24h', value: '24h' },
-  { label: '7d', value: '7d' },
-  { label: '30d', value: '30d' },
-] as const;
-type RangeKey = (typeof RANGE_OPTIONS)[number]['value'];
-
-const RANGE_MS: Record<RangeKey, number> = {
-  '1h': 3600_000,
-  '24h': 86_400_000,
-  '7d': 7 * 86_400_000,
-  '30d': 30 * 86_400_000,
-};
+/** 时间选择器预设（与仪表盘一致）：今日 / 近 7 / 30 / 90 天 / 近半年。 */
+function rangePresets(): { label: string; value: [Dayjs, Dayjs] }[] {
+  const today = dayjs();
+  const last = (n: number): [Dayjs, Dayjs] => [today.subtract(n - 1, 'day'), today];
+  return [
+    { label: '今日', value: [today, today] },
+    { label: '近 7 天', value: last(7) },
+    { label: '近 30 天', value: last(30) },
+    { label: '近 90 天', value: last(90) },
+    { label: '近半年', value: last(180) },
+  ];
+}
 
 const STATUS_OPTIONS = [
   { label: '全部', value: 'ALL' },
@@ -32,29 +32,32 @@ const STATUS_OPTIONS = [
   { label: '错误', value: 'ERROR' },
 ] as const;
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
+const DEFAULT_PAGE_SIZE = 20;
 
 export default function TraceListPage() {
   const { message } = App.useApp();
-  const [range, setRange] = useState<RangeKey>('24h');
+  // 时间窗口默认近 30 天；RangePicker 含端点、精确到天（与仪表盘一致）。
+  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs]>(() => [
+    dayjs().subtract(29, 'day'),
+    dayjs(),
+  ]);
   const [status, setStatus] = useState<'ALL' | TraceStatus>('ALL');
   const [keyword, setKeyword] = useState('');
   const [searchKeyword, setSearchKeyword] = useState('');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [selectedId, setSelectedId] = useState<string>();
   const [exporting, setExporting] = useState(false);
 
-  // 锚定时间：翻页/筛选期间窗口固定，避免 now 漂移导致重复/漏数据。
-  const [anchor, setAnchor] = useState(() => Date.now());
-
   const filter: TraceQuery = useMemo(
     () => ({
-      start: anchor - RANGE_MS[range],
-      end: anchor,
+      start: dateRange[0].startOf('day').valueOf(),
+      end: dateRange[1].endOf('day').valueOf(),
       status: status === 'ALL' ? undefined : status,
       keyword: searchKeyword || undefined,
     }),
-    [anchor, range, status, searchKeyword],
+    [dateRange, status, searchKeyword],
   );
 
   const overviewQ = useQuery({
@@ -64,8 +67,8 @@ export default function TraceListPage() {
   });
 
   const listQ = useQuery({
-    queryKey: ['trace', 'list', filter, page],
-    queryFn: () => traceApi.list({ ...filter, page, size: PAGE_SIZE }),
+    queryKey: ['trace', 'list', filter, page, pageSize],
+    queryFn: () => traceApi.list({ ...filter, page, size: pageSize }),
     staleTime: 10_000,
   });
 
@@ -78,23 +81,22 @@ export default function TraceListPage() {
   const records = listQ.data?.records ?? [];
   const total = num(listQ.data?.total);
 
-  // 任一筛选变化：回到第一页并重置时间窗口。
+  // 任一筛选变化：回到第一页。
   const resetTo =
     <T,>(setter: (v: T) => void) =>
     (v: T) => {
       setter(v);
       setPage(1);
-      setAnchor(Date.now());
     };
 
   const onSearch = () => {
     setSearchKeyword(keyword.trim());
     setPage(1);
-    setAnchor(Date.now());
   };
 
   const onRefresh = () => {
-    setAnchor(Date.now());
+    overviewQ.refetch();
+    listQ.refetch();
   };
 
   const onExport = async () => {
@@ -145,10 +147,15 @@ export default function TraceListPage() {
           }}
         >
           <Space wrap style={{ marginBottom: 12 }}>
-            <Segmented
-              options={RANGE_OPTIONS as unknown as { label: string; value: string }[]}
-              value={range}
-              onChange={(v) => resetTo<RangeKey>(setRange)(v as RangeKey)}
+            <RangePicker
+              value={dateRange}
+              onChange={(v) => {
+                if (v && v[0] && v[1]) resetTo<[Dayjs, Dayjs]>(setDateRange)([v[0], v[1]]);
+              }}
+              allowClear={false}
+              format="YYYY-MM-DD"
+              presets={rangePresets()}
+              maxDate={dayjs()}
             />
             <Segmented
               options={STATUS_OPTIONS as unknown as { label: string; value: string }[]}
@@ -157,8 +164,8 @@ export default function TraceListPage() {
             />
             <Input.Search
               allowClear
-              placeholder="按 trace_id 或 Agent 搜索"
-              style={{ width: 240 }}
+              placeholder="按 trace_id / Agent / 消息 搜索"
+              style={{ width: 260 }}
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               onSearch={onSearch}
@@ -179,11 +186,16 @@ export default function TraceListPage() {
               rowClassName={(row) => (row.traceId === selectedId ? 'ant-table-row-selected' : '')}
               pagination={{
                 current: page,
-                pageSize: PAGE_SIZE,
+                pageSize,
                 total,
-                showSizeChanger: false,
+                showSizeChanger: true,
+                pageSizeOptions: PAGE_SIZE_OPTIONS,
                 showTotal: (t) => `共 ${t.toLocaleString('en-US')} 条`,
-                onChange: (p) => setPage(p),
+                onChange: (p, s) => {
+                  // 改变每页数量时回到第一页，避免越界空页。
+                  setPage(s !== pageSize ? 1 : p);
+                  setPageSize(s);
+                },
               }}
               columns={[
                 {
@@ -202,6 +214,19 @@ export default function TraceListPage() {
                   width: 120,
                   ellipsis: true,
                   render: (v?: string) => v || '—',
+                },
+                {
+                  title: '用户消息',
+                  dataIndex: 'userMessage',
+                  ellipsis: true,
+                  render: (v?: string) =>
+                    v ? (
+                      <Tooltip title={v}>
+                        <span>{v}</span>
+                      </Tooltip>
+                    ) : (
+                      '—'
+                    ),
                 },
                 {
                   title: '开始时间',

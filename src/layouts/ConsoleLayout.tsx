@@ -1,20 +1,43 @@
-import { Suspense } from 'react';
+import { Suspense, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
-import { Spin } from 'antd';
+import { Spin, Tooltip } from 'antd';
+import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
 import WorkbenchSidebar from '@/components/atlas/WorkbenchSidebar';
 import { workbenchCrumbs } from '@/components/atlas/workbenchNav';
 import { SearchIcon, BellIcon } from '@/components/icons/AtlasIcons';
 
+const COLLAPSE_KEY = 'atlas-sidebar-collapsed';
+
 export default function ConsoleLayout() {
   const location = useLocation();
   const crumbs = workbenchCrumbs(location.pathname);
+  // 侧边栏显隐：偏好持久化到 localStorage，刷新后保持。
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === '1');
+  const toggleSidebar = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0');
+      return next;
+    });
+  };
 
   return (
-    <div className="atlas-app">
-      <WorkbenchSidebar />
+    <div className={'atlas-app' + (collapsed ? ' sidebar-collapsed' : '')}>
+      <WorkbenchSidebar collapsed={collapsed} />
 
       <div className="atlas-main">
         <header className="atlas-topbar">
+          <Tooltip title={collapsed ? '显示侧边栏' : '隐藏侧边栏'}>
+            <button
+              type="button"
+              className="atlas-icon-btn"
+              onClick={toggleSidebar}
+              aria-label={collapsed ? '显示侧边栏' : '隐藏侧边栏'}
+              style={{ marginRight: 4 }}
+            >
+              {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            </button>
+          </Tooltip>
           <div className="atlas-crumbs">
             {crumbs.map((c, i) => (
               <span key={i} className={i === crumbs.length - 1 ? 'here' : ''}>
@@ -42,7 +65,14 @@ export default function ConsoleLayout() {
         <main className="atlas-content">
           <Suspense
             fallback={
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minHeight: '60vh',
+                }}
+              >
                 <Spin size="large" />
               </div>
             }

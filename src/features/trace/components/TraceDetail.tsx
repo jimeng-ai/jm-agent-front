@@ -1,7 +1,10 @@
-import { Button, Empty, Spin, Tooltip, Typography } from 'antd';
+import { useState } from 'react';
+import { Button, Empty, Spin, Typography } from 'antd';
+import { PlayCircleOutlined } from '@ant-design/icons';
 import type { TraceLog, TraceStep } from '../types';
 import { durationDistribution, formatDuration, formatTime, formatTokens, num } from '../utils';
 import { StepGlyph, TraceStatusTag } from './TraceVisuals';
+import TraceReplayDrawer from './TraceReplayDrawer';
 
 const { Text } = Typography;
 
@@ -11,6 +14,8 @@ interface Props {
 }
 
 export default function TraceDetail({ trace, loading }: Props) {
+  const [replayOpen, setReplayOpen] = useState(false);
+
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
@@ -27,18 +32,22 @@ export default function TraceDetail({ trace, loading }: Props) {
 
   return (
     <div>
-      {/* 头部：trace_id + 状态 + 回放（v1 禁用） */}
+      {/* 头部：trace_id + 状态 + 回放 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
         <Text strong style={{ fontSize: 15, fontFamily: 'monospace' }}>
           {trace.traceId}
         </Text>
         <TraceStatusTag status={trace.status} />
-        <Tooltip title="回放功能即将上线">
-          <Button size="small" disabled>
-            回放
-          </Button>
-        </Tooltip>
+        <Button size="small" icon={<PlayCircleOutlined />} onClick={() => setReplayOpen(true)}>
+          回放
+        </Button>
       </div>
+
+      <TraceReplayDrawer
+        traceId={trace.traceId}
+        open={replayOpen}
+        onClose={() => setReplayOpen(false)}
+      />
       <Text type="secondary" style={{ fontSize: 12 }}>
         {trace.agentName || '—'} · {formatTime(trace.startTime)}
       </Text>

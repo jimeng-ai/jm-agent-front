@@ -1,5 +1,5 @@
 import { get, httpClient } from '@/api/client';
-import type { PageResult, TraceLog, TraceOverview, TraceQuery } from './types';
+import type { PageResult, TraceLog, TraceOverview, TraceQuery, TraceReplay } from './types';
 
 const BASE = '/admin/trace';
 
@@ -8,6 +8,7 @@ export const traceApi = {
   detail: (traceId: string) => get<TraceLog>(`${BASE}/${encodeURIComponent(traceId)}`),
   overview: (q: Pick<TraceQuery, 'start' | 'end'>) =>
     get<TraceOverview>(`${BASE}/overview`, q as Record<string, unknown>),
+  replay: (traceId: string) => get<TraceReplay>(`${BASE}/${encodeURIComponent(traceId)}/replay`),
 };
 
 /**

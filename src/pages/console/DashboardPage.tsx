@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Modal } from 'antd';
+import { DatePicker, Modal } from 'antd';
+import dayjs, { type Dayjs } from 'dayjs';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { agentApi } from '@/features/agent/api';
@@ -15,7 +16,7 @@ import {
   ArrowRightIcon,
 } from '@/components/icons/AtlasIcons';
 
-type Range = '7d' | '30d' | '90d';
+const { RangePicker } = DatePicker;
 
 const STATUS_TEXT: Record<number, { label: string; cls: 'up' | 'down' | 'flat' }> = {
   0: { label: '进行中', cls: 'flat' },
@@ -42,31 +43,6 @@ function scaleSeries(series: number[]): { data: number[]; suffix: string } {
 function pct(cur: number, prev: number): number | null {
   if (!prev) return null;
   return ((cur - prev) / prev) * 100;
-}
-
-function Segments<T extends string>({
-  value,
-  onChange,
-  options,
-}: {
-  value: T;
-  onChange: (v: T) => void;
-  options: { value: T; label: string }[];
-}) {
-  return (
-    <div className="segments">
-      {options.map((opt) => (
-        <button
-          key={opt.value}
-          type="button"
-          className={value === opt.value ? 'active' : ''}
-          onClick={() => onChange(opt.value)}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  );
 }
 
 /** 环比展示；delta 为 null 时显示「—」。lowerIsBetter 用于延迟等指标（下降为好）。 */
@@ -110,23 +86,33 @@ function relTime(iso: string | null): string {
   ).padStart(2, '0')}`;
 }
 
-const RANGE_OPTIONS: { value: Range; label: string }[] = [
-  { value: '7d', label: '近 7 天' },
-  { value: '30d', label: '近 30 天' },
-  { value: '90d', label: '近 90 天' },
-];
+/** 时间选择器预设：今日、近 7 / 30 / 90 天、近半年（精确到天，含端点）。 */
+function rangePresets(): { label: string; value: [Dayjs, Dayjs] }[] {
+  const today = dayjs();
+  const last = (n: number): [Dayjs, Dayjs] => [today.subtract(n - 1, 'day'), today];
+  return [
+    { label: '今日', value: [today, today] },
+    { label: '近 7 天', value: last(7) },
+    { label: '近 30 天', value: last(30) },
+    { label: '近 90 天', value: last(90) },
+    { label: '近半年', value: last(180) },
+  ];
+}
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const [range, setRange] = useState<Range>('30d');
+  // 时间窗口默认近 30 天；RangePicker 含端点，精确到天。
+  const [range, setRange] = useState<[Dayjs, Dayjs]>(() => [dayjs().subtract(29, 'day'), dayjs()]);
   // 「模型用量 Top」的「查看全部」弹窗：展示时间范围内全部模型的调用分布（饼图）。
   const [modelsOpen, setModelsOpen] = useState(false);
-  const days = range === '7d' ? 7 : range === '30d' ? 30 : 90;
+  const start = range[0].format('YYYY-MM-DD');
+  const end = range[1].format('YYYY-MM-DD');
+  const days = range[1].diff(range[0], 'day') + 1;
 
-  // 单一数据源 + 时间范围作为 query key：选择器即全局控制整个仪表盘。
+  // 单一数据源 + 起止日期作为 query key：选择器即全局控制整个仪表盘。
   const overviewQ = useQuery({
-    queryKey: ['dashboard', 'overview', days],
-    queryFn: () => dashboardApi.overview(days),
+    queryKey: ['dashboard', 'overview', start, end],
+    queryFn: () => dashboardApi.overview({ start, end }),
   });
   const agentQ = useQuery({ queryKey: ['dashboard', 'agents'], queryFn: () => agentApi.list() });
   const pluginQ = useQuery({ queryKey: ['dashboard', 'plugins'], queryFn: () => pluginApi.list() });
@@ -179,7 +165,7 @@ export default function DashboardPage() {
 
   const loading = overviewQ.isLoading;
   const hasData = (totals?.calls ?? 0) > 0;
-  const rangeText = range === '7d' ? '7' : range === '30d' ? '30' : '90';
+  const rangeText = String(days);
 
   const renderChartArea = (chart: { data: number[]; suffix: string }, kind: 'area' | 'bar') => {
     if (loading) {
@@ -211,7 +197,16 @@ export default function DashboardPage() {
           <div className="sub">JM Agent · {todayLabel}</div>
         </div>
         <div className="dash-range">
-          <Segments<Range> value={range} onChange={setRange} options={RANGE_OPTIONS} />
+          <RangePicker
+            value={range}
+            onChange={(v) => {
+              if (v && v[0] && v[1]) setRange([v[0], v[1]]);
+            }}
+            allowClear={false}
+            format="YYYY-MM-DD"
+            presets={rangePresets()}
+            maxDate={dayjs()}
+          />
         </div>
       </div>
 

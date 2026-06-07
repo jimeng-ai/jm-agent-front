@@ -1,12 +1,12 @@
-import { Dropdown } from 'antd';
+import { Dropdown, Tooltip } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { authApi } from '@/features/auth/api';
-import { ChevDownIcon, CogIcon, LogoutIcon } from '@/components/icons/AtlasIcons';
+import { ChevDownIcon, LogoutIcon } from '@/components/icons/AtlasIcons';
 import { WORKBENCH_NAV, DEBUG_NAV, type NavItem } from '@/components/atlas/workbenchNav';
 
-export default function WorkbenchSidebar() {
+export default function WorkbenchSidebar({ collapsed = false }: { collapsed?: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, tenantId, token, logout } = useAuthStore();
@@ -26,7 +26,8 @@ export default function WorkbenchSidebar() {
 
   // /chat 与 /chat/:agentId 都应高亮「对话」；其余按前缀匹配。
   const isActive = (path: string) => {
-    if (path === '/chat') return location.pathname === '/chat' || location.pathname.startsWith('/chat/');
+    if (path === '/chat')
+      return location.pathname === '/chat' || location.pathname.startsWith('/chat/');
     return location.pathname.startsWith(path);
   };
 
@@ -44,36 +45,37 @@ export default function WorkbenchSidebar() {
       {items.filter(canSee).map((item) => {
         const { Icon } = item;
         return (
-          <button
-            key={item.key}
-            type="button"
-            className={'atlas-nav-item' + (isActive(item.path) ? ' active' : '')}
-            onClick={() => navigate(item.path)}
-          >
-            <Icon className="icon" />
-            <span>{item.label}</span>
-          </button>
+          <Tooltip key={item.key} title={collapsed ? item.label : ''} placement="right">
+            <button
+              type="button"
+              className={'atlas-nav-item' + (isActive(item.path) ? ' active' : '')}
+              onClick={() => navigate(item.path)}
+            >
+              <Icon className="icon" />
+              <span>{item.label}</span>
+            </button>
+          </Tooltip>
         );
       })}
     </nav>
   );
 
   return (
-    <aside className="atlas-sidebar">
+    <aside className={'atlas-sidebar' + (collapsed ? ' collapsed' : '')}>
       <div className="atlas-sidebar-brand">
         <div className="glyph">A</div>
         <span>Atlas</span>
-        <span className="ver">v0.1</span>
       </div>
 
-      <button className="atlas-sidebar-workspace" type="button">
-        <div className="ws-glyph">智</div>
-        <div className="ws-meta">
-          <div className="ws-name">{workspaceName}</div>
-          <div className="ws-plan">Enterprise</div>
-        </div>
-        <ChevDownIcon size={14} style={{ color: 'var(--sidebar-icon)' }} />
-      </button>
+      <Tooltip title={collapsed ? workspaceName : ''} placement="right">
+        <button className="atlas-sidebar-workspace" type="button">
+          <div className="ws-glyph">智</div>
+          <div className="ws-meta">
+            <div className="ws-name">{workspaceName}</div>
+            <div className="ws-plan">Enterprise</div>
+          </div>
+        </button>
+      </Tooltip>
 
       <div className="atlas-sidebar-section">工作台</div>
       {renderNav(WORKBENCH_NAV)}
@@ -86,12 +88,6 @@ export default function WorkbenchSidebar() {
       )}
 
       <div style={{ marginTop: 'auto' }}>
-        <nav className="atlas-nav" style={{ padding: '4px 8px 8px' }}>
-          <button type="button" className="atlas-nav-item">
-            <CogIcon className="icon" />
-            <span>设置 / API Keys</span>
-          </button>
-        </nav>
         <Dropdown
           menu={{
             items: [

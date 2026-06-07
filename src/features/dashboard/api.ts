@@ -168,9 +168,20 @@ function normalize(raw: RawOverview): DashboardOverview {
   };
 }
 
+/** 时间窗口入参：传 start/end（yyyy-MM-dd，含端点）走自定义区间；否则按 days 取最近 N 天。 */
+export interface OverviewParams {
+  days?: number;
+  start?: string;
+  end?: string;
+}
+
 export const dashboardApi = {
-  overview: async (days = 30): Promise<DashboardOverview> => {
-    const raw = await get<RawOverview>('/admin/stats/overview', { days });
+  overview: async (params: OverviewParams = {}): Promise<DashboardOverview> => {
+    const query =
+      params.start && params.end
+        ? { start: params.start, end: params.end }
+        : { days: params.days ?? 30 };
+    const raw = await get<RawOverview>('/admin/stats/overview', query);
     return normalize(raw);
   },
 };
