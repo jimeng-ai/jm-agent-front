@@ -1,4 +1,9 @@
-import axios, { type AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
+import axios, {
+  type AxiosError,
+  type AxiosInstance,
+  type AxiosRequestConfig,
+  type InternalAxiosRequestConfig,
+} from 'axios';
 import { message } from 'antd';
 import { useAuthStore } from '@/stores/authStore';
 import { decodeJwt, type JwtPayload } from '@/utils/jwt';
@@ -140,8 +145,12 @@ export async function get<T>(url: string, params?: Record<string, unknown>): Pro
   return r.data;
 }
 
-export async function post<T>(url: string, data?: unknown): Promise<T> {
-  const r = await httpClient.post<T>(url, data);
+export async function post<T>(
+  url: string,
+  data?: unknown,
+  config?: AxiosRequestConfig,
+): Promise<T> {
+  const r = await httpClient.post<T>(url, data, config);
   return r.data;
 }
 
@@ -160,6 +169,7 @@ export async function upload<T>(
   file: File,
   fieldName = 'file',
   extra?: Record<string, string>,
+  config?: AxiosRequestConfig,
 ): Promise<T> {
   const fd = new FormData();
   fd.append(fieldName, file);
@@ -167,7 +177,8 @@ export async function upload<T>(
     Object.entries(extra).forEach(([k, v]) => fd.append(k, v));
   }
   const r = await httpClient.post<T>(url, fd, {
-    headers: { 'Content-Type': 'multipart/form-data' },
+    ...config,
+    headers: { 'Content-Type': 'multipart/form-data', ...config?.headers },
   });
   return r.data;
 }

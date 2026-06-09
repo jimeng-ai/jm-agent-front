@@ -324,16 +324,24 @@ function ArgField({
         />
       );
       break;
-    case 'enum':
-      control = (
-        <Select
-          value={value || undefined}
-          onChange={onChange}
-          placeholder="选择候选值"
-          style={{ minWidth: 220 }}
-          options={(field.enumValues ?? []).map((v) => ({ label: v, value: v }))}
-        />
-      );
+    case 'string':
+      // 带候选值的 string → 下拉单选；否则普通文本框
+      control =
+        field.enumValues && field.enumValues.length > 0 ? (
+          <Select
+            value={value || undefined}
+            onChange={onChange}
+            placeholder="选择候选值"
+            style={{ minWidth: 220 }}
+            options={field.enumValues.map((v) => ({ label: v, value: v }))}
+          />
+        ) : (
+          <Input
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={field.description || '请输入值'}
+          />
+        );
       break;
     case 'object':
     case 'array':
@@ -342,7 +350,9 @@ function ArgField({
           rows={3}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={field.type === 'array' ? 'JSON 数组，如 ["a","b"]' : 'JSON 对象，如 {"k":"v"}'}
+          placeholder={
+            field.type === 'array' ? 'JSON 数组，如 ["a","b"]' : 'JSON 对象，如 {"k":"v"}'
+          }
           style={mono}
         />
       );

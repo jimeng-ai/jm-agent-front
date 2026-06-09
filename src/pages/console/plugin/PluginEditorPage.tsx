@@ -23,11 +23,14 @@ import {
   PlusOutlined,
   SaveOutlined,
   SendOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { pluginApi, pluginToolApi } from '@/features/plugin/api';
 import ToolDrawer from '@/features/plugin/components/ToolDrawer';
+import AiGenerateModal from '@/features/plugin/components/AiGenerateModal';
+import RefinePluginModal from '@/features/plugin/components/RefinePluginModal';
 import CredentialPanel from '@/features/plugin/components/CredentialPanel';
 import TestPanel from '@/features/plugin/components/TestPanel';
 import type { PluginAuthType, PluginTool } from '@/api/types';
@@ -49,6 +52,8 @@ export default function PluginEditorPage() {
   const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
   const [editingTool, setEditingTool] = useState<PluginTool | undefined>();
   const [testOpen, setTestOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [refineOpen, setRefineOpen] = useState(false);
 
   const pluginQuery = useQuery({
     queryKey: ['plugin', 'detail', id],
@@ -147,10 +152,7 @@ export default function PluginEditorPage() {
                   >
                     <Select options={AUTH_TYPE_OPTIONS} />
                   </Form.Item>
-                  <Form.Item
-                    noStyle
-                    shouldUpdate={(prev, next) => prev.authType !== next.authType}
-                  >
+                  <Form.Item noStyle shouldUpdate={(prev, next) => prev.authType !== next.authType}>
                     {({ getFieldValue }) => {
                       const at = getFieldValue('authType') as PluginAuthType | undefined;
                       if (at !== 'API_KEY' && at !== 'HMAC') return null;
@@ -202,7 +204,19 @@ export default function PluginEditorPage() {
             label: `工具 (${toolsQuery.data?.length ?? 0})`,
             children: (
               <Card>
-                <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'flex-end' }}>
+                <div
+                  style={{ marginBottom: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}
+                >
+                  <Button icon={<ThunderboltOutlined />} onClick={() => setAiOpen(true)}>
+                    AI 生成
+                  </Button>
+                  <Button
+                    icon={<ThunderboltOutlined />}
+                    disabled={(toolsQuery.data?.length ?? 0) === 0}
+                    onClick={() => setRefineOpen(true)}
+                  >
+                    AI 改写
+                  </Button>
                   <Button
                     type="primary"
                     icon={<PlusOutlined />}
@@ -220,7 +234,26 @@ export default function PluginEditorPage() {
                   dataSource={toolsQuery.data ?? []}
                   pagination={false}
                   columns={[
-                    { title: '名称', dataIndex: 'name' },
+                    {
+                      title: '名称',
+                      dataIndex: 'name',
+                      render: (name: string, row) => (
+                        <div>
+                          <div>{row.title || name}</div>
+                          {row.title && (
+                            <div
+                              style={{
+                                fontFamily: 'Menlo, monospace',
+                                fontSize: 12,
+                                color: '#999',
+                              }}
+                            >
+                              {name}
+                            </div>
+                          )}
+                        </div>
+                      ),
+                    },
                     { title: '描述', dataIndex: 'description', ellipsis: true },
                     {
                       title: '启用',
@@ -276,6 +309,20 @@ export default function PluginEditorPage() {
         onSaved={() => qc.invalidateQueries({ queryKey: ['plugin', id, 'tools'] })}
       />
       <TestPanel open={testOpen} pluginId={id} onClose={() => setTestOpen(false)} />
+      <AiGenerateModal
+        open={aiOpen}
+        pluginId={id}
+        onClose={() => setAiOpen(false)}
+        onCreated={() => qc.invalidateQueries({ queryKey: ['plugin', id, 'tools'] })}
+      />
+      <RefinePluginModal
+        open={refineOpen}
+        pluginId={id}
+        plugin={plugin}
+        tools={toolsQuery.data ?? []}
+        onClose={() => setRefineOpen(false)}
+        onApplied={() => qc.invalidateQueries({ queryKey: ['plugin', id, 'tools'] })}
+      />
     </div>
   );
 }

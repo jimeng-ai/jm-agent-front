@@ -58,7 +58,10 @@ export const COMMON_HEADER_PRESETS: { label: string; row: HeaderRow }[] = [
     row: { key: 'Content-Type', value: 'application/x-www-form-urlencoded' },
   },
   { label: 'Accept: JSON', row: { key: 'Accept', value: 'application/json' } },
-  { label: 'Authorization: Bearer', row: { key: 'Authorization', value: 'Bearer {{secrets.token}}' } },
+  {
+    label: 'Authorization: Bearer',
+    row: { key: 'Authorization', value: 'Bearer {{secrets.token}}' },
+  },
 ];
 
 export interface OutputField {
@@ -153,7 +156,18 @@ function inputNamesFromTemplate(tpl: string): string[] {
 }
 
 function needsJsonQuote(t: FieldType): boolean {
-  return t === 'string' || t === 'enum';
+  return t === 'string';
+}
+
+/** 结构化类型（对象 / 数组）：只能作为 JSON body 发送，放到 query/path 没有意义 */
+export function isComplexType(t: FieldType): boolean {
+  return t === 'object' || t === 'array';
+}
+
+/** 字段最终生效的传入位置：复杂类型强制 body，其余取字段自身 location（默认 query） */
+export function effectiveLocation(f: FieldDef): ParamLocation {
+  if (isComplexType(f.type)) return 'body';
+  return f.location ?? 'query';
 }
 
 interface OutputWire {
@@ -244,8 +258,10 @@ export function buildMapping(fields: FieldDef[], form: HttpForm): PluginHttpMapp
     return isFixedField(f) ? fixedAsString(f) : `{{input.${n}}}`;
   };
 
-  const queryFields = declared.filter((f) => (f.location ?? 'query') === 'query');
-  const bodyFields = declared.filter((f) => f.location === 'body');
+  // 对象/数组等结构化参数只能进 body：query/path 无法承载 JSON 结构（会被序列化成乱码）。
+  // 即便字段的 location 仍是历史遗留的 query/path，这里也强制按 body 处理。
+  const queryFields = declared.filter((f) => effectiveLocation(f) === 'query');
+  const bodyFields = declared.filter((f) => effectiveLocation(f) === 'body');
 
   const queryTemplate: Record<string, string> = {};
   queryFields.forEach((f) => {
@@ -366,7 +382,7 @@ export function buildPreview(
   baseUrl?: string,
 ): { line: string; body?: string } {
   const declared = fields.filter((f) => f.name);
-  const queryFields = declared.filter((f) => (f.location ?? 'query') === 'query');
+  const queryFields = declared.filter((f) => effectiveLocation(f) === 'query');
   // path 固定值在预览里替换成字面量，便于直观确认
   const pathOnly = (form.urlTemplate || '').replace(SHORT_PH, (m, n) => {
     const f = declared.find((x) => x.name === n);
@@ -375,7 +391,9 @@ export function buildPreview(
   const url = form.urlTemplate ? resolveUrl(baseUrl, pathOnly) : '(未填写 URL)';
   const qs = queryFields
     .map((f) =>
-      isFixedField(f) ? `${f.name}=${encodeURIComponent(fixedAsString(f))}` : `${f.name}={{${f.name}}}`,
+      isFixedField(f)
+        ? `${f.name}=${encodeURIComponent(fixedAsString(f))}`
+        : `${f.name}={{${f.name}}}`,
     )
     .join('&');
   const line = `${form.method} ${url}${qs ? (url.includes('?') ? '&' : '?') + qs : ''}`;

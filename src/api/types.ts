@@ -129,6 +129,8 @@ export interface PluginTool {
   id: string;
   pluginId: string;
   name: string;
+  /** 中文展示名（给人看；为空回退 name）。name 仍是英文函数名，供 LLM 调用/路由。 */
+  title?: string;
   description?: string;
   inputSchema?: Record<string, unknown>;
   enabled: boolean;

@@ -1,4 +1,4 @@
-import { del, get, post, put } from '@/api/client';
+import { del, get, post, put, upload } from '@/api/client';
 import type {
   Plugin,
   PluginCredential,
@@ -18,6 +18,7 @@ interface ToolWire {
   id?: string | number;
   pluginId?: string | number;
   name: string;
+  title?: string;
   description?: string;
   inputSchema?: string;
   enabled?: boolean;
@@ -38,6 +39,7 @@ interface MappingWire {
 
 export interface ToolSavePayload {
   name: string;
+  title?: string;
   description?: string;
   enabled: boolean;
   inputSchema?: Record<string, unknown>;
@@ -62,6 +64,7 @@ function parseJsonObject<T extends Record<string, unknown>>(raw: unknown): T | u
 function toolToWire(p: ToolSavePayload): ToolWire {
   return {
     name: p.name,
+    title: p.title,
     description: p.description,
     enabled: p.enabled,
     inputSchema:
@@ -76,6 +79,7 @@ function toolFromWire(w: ToolWire): PluginTool {
     id: String(w.id ?? ''),
     pluginId: String(w.pluginId ?? ''),
     name: w.name,
+    title: w.title,
     description: w.description,
     enabled: Boolean(w.enabled),
     inputSchema: parseJsonObject(w.inputSchema),
@@ -139,9 +143,9 @@ export const pluginToolApi = {
   delete: (pluginId: string, toolId: string) =>
     del<void>(`/admin/plugin/plugins/${pluginId}/tools/${toolId}`),
   mapping: (pluginId: string, toolId: string) =>
-    get<MappingWire | null>(
-      `/admin/plugin/plugins/${pluginId}/tools/${toolId}/mapping`,
-    ).then((w) => (w ? mappingFromWire(w) : null)),
+    get<MappingWire | null>(`/admin/plugin/plugins/${pluginId}/tools/${toolId}/mapping`).then(
+      (w) => (w ? mappingFromWire(w) : null),
+    ),
 };
 
 // 凭证同理：后端 PluginCredential.credentialData 是明文 JSON 字符串列
@@ -204,4 +208,91 @@ export interface TestResult {
 export const pluginTestApi = {
   test: (pluginId: string, payload: TestPayload) =>
     post<TestResult>(`/admin/plugin/plugins/${pluginId}/test`, payload),
+};
+
+// ── AI 生成 / 微调：后端 /admin/plugin/ai/* 返回的「插件草稿」传输模型 ──────────
+// 这是与编辑器无关的中间结构；转成 FieldDef[]+HttpForm 在 utils/toolSpec.ts 做。
+
+export interface AiParamSpec {
+  name: string;
+  /** string | number | boolean | object | array */
+  type: string;
+  description?: string;
+  required?: boolean;
+  /** query | body | path */
+  location?: string;
+  enumValues?: string[];
+  fields?: AiParamSpec[];
+  itemType?: string;
+  itemFields?: AiParamSpec[];
+}
+
+export interface AiOutputSpec {
+  name: string;
+  type?: string;
+  description?: string;
+}
+
+export interface AiToolSpec {
+  name: string;
+  /** 中文展示名（给人看）；name 仍是英文函数名（供 LLM 调用/路由）。 */
+  title?: string;
+  description?: string;
+  method: string;
+  path: string;
+  params?: AiParamSpec[];
+  headers?: { key: string; value: string }[];
+  bodyContentType?: string;
+  outputs?: AiOutputSpec[];
+  warnings?: string[];
+}
+
+export interface PluginDraftMeta {
+  name?: string;
+  description?: string;
+  baseUrl?: string;
+  auth?: { type?: string; in?: string; name?: string; notes?: string };
+}
+
+export interface PluginDraft {
+  plugin: PluginDraftMeta;
+  tools: AiToolSpec[];
+  warnings?: string[];
+}
+
+export interface GenerateInput {
+  text?: string;
+  imageBase64?: string;
+  imageMediaType?: string;
+  docUrl?: string;
+  /** 「自动跑完整份文档」分批时：一批具体接口文档链接 */
+  docUrls?: string[];
+}
+
+// AI 调用是长耗时 LLM 操作（贴整份 OpenAPI 文档可能跑几十秒），单独放宽到 3 分钟，
+// 否则会被 axios 默认 30s 超时掐断（timeout of 30000ms exceeded）。
+const AI_TIMEOUT = 180_000;
+
+export const pluginAiApi = {
+  generate: (body: GenerateInput) =>
+    post<PluginDraft>('/admin/plugin/ai/generate', body, { timeout: AI_TIMEOUT }),
+  /** 列出文档索引(llms.txt)里的全部接口链接，供「自动跑完整份文档」分批 */
+  listEndpoints: (docUrl: string) =>
+    post<{ links: string[] }>(
+      '/admin/plugin/ai/list-endpoints',
+      { docUrl },
+      { timeout: AI_TIMEOUT },
+    ),
+  generateUpload: (file: File) =>
+    upload<PluginDraft>('/admin/plugin/ai/generate/upload', file, 'file', undefined, {
+      timeout: AI_TIMEOUT,
+    }),
+  refine: (body: {
+    draft: PluginDraft;
+    instruction: string;
+    history?: { role: string; text: string }[];
+  }) =>
+    post<{ draft: PluginDraft; reply: string }>('/admin/plugin/ai/refine', body, {
+      timeout: AI_TIMEOUT,
+    }),
 };

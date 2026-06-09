@@ -30,6 +30,7 @@ interface Props {
 
 interface ToolFormValues {
   name: string;
+  title?: string;
   description?: string;
   enabled: boolean;
 }
@@ -53,6 +54,7 @@ export default function ToolDrawer({ open, pluginId, tool, baseUrl, onClose, onS
     if (!open) return;
     form.setFieldsValue({
       name: tool?.name ?? '',
+      title: tool?.title ?? '',
       description: tool?.description ?? '',
       enabled: tool?.enabled ?? true,
     });
@@ -79,6 +81,7 @@ export default function ToolDrawer({ open, pluginId, tool, baseUrl, onClose, onS
       }
       const payload = {
         name: values.name,
+        title: values.title,
         description: values.description,
         enabled: values.enabled,
         inputSchema: fieldsToJsonSchema(fields),
@@ -114,8 +117,22 @@ export default function ToolDrawer({ open, pluginId, tool, baseUrl, onClose, onS
       }
     >
       <Form form={form} layout="vertical" onFinish={(v) => saveMut.mutate(v)}>
-        <Form.Item label="工具名" name="name" rules={[{ required: true }]}>
+        <Form.Item
+          label="工具名（英文函数名）"
+          name="name"
+          rules={[
+            { required: true },
+            {
+              pattern: /^[a-zA-Z0-9_-]+$/,
+              message: '只能用英文字母、数字、_ 或 -（会作为 LLM 调用的函数名，不能用中文）',
+            },
+          ]}
+          extra="作为 LLM 调用的函数标识，必须是英文；中文展示名请填下方「中文名」。"
+        >
           <Input placeholder="如 search_weather" />
+        </Form.Item>
+        <Form.Item label="中文名（展示用）" name="title">
+          <Input placeholder="如 查询天气（仅展示给人看，为空则显示工具名）" />
         </Form.Item>
         <Form.Item label="描述" name="description">
           <Input.TextArea rows={2} placeholder="工具用途，用于 LLM 选择该工具" />
@@ -126,13 +143,18 @@ export default function ToolDrawer({ open, pluginId, tool, baseUrl, onClose, onS
 
         <Divider>配置输入参数</Divider>
         <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-          声明工具的输入字段（LLM 调用时填入），并用「传入方法」指定每个参数拼到 query /
-          body / path。填了「默认值」的参数视为固定值，不暴露给 LLM（适合 API Key）。
+          声明工具的输入字段（LLM 调用时填入），并用「传入方法」指定每个参数拼到 query / body /
+          path。填了「默认值」的参数视为固定值，不暴露给 LLM（适合 API Key）。
         </Typography.Text>
         <InputSchemaEditor value={fields} onChange={setFields} />
 
         <Divider>HTTP 映射</Divider>
-        <HttpMappingForm value={httpForm} onChange={setHttpForm} fields={fields} baseUrl={baseUrl} />
+        <HttpMappingForm
+          value={httpForm}
+          onChange={setHttpForm}
+          fields={fields}
+          baseUrl={baseUrl}
+        />
       </Form>
     </Drawer>
   );

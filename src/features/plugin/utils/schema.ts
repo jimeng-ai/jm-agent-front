@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid';
 
-export type FieldType = 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'array';
+export type FieldType = 'string' | 'number' | 'boolean' | 'object' | 'array';
 
 /** 入参在 HTTP 请求中的位置（仅顶层字段有意义） */
 export type ParamLocation = 'path' | 'query' | 'body';
@@ -68,13 +68,13 @@ function fieldToSchema(field: FieldDef): JsonSchema {
 
   switch (field.type) {
     case 'string':
+      base.type = 'string';
+      // 字符串带候选值 → JSON Schema 的 enum 约束（不再是独立的 enum 类型）
+      if (field.enumValues && field.enumValues.length > 0) base.enum = field.enumValues;
+      return base;
     case 'number':
     case 'boolean':
       base.type = field.type;
-      return base;
-    case 'enum':
-      base.type = 'string';
-      base.enum = field.enumValues ?? [];
       return base;
     case 'object':
       base.type = 'object';
@@ -97,8 +97,9 @@ function fieldToSchema(field: FieldDef): JsonSchema {
           type: 'object',
           fields: field.itemFields,
         });
-      } else if (itemType === 'enum') {
-        base.items = { type: 'string', enum: field.itemEnumValues ?? [] };
+      } else if (itemType === 'string' && field.itemEnumValues && field.itemEnumValues.length > 0) {
+        // 字符串元素带候选值 → items.enum
+        base.items = { type: 'string', enum: field.itemEnumValues };
       } else {
         base.items = { type: itemType };
       }
@@ -141,8 +142,9 @@ function schemaToField(name: string, schema: JsonSchema, required: boolean): Fie
     description: schema.description,
   };
 
+  // 带 enum 约束 → 还原成「带候选值的 string」（而非独立的 enum 类型）
   if (Array.isArray(schema.enum)) {
-    base.type = 'enum';
+    base.type = 'string';
     base.enumValues = schema.enum.map(String);
     return base;
   }
@@ -167,7 +169,7 @@ function schemaToField(name: string, schema: JsonSchema, required: boolean): Fie
       base.type = 'array';
       const items = schema.items ?? { type: 'string' };
       if (Array.isArray(items.enum)) {
-        base.itemType = 'enum';
+        base.itemType = 'string';
         base.itemEnumValues = items.enum.map(String);
       } else if (items.type === 'object') {
         base.itemType = 'object';
@@ -191,10 +193,12 @@ function schemaToField(name: string, schema: JsonSchema, required: boolean): Fie
 }
 
 function fixedToField(fw: FixedParamWire): FieldDef {
+  // 历史数据里 type 可能是已废弃的 'enum'，统一归一成 string
+  const rawType = (fw.type as string) ?? 'string';
   return {
     id: nanoid(),
     name: fw.name ?? '',
-    type: (fw.type as FieldType) ?? 'string',
+    type: rawType === 'enum' ? 'string' : (rawType as FieldType),
     required: false,
     description: fw.description,
     location: (fw.location as ParamLocation) ?? 'query',
@@ -227,4 +231,94 @@ export function jsonSchemaToFields(schema: Record<string, unknown> | undefined):
     result.splice(Math.min(order, result.length), 0, field);
   });
   return result;
+}
+
+/** 人类可读的组合类型标签：Array&lt;Object&gt; / Array&lt;String&gt; / Object / String 等 */
+export function composedTypeLabel(field: FieldDef): string {
+  const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+  if (field.type === 'array') return `Array<${cap(field.itemType ?? 'string')}>`;
+  return cap(field.type);
+}
+
+function inferFieldType(v: unknown): FieldType {
+  if (Array.isArray(v)) return 'array';
+  if (v === null) return 'string';
+  switch (typeof v) {
+    case 'number':
+      return 'number';
+    case 'boolean':
+      return 'boolean';
+    case 'object':
+      return 'object';
+    default:
+      return 'string';
+  }
+}
+
+/** 由一个样例值递归推断出参数定义（含 object 子字段、array 元素结构） */
+function sampleValueToField(name: string, value: unknown): FieldDef {
+  const type = inferFieldType(value);
+  const f = newField({ name, type });
+  if (type === 'object') {
+    f.fields = Object.entries(value as Record<string, unknown>).map(([k, v]) =>
+      sampleValueToField(k, v),
+    );
+  } else if (type === 'array') {
+    const arr = value as unknown[];
+    // 取首个对象元素推断元素字段（对象数组场景）
+    const firstObj = arr.find((x) => x && typeof x === 'object' && !Array.isArray(x)) as
+      | Record<string, unknown>
+      | undefined;
+    if (firstObj) {
+      f.itemType = 'object';
+      f.itemFields = Object.entries(firstObj).map(([k, v]) => sampleValueToField(k, v));
+    } else {
+      const it = arr.length ? inferFieldType(arr[0]) : 'string';
+      // 不支持数组套数组，退化为 string 元素
+      f.itemType = it === 'array' ? 'string' : it;
+    }
+  }
+  return f;
+}
+
+export type SampleParseResult = { ok: true; fields: FieldDef[] } | { ok: false; error: string };
+
+/**
+ * 从一段「示例请求体 JSON」反推入参定义。
+ * - 顶层 JSON 对象（最常见）→ 每个键是一个入参，默认作为 body
+ * - 顶层是对象数组 → 归成一个 Array&lt;Object&gt; 入参（默认名 items）
+ */
+export function parseSampleToFields(sample: string): SampleParseResult {
+  if (!sample.trim()) return { ok: false, error: '请先粘贴示例 JSON' };
+  let json: unknown;
+  try {
+    json = JSON.parse(sample);
+  } catch (e) {
+    return { ok: false, error: `不是合法 JSON：${(e as Error).message}` };
+  }
+
+  if (json && typeof json === 'object' && !Array.isArray(json)) {
+    const obj = json as Record<string, unknown>;
+    // 粘贴的本身就是 JSON Schema（{type:"object",properties:{...}}）→ 直接按 schema 还原，
+    // 能保留 required、enum 候选值等约束（比从示例值推断更精确）
+    if (obj.type === 'object' && obj.properties && typeof obj.properties === 'object') {
+      const fields = jsonSchemaToFields(obj).map((f) => ({
+        ...f,
+        location: f.location ?? ('body' as ParamLocation),
+      }));
+      return fields.length ? { ok: true, fields } : { ok: false, error: '未解析到任何字段' };
+    }
+    // 否则按「示例值」逐键推断类型
+    const fields = Object.entries(obj).map(([k, v]) => ({
+      ...sampleValueToField(k, v),
+      location: 'body' as ParamLocation,
+    }));
+    return fields.length ? { ok: true, fields } : { ok: false, error: '未解析到任何字段' };
+  }
+
+  if (Array.isArray(json)) {
+    return { ok: true, fields: [sampleValueToField('items', json)] };
+  }
+
+  return { ok: false, error: '示例需要是 JSON 对象（推荐）或对象数组' };
 }

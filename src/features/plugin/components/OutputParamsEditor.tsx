@@ -64,22 +64,17 @@ export default function OutputParamsEditor({ value, onChange }: Props) {
       message.error(r.error);
       return;
     }
-    const existing = new Set(value.map((o) => o.name.trim()).filter(Boolean));
-    const added = r.rows.filter((row) => !existing.has(row.name)).map(parsedToOutput);
-    if (added.length === 0) {
-      message.info('解析到的字段已全部存在');
-    } else {
-      onChange([...value, ...added]);
-      message.success(`已添加 ${added.length} 个输出参数`);
-    }
+    // 覆盖：用解析结果整体替换现有输出参数（解析失败时已提前 return，不会误清空）
+    onChange(r.rows.map(parsedToOutput));
+    message.success(`已生成 ${r.rows.length} 个输出参数（已覆盖原配置）`);
     setAutoOpen(false);
   };
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size={10}>
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        声明工具返回给 Agent 的字段。默认按字段名从响应顶层同名键取值（如 errcode →
-        响应里的 errcode）；type 选 Object/Array 可继续添加内部子参数。不配置则返回完整响应。
+        声明工具返回给 Agent 的字段。默认按字段名从响应顶层同名键取值（如 errcode → 响应里的
+        errcode）；type 选 Object/Array 可继续添加内部子参数。不配置则返回完整响应。
       </Typography.Text>
 
       <OutputList
@@ -91,7 +86,11 @@ export default function OutputParamsEditor({ value, onChange }: Props) {
       />
 
       <Space wrap>
-        <Button icon={<PlusOutlined />} onClick={() => onChange([...value, newOutput()])} type="dashed">
+        <Button
+          icon={<PlusOutlined />}
+          onClick={() => onChange([...value, newOutput()])}
+          type="dashed"
+        >
           添加参数
         </Button>
         <Button icon={<ThunderboltOutlined />} onClick={() => setAutoOpen(true)}>
@@ -114,7 +113,8 @@ export default function OutputParamsEditor({ value, onChange }: Props) {
         destroyOnClose
       >
         <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-          粘贴一段接口的样例响应，自动识别字段名与类型（含嵌套对象/数组）并追加为输出参数（同名顶层字段会跳过）。
+          粘贴一段接口的样例响应，自动识别字段名与类型（含嵌套对象/数组）生成输出参数。
+          <b style={{ color: '#d4380d' }}>会覆盖当前已配置的输出参数</b>。
         </Typography.Paragraph>
         <Input.TextArea
           rows={10}
@@ -278,7 +278,7 @@ function OutputRow({
               onChange={(t) =>
                 onChange({
                   itemType: t,
-                  itemFields: t === 'object' ? field.itemFields ?? [] : undefined,
+                  itemFields: t === 'object' ? (field.itemFields ?? []) : undefined,
                 })
               }
               options={ITEM_TYPE_OPTIONS}
