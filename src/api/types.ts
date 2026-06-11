@@ -94,7 +94,14 @@ export interface Agent extends BaseEntity {
   hasUnpublishedChanges?: boolean;
 }
 
-export type PluginAuthType = 'NONE' | 'BEARER' | 'BASIC' | 'API_KEY' | 'HMAC';
+export type PluginAuthType =
+  | 'NONE'
+  | 'BEARER'
+  | 'BASIC'
+  | 'API_KEY'
+  | 'HMAC'
+  | 'OAUTH2'
+  | 'TOKEN_FETCH';
 
 export interface Plugin extends BaseEntity {
   code: string;

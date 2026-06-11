@@ -41,7 +41,19 @@ const AUTH_TYPE_OPTIONS: { label: string; value: PluginAuthType }[] = [
   { label: 'Basic Auth', value: 'BASIC' },
   { label: 'API Key', value: 'API_KEY' },
   { label: 'HMAC 签名', value: 'HMAC' },
+  { label: 'OAuth2 (client_credentials)', value: 'OAUTH2' },
+  { label: '通用 Token 获取', value: 'TOKEN_FETCH' },
 ];
+
+// 哪些认证方式需要填 auth_config（非密 JSON）+ 各自示例
+const AUTH_CONFIG_HINTS: Partial<Record<PluginAuthType, string>> = {
+  API_KEY: '示例：{ "location": "header", "key_name": "X-API-Key" }',
+  HMAC: '示例：{ "algorithm": "HMAC_SHA256", "sign_template": "...", "placement": { "type": "header", "name": "X-Sign" } }',
+  OAUTH2:
+    '示例：{ "token_url": "https://auth.x.com/oauth/token", "scope": "read", "client_auth": "body" }（凭证 Tab 填 client_id / client_secret）',
+  TOKEN_FETCH:
+    '示例：{ "token_request": { "method": "POST", "url": "https://auth.x.com/login", "content_type": "application/json", "headers": { "Content-Type": "application/json" }, "body": "{\\"appKey\\":\\"{{secrets.appKey}}\\"}" }, "token_path": "$.data.token", "expire_path": "$.data.expire", "inject": { "location": "header", "name": "Authorization", "prefix": "Bearer " } }',
+};
 
 export default function PluginEditorPage() {
   const { id = '' } = useParams();
@@ -155,16 +167,12 @@ export default function PluginEditorPage() {
                   <Form.Item noStyle shouldUpdate={(prev, next) => prev.authType !== next.authType}>
                     {({ getFieldValue }) => {
                       const at = getFieldValue('authType') as PluginAuthType | undefined;
-                      if (at !== 'API_KEY' && at !== 'HMAC') return null;
+                      if (!at || !(at in AUTH_CONFIG_HINTS)) return null;
                       return (
                         <Form.Item
                           label={`auth_config (${at} 非密配置 JSON)`}
                           name="authConfig"
-                          extra={
-                            at === 'API_KEY'
-                              ? '示例：{ "location": "header", "key_name": "X-API-Key" }'
-                              : '示例：{ "algorithm": "HMAC_SHA256", "sign_template": "...", "placement": { "type": "header", "name": "X-Sign" } }'
-                          }
+                          extra={AUTH_CONFIG_HINTS[at]}
                           rules={[
                             {
                               validator: (_, v) => {
