@@ -3,6 +3,7 @@ import { Drawer, Form, Input, Switch, Space, Button, App, Divider, Typography } 
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { pluginToolApi } from '@/features/plugin/api';
 import type { PluginTool } from '@/api/types';
+import HttpEndpointField from './HttpEndpointField';
 import HttpMappingForm from './HttpMappingForm';
 import InputSchemaEditor from './InputSchemaEditor';
 import {
@@ -141,6 +142,13 @@ export default function ToolDrawer({ open, pluginId, tool, baseUrl, onClose, onS
           <Switch />
         </Form.Item>
 
+        <HttpEndpointField
+          value={httpForm}
+          onChange={setHttpForm}
+          fields={fields}
+          baseUrl={baseUrl}
+        />
+
         <Divider>配置输入参数</Divider>
         <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
           声明工具的输入字段（LLM 调用时填入），并用「传入方法」指定每个参数拼到 query / body /
@@ -148,7 +156,6 @@ export default function ToolDrawer({ open, pluginId, tool, baseUrl, onClose, onS
         </Typography.Text>
         <InputSchemaEditor value={fields} onChange={setFields} />
 
-        <Divider>HTTP 映射</Divider>
         <HttpMappingForm
           value={httpForm}
           onChange={setHttpForm}
