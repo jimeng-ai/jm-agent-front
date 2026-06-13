@@ -15,7 +15,10 @@ export const kbApi = {
 export const docApi = {
   list: (kbId: string) => get<KbDocument[]>(`/rag/kb/${kbId}/documents`),
   detail: (docId: string) => get<KbDocument>(`/rag/documents/${docId}`),
-  upload: (kbId: string, file: File) => upload<KbDocument>(`/rag/kb/${kbId}/documents`, file),
+  upload: (kbId: string, file: File, rowPerChunk = false) =>
+    upload<KbDocument>(`/rag/kb/${kbId}/documents`, file, 'file', {
+      rowPerChunk: String(rowPerChunk),
+    }),
   delete: (docId: string) => del<void>(`/rag/documents/${docId}`),
   retry: (docId: string) => post<void>(`/rag/documents/${docId}/retry`),
   chunks: (docId: string) => get<KbChunk[]>(`/rag/documents/${docId}/chunks`),

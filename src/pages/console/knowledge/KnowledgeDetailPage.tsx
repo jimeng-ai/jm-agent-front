@@ -1,14 +1,16 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   App,
   Button,
+  Checkbox,
   Popconfirm,
   Progress,
   Space,
   Spin,
   Table,
   Tag,
+  Tooltip,
   Typography,
   Upload,
 } from 'antd';
@@ -46,6 +48,10 @@ export default function KnowledgeDetailPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<KbDocument | null>(null);
   const [chunksDoc, setChunksDoc] = useState<KbDocument | null>(null);
+  // 表格逐行切片：勾选后 Excel/CSV 每数据行独立成 chunk（FAQ 表用）。用 ref 让 customRequest 读到最新值。
+  const [rowPerChunk, setRowPerChunk] = useState(false);
+  const rowPerChunkRef = useRef(rowPerChunk);
+  rowPerChunkRef.current = rowPerChunk;
 
   const kbQuery = useQuery({
     queryKey: ['kb', 'detail', kbId],
@@ -83,7 +89,7 @@ export default function KnowledgeDetailPage() {
       showUploadList: false,
       customRequest: async ({ file, onSuccess, onError }) => {
         try {
-          await docApi.upload(kbId, file as File);
+          await docApi.upload(kbId, file as File, rowPerChunkRef.current);
           message.success(`${(file as File).name} 已加入入库队列`);
           qc.invalidateQueries({ queryKey: ['kb', kbId, 'docs'] });
           onSuccess?.({}, new XMLHttpRequest());
@@ -110,12 +116,21 @@ export default function KnowledgeDetailPage() {
         </Button>
       </Space>
 
-      <Dragger {...uploadProps} style={{ marginBottom: 16 }}>
+      <Dragger {...uploadProps} style={{ marginBottom: 8 }}>
         <p className="ant-upload-drag-icon">
           <InboxOutlined />
         </p>
         <p>点击或拖拽文件到此处上传（支持 PDF/DOCX/XLSX/MD，可批量）</p>
       </Dragger>
+
+      {/* 表格逐行切片开关：仅对 Excel/CSV 生效，勾选后每个数据行单独成 chunk（适合 FAQ 表，一问一答各自可检索）。 */}
+      <div style={{ marginBottom: 16 }} onClick={(e) => e.stopPropagation()}>
+        <Tooltip title="勾选后，上传的 Excel/CSV 会按「每个数据行」独立切片（一行一 chunk），适合 FAQ / 问答表；不勾选则按字数合并多行。仅对表格类文件生效，对 PDF/DOCX 等无影响。已入库文档需删除后重新上传才会按新方式切片。">
+          <Checkbox checked={rowPerChunk} onChange={(e) => setRowPerChunk(e.target.checked)}>
+            表格逐行切片（Excel/CSV，FAQ 表用）
+          </Checkbox>
+        </Tooltip>
+      </div>
 
       <Table<KbDocument>
         rowKey="id"

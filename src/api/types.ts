@@ -174,6 +174,8 @@ export interface KbDocument {
   /** 文件大小（字节）。后端 Long 因 numbers-as-strings 可能序列化成字符串。 */
   fileSize?: number | string;
   status: DocStatus;
+  /** 表格逐行切片：true=xlsx/csv 每数据行独立成 chunk（FAQ 表）。上传时勾选，仅对表格类文件生效。 */
+  rowPerChunk?: boolean;
   totalChunks?: number;
   errorMessage?: string;
   createTime?: string;
