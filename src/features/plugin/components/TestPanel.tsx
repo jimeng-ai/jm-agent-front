@@ -1,26 +1,12 @@
 import { useMemo, useState } from 'react';
-import {
-  App,
-  Drawer,
-  Form,
-  Input,
-  Select,
-  Button,
-  Space,
-  Tag,
-  Typography,
-  Alert,
-  Segmented,
-} from 'antd';
+import { App, Form, Input, Select, Button, Space, Tag, Typography, Alert, Segmented } from 'antd';
 import { CopyOutlined } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { pluginTestApi, pluginToolApi, type TestResult } from '@/features/plugin/api';
 import { jsonSchemaToFields, isFixedField, type FieldDef } from '@/features/plugin/utils/schema';
 
 interface Props {
-  open: boolean;
   pluginId: string;
-  onClose: () => void;
 }
 
 const mono: React.CSSProperties = { fontFamily: 'Menlo, monospace', fontSize: 12 };
@@ -45,7 +31,7 @@ function coerceArg(raw: string, f: FieldDef): unknown {
   }
 }
 
-export default function TestPanel({ open, pluginId, onClose }: Props) {
+export default function TestPanel({ pluginId }: Props) {
   const { message } = App.useApp();
   const [toolId, setToolId] = useState<string | undefined>();
   const [mode, setMode] = useState<'form' | 'json'>('form');
@@ -56,7 +42,7 @@ export default function TestPanel({ open, pluginId, onClose }: Props) {
   const toolsQuery = useQuery({
     queryKey: ['plugin', pluginId, 'tools'],
     queryFn: () => pluginToolApi.list(pluginId),
-    enabled: open,
+    enabled: !!pluginId,
   });
   const tools = toolsQuery.data ?? [];
   const selectedTool = tools.find((t) => t.id === toolId);
@@ -129,7 +115,7 @@ export default function TestPanel({ open, pluginId, onClose }: Props) {
   });
 
   return (
-    <Drawer title="试调用" width={720} open={open} onClose={onClose} destroyOnClose>
+    <div style={{ maxWidth: 720 }}>
       <Form layout="vertical">
         <Form.Item label="工具" required>
           <Select
@@ -262,7 +248,7 @@ export default function TestPanel({ open, pluginId, onClose }: Props) {
           )}
         </div>
       )}
-    </Drawer>
+    </div>
   );
 }
 

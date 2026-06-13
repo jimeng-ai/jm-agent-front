@@ -110,6 +110,8 @@ export interface Plugin extends BaseEntity {
   name: string;
   description?: string;
   icon?: string;
+  /** 插件版本（自由文本，无自动 bump）；编辑页头部展示。 */
+  version?: string;
   baseUrl?: string;
   authType?: PluginAuthType;
   authConfig?: string;

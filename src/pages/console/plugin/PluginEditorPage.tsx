@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import {
   App,
+  Avatar,
+  Breadcrumb,
   Button,
   Card,
+  Col,
   Form,
   Input,
   Popconfirm,
+  Row,
   Select,
   Space,
   Spin,
@@ -22,7 +26,6 @@ import {
   ExperimentOutlined,
   PlusOutlined,
   SaveOutlined,
-  SendOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -34,8 +37,12 @@ import RefinePluginModal from '@/features/plugin/components/RefinePluginModal';
 import CredentialPanel from '@/features/plugin/components/CredentialPanel';
 import TestPanel from '@/features/plugin/components/TestPanel';
 import AuthConfigEditor from '@/features/plugin/components/authconfig/AuthConfigEditor';
+import ShareSettings from '@/features/rbac/components/ShareSettings';
 import { FORM_AUTH_TYPES } from '@/features/plugin/utils/authConfig';
+import { useAuthStore } from '@/stores/authStore';
 import type { PluginAuthType, PluginTool } from '@/api/types';
+
+const { Title, Text } = Typography;
 
 const AUTH_TYPE_OPTIONS: { label: string; value: PluginAuthType }[] = [
   { label: '无 (NONE)', value: 'NONE' },
@@ -52,10 +59,11 @@ export default function PluginEditorPage() {
   const navigate = useNavigate();
   const { message } = App.useApp();
   const qc = useQueryClient();
+  const myId = useAuthStore((s) => s.user?.id);
   const [form] = Form.useForm();
+  const [tab, setTab] = useState('base');
   const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
   const [editingTool, setEditingTool] = useState<PluginTool | undefined>();
-  const [testOpen, setTestOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [refineOpen, setRefineOpen] = useState(false);
 
@@ -108,38 +116,93 @@ export default function PluginEditorPage() {
   const plugin = pluginQuery.data;
   if (!plugin) return null;
 
+  const toolCount = toolsQuery.data?.length ?? Number(plugin.toolCount ?? 0);
+  const refCount = Number(plugin.refAgentCount ?? 0);
+  const isPublished = plugin.status === 'PUBLISHED';
+  const isMine = !!myId && plugin.createUser === myId;
+  const initial = (plugin.name?.trim()?.[0] ?? 'P').toUpperCase();
+
   return (
     <div>
-      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
-        <Space>
+      {/* 面包屑 */}
+      <Breadcrumb
+        style={{ marginBottom: 12 }}
+        items={[
+          { title: <a onClick={() => navigate('/console/plugins')}>插件</a> },
+          { title: plugin.name },
+          { title: '编辑' },
+        ]}
+      />
+
+      {/* 头部：返回 + 图标 + 名称/徽章/副标题 + 操作按钮 */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          gap: 16,
+        }}
+      >
+        <Space align="start" size={16}>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/console/plugins')} />
-          <Typography.Title level={3} style={{ margin: 0 }}>
-            {plugin.name}
-          </Typography.Title>
-          <Tag color={plugin.status === 'PUBLISHED' ? 'green' : 'default'}>
-            {plugin.status === 'PUBLISHED' ? '已发布' : '草稿'}
-          </Tag>
+          <Avatar
+            shape="square"
+            size={48}
+            style={{ background: '#eef2ff', color: '#4f46e5', fontSize: 20, flex: 'none' }}
+          >
+            {initial}
+          </Avatar>
+          <div>
+            <Space align="center" size={8} wrap>
+              <Title level={3} style={{ margin: 0 }}>
+                {plugin.name}
+              </Title>
+              <Tag color={isPublished ? 'green' : 'default'}>{isPublished ? '已发布' : '草稿'}</Tag>
+              {plugin.version && <Tag>v{plugin.version}</Tag>}
+              <Tag color={isMine ? 'blue' : 'default'}>{isMine ? '我创建' : '团队共享'}</Tag>
+            </Space>
+            <div style={{ marginTop: 4 }}>
+              <Text type="secondary">
+                {plugin.code}
+                {plugin.creatorName ? ` · ${plugin.creatorName} 创建` : ''} · {toolCount} 动作 · 被{' '}
+                {refCount} 个 Agent 引用
+              </Text>
+            </div>
+          </div>
         </Space>
         <Space>
-          <Button icon={<ExperimentOutlined />} onClick={() => setTestOpen(true)}>
-            试调用
+          <Button
+            icon={<SaveOutlined />}
+            loading={saveMut.isPending}
+            onClick={() => {
+              setTab('base');
+              form.submit();
+            }}
+          >
+            保存草稿
+          </Button>
+          <Button icon={<ExperimentOutlined />} onClick={() => setTab('test')}>
+            调试
           </Button>
           <Button
             type="primary"
-            icon={<SendOutlined />}
+            icon={<ThunderboltOutlined />}
             loading={publishMut.isPending}
             onClick={() => publishMut.mutate()}
           >
             发布
           </Button>
         </Space>
-      </Space>
+      </div>
 
       <Tabs
+        activeKey={tab}
+        onChange={setTab}
+        style={{ marginTop: 16 }}
         items={[
           {
             key: 'base',
-            label: '基础信息',
+            label: '基础',
             children: (
               <Card>
                 <Form
@@ -147,27 +210,50 @@ export default function PluginEditorPage() {
                   layout="vertical"
                   initialValues={{ ...plugin, authType: plugin.authType ?? 'NONE' }}
                   onFinish={(v) => saveMut.mutate(v)}
-                  style={{ maxWidth: 720 }}
                 >
-                  <Form.Item label="名称" name="name" rules={[{ required: true }]}>
-                    <Input />
-                  </Form.Item>
-                  <Form.Item label="Base URL" name="baseUrl">
-                    <Input placeholder="https://api.example.com" />
-                  </Form.Item>
-                  <Form.Item label="描述" name="description">
+                  <Row gutter={24}>
+                    <Col xs={24} md={12}>
+                      <Form.Item label="名称" name="name" rules={[{ required: true }]}>
+                        <Input />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item
+                        label="标识符 (slug)"
+                        tooltip="插件运行时的功能 slug，创建后不可修改"
+                      >
+                        <Input value={plugin.code} disabled />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                  <Form.Item
+                    label="描述"
+                    name="description"
+                    extra="会展示在 Agent 编辑页的工具选择列表里"
+                  >
                     <Input.TextArea rows={3} />
                   </Form.Item>
                   <Form.Item
-                    label="认证方式"
-                    name="authType"
-                    extra="决定凭证 Tab 里要填哪些字段；NONE 表示接口不需鉴权"
+                    label="Base URL"
+                    name="baseUrl"
+                    extra="所有动作的请求路径会拼接在此 URL 之后"
                   >
-                    <Select
-                      options={AUTH_TYPE_OPTIONS}
-                      onChange={() => form.setFieldsValue({ authConfig: '' })}
-                    />
+                    <Input placeholder="https://api.example.com" />
                   </Form.Item>
+                  <Row gutter={24}>
+                    <Col xs={24} md={12}>
+                      <Form.Item
+                        label="鉴权方式"
+                        name="authType"
+                        extra="决定凭证 Tab 里要填哪些字段；NONE 表示接口不需鉴权"
+                      >
+                        <Select
+                          options={AUTH_TYPE_OPTIONS}
+                          onChange={() => form.setFieldsValue({ authConfig: '' })}
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
                   <Form.Item noStyle shouldUpdate={(prev, next) => prev.authType !== next.authType}>
                     {({ getFieldValue }) => {
                       const at = getFieldValue('authType') as PluginAuthType | undefined;
@@ -209,7 +295,7 @@ export default function PluginEditorPage() {
           },
           {
             key: 'tools',
-            label: `工具 (${toolsQuery.data?.length ?? 0})`,
+            label: `动作 · Schema · ${toolCount}`,
             children: (
               <Card>
                 <div
@@ -305,6 +391,29 @@ export default function PluginEditorPage() {
               </Card>
             ),
           },
+          {
+            key: 'test',
+            label: '调试',
+            children: (
+              <Card>
+                <TestPanel pluginId={id} />
+              </Card>
+            ),
+          },
+          {
+            key: 'share',
+            label: '权限与共享',
+            children: (
+              <Card style={{ maxWidth: 520 }}>
+                <ShareSettings
+                  resourceType="PLUGIN"
+                  resourceId={id}
+                  active={tab === 'share'}
+                  withSaveButton
+                />
+              </Card>
+            ),
+          },
         ]}
       />
 
@@ -316,7 +425,6 @@ export default function PluginEditorPage() {
         onClose={() => setToolDrawerOpen(false)}
         onSaved={() => qc.invalidateQueries({ queryKey: ['plugin', id, 'tools'] })}
       />
-      <TestPanel open={testOpen} pluginId={id} onClose={() => setTestOpen(false)} />
       <AiGenerateModal
         open={aiOpen}
         pluginId={id}
