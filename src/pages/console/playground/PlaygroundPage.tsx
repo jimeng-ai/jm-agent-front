@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Card, Col, Row, Select, Space, Typography } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
-import { agentApi } from '@/features/agent/api';
+import { agentApi, parseKbCount } from '@/features/agent/api';
 import { kbApi } from '@/features/knowledge/api';
 import ChatPanel from '@/features/chat-admin/components/ChatPanel';
 
@@ -19,6 +19,23 @@ export default function PlaygroundPage() {
     queryKey: ['kb', 'list'],
     queryFn: kbApi.list,
   });
+
+  // 选中 Agent 后拉详情 + 绑定插件：用于把空状态对齐到对话页的 hero（头像/自我介绍/能力胶囊/预设问题）。
+  // 调试台用实时草稿配置（preview），detail 返回的就是草稿态，正好。
+  const agentQuery = useQuery({
+    queryKey: ['agent', 'detail', agentId],
+    queryFn: () => agentApi.detail(agentId as string),
+    enabled: !!agentId,
+  });
+  const pluginsQuery = useQuery({
+    queryKey: ['agent', 'plugins', agentId],
+    queryFn: () => agentApi.listPlugins(agentId as string),
+    enabled: !!agentId,
+  });
+
+  const agent = agentQuery.data;
+  const kbCount = parseKbCount(agent?.kbConfig);
+  const toolCount = pluginsQuery.data?.length ?? 0;
 
   const panelKey = useMemo(() => `${agentId ?? ''}-${kbId ?? ''}`, [agentId, kbId]);
 
@@ -77,6 +94,13 @@ export default function PlaygroundPage() {
               topK={5}
               rerank={false}
               preview
+              agentName={agent?.name}
+              agentDescription={agent?.description}
+              agentAvatar={agent?.avatarUrl}
+              agentModel={agent?.model}
+              kbCount={kbCount}
+              toolCount={toolCount}
+              presetQuestions={agent?.presetQuestions}
             />
           </Card>
         </Col>

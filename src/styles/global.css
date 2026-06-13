@@ -1283,26 +1283,37 @@ img.chat-agent-glyph {
 }
 
 /* ==========================================================================
-   对话空状态：大头像 + 自我介绍 + 预设引导问题
+   对话空状态 hero：大头像 + 自我介绍 + 能力胶囊 + 预设问题胶囊 + 居中输入框
+   整体垂直居中；内容超高时可滚动。
    ========================================================================== */
-.chat-empty {
+.chat-hero-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 32px 16px;
+}
+.chat-hero {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 64px 8px 24px;
+  width: 100%;
+  max-width: 640px;
 }
 .chat-empty-avatar {
-  width: 72px;
-  height: 72px;
-  border-radius: 18px;
+  width: 88px;
+  height: 88px;
+  border-radius: 22px;
   object-fit: cover;
 }
 .chat-empty-avatar.glyph {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 34px;
+  font-size: 40px;
   font-weight: 600;
   user-select: none;
 }
@@ -1311,7 +1322,7 @@ img.chat-agent-glyph {
   font-weight: var(--display-weight);
   font-size: var(--fs-28, 28px);
   color: var(--text);
-  margin: 20px 0 0;
+  margin: 22px 0 0;
 }
 .chat-empty-desc {
   font-size: var(--fs-16);
@@ -1320,49 +1331,155 @@ img.chat-agent-glyph {
   max-width: 560px;
   line-height: 1.6;
 }
-.chat-empty-hint {
-  font-size: var(--fs-14);
+
+/* 能力胶囊：模型 / 知识库数 / 工具数，轻量描边药丸 */
+.chat-hero-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 22px;
+}
+.chat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: var(--fs-13, 13px);
+  color: var(--text-2);
+  background: #fff;
+  line-height: 1.4;
+}
+.chat-chip .anticon {
   color: var(--text-3);
-  margin: 40px 0 16px;
+  font-size: 14px;
 }
-.chat-empty-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  width: 100%;
-  max-width: 720px;
+
+/* 预设引导问题：横向自动换行的药丸按钮 */
+.chat-hero-pills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 26px;
 }
-.chat-empty-card {
-  text-align: left;
+.chat-hero-pill {
   background: var(--card-bg);
   border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  padding: 16px 18px;
+  border-radius: 999px;
+  padding: 9px 18px;
   font-size: var(--fs-14);
   color: var(--text);
-  line-height: 1.5;
+  line-height: 1.4;
   cursor: pointer;
+  white-space: nowrap;
   transition:
     border-color 120ms,
     box-shadow 120ms,
     background 120ms;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
-.chat-empty-card:hover:not(:disabled) {
+.chat-hero-pill:hover:not(:disabled) {
   border-color: var(--primary);
   box-shadow: 0 1px 2px rgb(15 23 42 / 0.06);
   background: var(--primary-tint);
 }
-.chat-empty-card:disabled {
+.chat-hero-pill:disabled {
   cursor: default;
   opacity: 0.6;
 }
-@media (max-width: 640px) {
-  .chat-empty-grid {
-    grid-template-columns: 1fr;
+
+/* 空状态下输入框上移进 hero、居中限宽 */
+.chat-hero-composer {
+  width: 100%;
+  max-width: 600px;
+  margin-top: 22px;
+}
+
+/* 输入框右下角发送提示 */
+.chat-send-hint {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-right: 8px;
+  user-select: none;
+}
+
+/* 发送按钮：仅小图标，低调；有内容可发时才点亮为主色 */
+.chat-send-btn {
+  color: var(--text-3);
+}
+.chat-send-btn:not(:disabled) {
+  color: var(--primary);
+}
+.chat-send-btn:not(:disabled):hover {
+  color: var(--primary);
+  background: var(--primary-tint);
+}
+
+/* 停止按钮：占发送位，深色圆 + 白色圆角方块，标准「停止生成」语义 */
+.chat-stop-btn.ant-btn {
+  background: var(--text);
+  border-color: var(--text);
+  color: #fff;
+}
+.chat-stop-btn.ant-btn:hover {
+  background: var(--text-2) !important;
+  border-color: var(--text-2) !important;
+}
+.chat-stop-square {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: #fff;
+}
+
+/* 思考中：三颗主色小圆点轻柔起伏 + 低调秒数，替代原来突兀的转圈 */
+.chat-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+.chat-thinking-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.chat-thinking-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  opacity: 0.3;
+  animation: chat-thinking-bounce 1.3s ease-in-out infinite;
+}
+.chat-thinking-dots i:nth-child(2) {
+  animation-delay: 0.18s;
+}
+.chat-thinking-dots i:nth-child(3) {
+  animation-delay: 0.36s;
+}
+@keyframes chat-thinking-bounce {
+  0%,
+  70%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+.chat-thinking-text {
+  font-size: 13px;
+  color: var(--text-3);
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-thinking-dots i {
+    animation-duration: 2.2s;
+    transform: none;
   }
 }
 

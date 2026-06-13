@@ -12,6 +12,7 @@ import {
   DownOutlined,
   RightOutlined,
   CodeOutlined,
+  StopOutlined,
 } from '@ant-design/icons';
 import { App } from 'antd';
 import dayjs from 'dayjs';
@@ -19,6 +20,7 @@ import Markdown from '@/components/Markdown';
 import CitationReferences from './CitationReferences';
 import AttachmentThumb from './AttachmentThumb';
 import { downloadArtifact, fetchArtifactBlob } from '@/api/agentFiles';
+import { glyphColor } from '@/utils/glyph';
 import type {
   ArtifactRef,
   ChatMessage,
@@ -29,6 +31,9 @@ import type {
 
 interface Props {
   message: ChatMessage;
+  /** Agent 名称/头像：助手气泡用它显示真实 Agent 头像（缺省回退到机器人图标）。 */
+  agentName?: string;
+  agentAvatar?: string;
 }
 
 /** 去掉模型可能残留的引用标记（如 [chunk_id=123_0]）。新链路已禁止输出，这里兜底旧消息/越界情况。 */
@@ -280,9 +285,13 @@ function ThinkingTimer({ startedAt }: { startedAt: number }) {
   }, []);
   const sec = Math.max(0, (now - startedAt) / 1000);
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: '#8c8c8c' }}>
-      <LoadingOutlined spin />
-      思考中 {sec.toFixed(1)} 秒
+    <span className="chat-thinking">
+      <span className="chat-thinking-dots">
+        <i />
+        <i />
+        <i />
+      </span>
+      <span className="chat-thinking-text">思考中 {sec.toFixed(1)}s</span>
     </span>
   );
 }
@@ -401,9 +410,28 @@ function renderSegments(segments: MessageSegment[], status?: ChatStatus): ReactN
   return out;
 }
 
-export default function MessageBubble({ message }: Props) {
+export default function MessageBubble({ message, agentName, agentAvatar }: Props) {
   const { message: toast } = App.useApp();
   const isUser = message.role === 'user';
+
+  // 助手头像：优先真实 Agent 头像 → 名称首字 glyph（与顶栏/空状态一致）→ 兜底机器人图标。
+  const assistantAvatar = agentAvatar ? (
+    <Avatar src={agentAvatar} style={{ marginRight: 8, flexShrink: 0 }} />
+  ) : agentName ? (
+    <Avatar
+      style={{
+        marginRight: 8,
+        flexShrink: 0,
+        background: glyphColor(agentName).bg,
+        color: glyphColor(agentName).fg,
+        fontWeight: 600,
+      }}
+    >
+      {agentName.slice(0, 1)}
+    </Avatar>
+  ) : (
+    <Avatar icon={<RobotOutlined />} style={{ marginRight: 8, flexShrink: 0 }} />
+  );
 
   return (
     <div
@@ -413,7 +441,7 @@ export default function MessageBubble({ message }: Props) {
         marginBottom: 16,
       }}
     >
-      {!isUser && <Avatar icon={<RobotOutlined />} style={{ marginRight: 8 }} />}
+      {!isUser && assistantAvatar}
       <div style={{ maxWidth: '80%' }}>
         {isUser ? (
           <>
@@ -461,21 +489,38 @@ export default function MessageBubble({ message }: Props) {
           </>
         )}
         {!isUser && <CitationReferences citations={message.citations} />}
-        {!isUser && message.status === 'done' && message.content && (
-          <div style={{ marginTop: 4 }}>
-            <Button
-              type="text"
-              size="small"
-              icon={<CopyOutlined />}
-              onClick={() => {
-                navigator.clipboard.writeText(stripRefMarkers(message.content));
-                toast.success('已复制');
-              }}
-            >
-              复制
-            </Button>
+        {!isUser && message.status === 'cancelled' && (
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              marginTop: 6,
+              fontSize: 12,
+              color: 'var(--text-3)',
+            }}
+          >
+            <StopOutlined style={{ fontSize: 12 }} />
+            {message.content || message.segments?.length ? '已停止生成' : '已停止生成，未产生回复'}
           </div>
         )}
+        {!isUser &&
+          (message.status === 'done' || message.status === 'cancelled') &&
+          message.content && (
+            <div style={{ marginTop: 4 }}>
+              <Button
+                type="text"
+                size="small"
+                icon={<CopyOutlined />}
+                onClick={() => {
+                  navigator.clipboard.writeText(stripRefMarkers(message.content));
+                  toast.success('已复制');
+                }}
+              >
+                复制
+              </Button>
+            </div>
+          )}
         {message.status === 'error' && message.errorMessage && (
           <div style={{ color: '#ff4d4f', fontSize: 12, marginTop: 4 }}>
             错误：{message.errorMessage}

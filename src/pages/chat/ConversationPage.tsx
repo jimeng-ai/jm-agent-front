@@ -2,18 +2,19 @@ import { useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Avatar, Empty, Spin, Typography } from 'antd';
 import { useParams } from 'react-router-dom';
-import { agentApi } from '@/features/agent/api';
+import { agentApi, parseKbCount } from '@/features/agent/api';
 import ChatPanel from '@/features/chat-admin/components/ChatPanel';
 import { conversationApi, type MessageView } from '@/features/chat-admin/conversationApi';
 import { useActiveConversationStore } from '@/features/chat-admin/unreadStore';
 import type { ChatMessage, ChatStatus } from '@/features/chat-admin/types';
 import { glyphColor } from '@/utils/glyph';
 
-/** 助手消息生成状态 → 前端渲染态。COMPLETED/CANCELLED 都按已完成渲染（取消会展示已生成的部分）。 */
+/** 助手消息生成状态 → 前端渲染态。CANCELLED 单列出来，气泡里给「已停止生成」提示（含已生成的部分）。 */
 function statusOf(m: MessageView): ChatStatus {
   if (m.role !== 'assistant') return 'done';
   if (m.status === 'GENERATING') return 'streaming';
   if (m.status === 'FAILED') return 'error';
+  if (m.status === 'CANCELLED') return 'cancelled';
   return 'done';
 }
 
@@ -53,6 +54,13 @@ export default function ConversationPage() {
   const agentQ = useQuery({
     queryKey: ['agent', 'detail', agentId],
     queryFn: () => agentApi.detail(agentId as string),
+    enabled: !!agentId,
+  });
+
+  // 空状态能力胶囊「N 个工具」：拉绑定的插件数量（react-query 缓存，切会话不重复请求）。
+  const pluginsQ = useQuery({
+    queryKey: ['agent', 'plugins', agentId],
+    queryFn: () => agentApi.listPlugins(agentId as string),
     enabled: !!agentId,
   });
 
@@ -107,6 +115,8 @@ export default function ConversationPage() {
   }
 
   const agent = agentQ.data;
+  const kbCount = parseKbCount(agent.kbConfig);
+  const toolCount = pluginsQ.data?.length ?? 0;
   const rawMessages = detailQ.data?.messages ?? [];
   const initialMessages = rawMessages.map(toChatMessage);
   // 进入会话时若最后一条助手消息仍在生成 → 把它的 runId 交给 ChatPanel 重连续播。
@@ -142,6 +152,9 @@ export default function ConversationPage() {
           agentName={agent.name}
           agentDescription={agent.description}
           agentAvatar={agent.avatarUrl}
+          agentModel={agent.model}
+          kbCount={kbCount}
+          toolCount={toolCount}
           presetQuestions={agent.presetQuestions}
           initialMessages={initialMessages}
           onEnsureConversation={ensureConversation}

@@ -1,7 +1,7 @@
 import type { ChatCitation } from '@/api/types';
 import { nanoid } from 'nanoid';
 
-export type ChatStatus = 'idle' | 'streaming' | 'done' | 'error';
+export type ChatStatus = 'idle' | 'streaming' | 'done' | 'error' | 'cancelled';
 
 export type ToolCallStatus = 'running' | 'success' | 'error';
 

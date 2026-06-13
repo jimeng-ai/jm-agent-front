@@ -30,6 +30,21 @@ function fromWire(a: AgentWire): Agent {
   return { ...(a as Agent), presetQuestions: preset };
 }
 
+/**
+ * 解析 Agent 绑定的知识库数量（空状态能力胶囊「N 个知识库」用）。
+ * kbConfig 是 {kbIds, topK, scoreThreshold, rerank} 的 JSON 字符串，取 kbIds 长度，解析失败按 0。
+ * 对话页与调试台空状态共用，避免两处重复同一段解析。
+ */
+export function parseKbCount(kbConfig?: string): number {
+  if (!kbConfig) return 0;
+  try {
+    const ids = JSON.parse(kbConfig)?.kbIds;
+    return Array.isArray(ids) ? ids.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function toWire(payload: Partial<Agent>): Record<string, unknown> {
   if (!('presetQuestions' in payload)) return payload as Record<string, unknown>;
   const list = (payload.presetQuestions ?? []).map((q) => q.trim()).filter(Boolean);
