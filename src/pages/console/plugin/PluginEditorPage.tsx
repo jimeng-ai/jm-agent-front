@@ -8,21 +8,16 @@ import {
   Col,
   Form,
   Input,
-  Popconfirm,
   Row,
   Select,
   Space,
   Spin,
-  Switch,
-  Table,
   Tabs,
   Tag,
   Typography,
 } from 'antd';
 import {
   ArrowLeftOutlined,
-  DeleteOutlined,
-  EditOutlined,
   ExperimentOutlined,
   PlusOutlined,
   SaveOutlined,
@@ -36,6 +31,7 @@ import AiGenerateModal from '@/features/plugin/components/AiGenerateModal';
 import RefinePluginModal from '@/features/plugin/components/RefinePluginModal';
 import CredentialPanel from '@/features/plugin/components/CredentialPanel';
 import TestPanel from '@/features/plugin/components/TestPanel';
+import ToolsSchemaPanel from '@/features/plugin/components/ToolsSchemaPanel';
 import AuthConfigEditor from '@/features/plugin/components/authconfig/AuthConfigEditor';
 import ShareSettings from '@/features/rbac/components/ShareSettings';
 import { FORM_AUTH_TYPES } from '@/features/plugin/utils/authConfig';
@@ -294,100 +290,54 @@ export default function PluginEditorPage() {
             ),
           },
           {
-            key: 'tools',
-            label: `动作 · Schema · ${toolCount}`,
-            children: (
-              <Card>
-                <div
-                  style={{ marginBottom: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}
-                >
-                  <Button icon={<ThunderboltOutlined />} onClick={() => setAiOpen(true)}>
-                    AI 生成
-                  </Button>
-                  <Button
-                    icon={<ThunderboltOutlined />}
-                    disabled={(toolsQuery.data?.length ?? 0) === 0}
-                    onClick={() => setRefineOpen(true)}
-                  >
-                    AI 改写
-                  </Button>
-                  <Button
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    onClick={() => {
-                      setEditingTool(undefined);
-                      setToolDrawerOpen(true);
-                    }}
-                  >
-                    新增工具
-                  </Button>
-                </div>
-                <Table<PluginTool>
-                  rowKey="id"
-                  loading={toolsQuery.isLoading}
-                  dataSource={toolsQuery.data ?? []}
-                  pagination={false}
-                  columns={[
-                    {
-                      title: '名称',
-                      dataIndex: 'name',
-                      render: (name: string, row) => (
-                        <div>
-                          <div>{row.title || name}</div>
-                          {row.title && (
-                            <div
-                              style={{
-                                fontFamily: 'Menlo, monospace',
-                                fontSize: 12,
-                                color: '#999',
-                              }}
-                            >
-                              {name}
-                            </div>
-                          )}
-                        </div>
-                      ),
-                    },
-                    { title: '描述', dataIndex: 'description', ellipsis: true },
-                    {
-                      title: '启用',
-                      dataIndex: 'enabled',
-                      width: 80,
-                      render: (v) => <Switch checked={v} disabled />,
-                    },
-                    {
-                      title: '操作',
-                      width: 120,
-                      render: (_, row) => (
-                        <Space>
-                          <Button
-                            size="small"
-                            icon={<EditOutlined />}
-                            onClick={() => {
-                              setEditingTool(row);
-                              setToolDrawerOpen(true);
-                            }}
-                          />
-                          <Popconfirm
-                            title="确认删除？"
-                            onConfirm={() => delToolMut.mutate(row.id)}
-                          >
-                            <Button size="small" danger icon={<DeleteOutlined />} />
-                          </Popconfirm>
-                        </Space>
-                      ),
-                    },
-                  ]}
-                />
-              </Card>
-            ),
-          },
-          {
             key: 'creds',
             label: '凭证',
             children: (
               <Card>
                 <CredentialPanel pluginId={id} authType={plugin.authType} />
+              </Card>
+            ),
+          },
+          {
+            key: 'tools',
+            label: `动作 · Schema · ${toolCount}`,
+            children: (
+              <Card>
+                <ToolsSchemaPanel
+                  pluginId={id}
+                  tools={toolsQuery.data ?? []}
+                  loading={toolsQuery.isLoading}
+                  onEdit={(tool) => {
+                    setEditingTool(tool);
+                    setToolDrawerOpen(true);
+                  }}
+                  onDelete={(toolId) => delToolMut.mutate(toolId)}
+                  onChanged={() => qc.invalidateQueries({ queryKey: ['plugin', id, 'tools'] })}
+                  headerExtra={
+                    <>
+                      <Button icon={<ThunderboltOutlined />} onClick={() => setAiOpen(true)}>
+                        AI 生成
+                      </Button>
+                      <Button
+                        icon={<ThunderboltOutlined />}
+                        disabled={(toolsQuery.data?.length ?? 0) === 0}
+                        onClick={() => setRefineOpen(true)}
+                      >
+                        AI 改写
+                      </Button>
+                      <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={() => {
+                          setEditingTool(undefined);
+                          setToolDrawerOpen(true);
+                        }}
+                      >
+                        新增工具
+                      </Button>
+                    </>
+                  }
+                />
               </Card>
             ),
           },

@@ -28,20 +28,28 @@ async function run() {
     r.ok('状态徽章 已发布', body.includes('已发布'));
     r.ok('共享徽章 团队共享', body.includes('团队共享'));
 
-    // Tab 列表
+    // Tab 列表 + 顺序（凭证 在 动作 之前）
     const tabNodes = page.locator('.ant-tabs-tab');
     const tabs = [];
     for (let i = 0; i < (await tabNodes.count()); i++) tabs.push((await tabNodes.nth(i).innerText()).trim());
     console.log('TABS:', tabs);
-    const want = ['基础', '动作 · Schema · 3', '凭证', '调试', '权限与共享'];
-    r.ok('五个 Tab 齐全', want.every((t) => tabs.some((x) => x.replace(/\s/g, '') === t.replace(/\s/g, ''))));
+    const norm = (s) => s.replace(/\s/g, '');
+    const want = ['基础', '凭证', '动作 · Schema · 3', '调试', '权限与共享'];
+    r.ok('五个 Tab 齐全', want.every((t) => tabs.some((x) => norm(x) === norm(t))));
+    const idxCred = tabs.findIndex((x) => norm(x) === '凭证');
+    const idxTools = tabs.findIndex((x) => norm(x).startsWith('动作'));
+    r.ok('凭证 Tab 在 动作 之前', idxCred >= 0 && idxTools >= 0 && idxCred < idxTools);
 
-    // 切到「动作 · Schema」→ 工具表 3 行
+    // 切到「动作 · Schema」→ 卡片列表 + READ/WRITE 徽章 + JSON 详情
     await page.locator('.ant-tabs-tab', { hasText: '动作' }).click();
     await page.waitForTimeout(800);
-    const toolRows = await page.locator('tbody tr.ant-table-row').count();
-    console.log('TOOL ROWS:', toolRows);
-    r.ok('动作 Tab 工具表 3 行', toolRows === 3);
+    const paneBody = await page.locator('.ant-tabs-tabpane-active').innerText();
+    r.ok('有 READ 徽章', paneBody.includes('READ'));
+    r.ok('有 WRITE 徽章', paneBody.includes('WRITE'));
+    r.ok('参数 chip(customer_id 或任意 ? 结尾)', /\w\?/.test(paneBody) || /\[\]/.test(paneBody));
+    r.ok('JSON 详情面板「当前选中」', paneBody.includes('当前选中'));
+    r.ok('详情含 input_schema', paneBody.includes('input_schema'));
+    r.ok('复制按钮在', await page.getByRole('button', { name: '复制' }).first().isVisible().catch(() => false));
 
     // 切到「调试」→ TestPanel 的「发起调用」按钮在
     await page.locator('.ant-tabs-tab', { hasText: '调试' }).click();

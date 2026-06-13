@@ -22,6 +22,8 @@ interface ToolWire {
   description?: string;
   inputSchema?: string;
   enabled?: boolean;
+  /** HTTP 方法（后端 listTools 回填，来自 http 映射）；用于前端区分 READ/WRITE。 */
+  method?: string;
 }
 
 interface MappingWire {
@@ -83,6 +85,7 @@ function toolFromWire(w: ToolWire): PluginTool {
     description: w.description,
     enabled: Boolean(w.enabled),
     inputSchema: parseJsonObject(w.inputSchema),
+    method: w.method,
   };
 }
 

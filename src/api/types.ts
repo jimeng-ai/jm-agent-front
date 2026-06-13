@@ -150,6 +150,8 @@ export interface PluginTool {
   inputSchema?: Record<string, unknown>;
   enabled: boolean;
   mapping?: PluginHttpMapping;
+  /** HTTP 方法（列表接口回填，来自 http 映射）；GET→READ，其余→WRITE。 */
+  method?: string;
 }
 
 export interface PluginCredential {
