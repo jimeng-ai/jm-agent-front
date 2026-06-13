@@ -31,13 +31,6 @@ interface Props {
   onChanged: () => void;
 }
 
-/** GET → READ（读）；其余写方法 → WRITE。无 method 不显示徽章。 */
-function methodBadge(method?: string): { label: string; color: string } | null {
-  const m = (method || '').toUpperCase();
-  if (!m) return null;
-  return m === 'GET' ? { label: 'READ', color: 'green' } : { label: 'WRITE', color: 'blue' };
-}
-
 /** 由 inputSchema 推参数 chip 文案：数组加 []，非必填加 ?。 */
 function paramChips(schema?: Record<string, unknown>): string[] {
   return jsonSchemaToFields(schema)
@@ -114,7 +107,6 @@ export default function ToolsSchemaPanel({
       ) : (
         <Space direction="vertical" size={10} style={{ width: '100%' }}>
           {tools.map((tool) => {
-            const badge = methodBadge(tool.method);
             const chips = paramChips(tool.inputSchema);
             const active = selected?.id === tool.id;
             return (
@@ -133,16 +125,13 @@ export default function ToolsSchemaPanel({
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <Space size={10} align="center" wrap>
-                      {badge && (
-                        <Tag
-                          color={badge.color}
-                          style={{ ...mono, fontSize: 11, marginInlineEnd: 0 }}
-                        >
-                          {badge.label}
-                        </Tag>
+                      <span style={{ fontWeight: 600, fontSize: 14 }}>
+                        {tool.title || tool.name}
+                      </span>
+                      {tool.title && (
+                        <span style={{ ...mono, fontSize: 12, color: '#999' }}>{tool.name}</span>
                       )}
-                      <span style={{ ...mono, fontWeight: 600, fontSize: 14 }}>{tool.name}</span>
-                      <Text type="secondary">{tool.description || tool.title}</Text>
+                      <Text type="secondary">{tool.description}</Text>
                     </Space>
                     {chips.length > 0 && (
                       <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -209,7 +198,10 @@ export default function ToolsSchemaPanel({
           >
             <Space size={8}>
               <Text type="secondary">当前选中：</Text>
-              <span style={{ ...mono, fontWeight: 600 }}>{selected.name}</span>
+              <span style={{ fontWeight: 600 }}>{selected.title || selected.name}</span>
+              {selected.title && (
+                <span style={{ ...mono, fontSize: 12, color: '#999' }}>{selected.name}</span>
+              )}
               <Tag color={selected.enabled ? 'green' : 'default'}>
                 {selected.enabled ? '已启用' : '已停用'}
               </Tag>

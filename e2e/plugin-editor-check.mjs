@@ -44,9 +44,10 @@ async function run() {
     await page.locator('.ant-tabs-tab', { hasText: '动作' }).click();
     await page.waitForTimeout(800);
     const paneBody = await page.locator('.ant-tabs-tabpane-active').innerText();
-    r.ok('有 READ 徽章', paneBody.includes('READ'));
-    r.ok('有 WRITE 徽章', paneBody.includes('WRITE'));
-    r.ok('参数 chip(customer_id 或任意 ? 结尾)', /\w\?/.test(paneBody) || /\[\]/.test(paneBody));
+    r.ok('无 READ/WRITE 徽章', !paneBody.includes('READ') && !paneBody.includes('WRITE'));
+    r.ok('卡片用中文名展示(追加子任务)', paneBody.includes('追加子任务'));
+    r.ok('英文函数名作副标(add_batch_exec_subtasks)', paneBody.includes('add_batch_exec_subtasks'));
+    r.ok('参数 chip(任意 ? 或 [] 结尾)', /\w\?/.test(paneBody) || /\[\]/.test(paneBody));
     r.ok('JSON 详情面板「当前选中」', paneBody.includes('当前选中'));
     r.ok('详情含 input_schema', paneBody.includes('input_schema'));
     r.ok('复制按钮在', await page.getByRole('button', { name: '复制' }).first().isVisible().catch(() => false));
