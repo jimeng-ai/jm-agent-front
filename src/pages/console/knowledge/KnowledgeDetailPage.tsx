@@ -23,6 +23,7 @@ import {
   SearchOutlined,
   InboxOutlined,
   ProfileOutlined,
+  QuestionCircleOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { docApi, kbApi } from '@/features/knowledge/api';
@@ -124,11 +125,15 @@ export default function KnowledgeDetailPage() {
       </Dragger>
 
       {/* 表格逐行切片开关：仅对 Excel/CSV 生效，勾选后每个数据行单独成 chunk（适合 FAQ 表，一问一答各自可检索）。 */}
-      <div style={{ marginBottom: 16 }} onClick={(e) => e.stopPropagation()}>
+      <div
+        style={{ marginBottom: 16, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Checkbox checked={rowPerChunk} onChange={(e) => setRowPerChunk(e.target.checked)}>
+          表格逐行切片（Excel/CSV，FAQ 表用）
+        </Checkbox>
         <Tooltip title="勾选后，上传的 Excel/CSV 会按「每个数据行」独立切片（一行一 chunk），适合 FAQ / 问答表；不勾选则按字数合并多行。仅对表格类文件生效，对 PDF/DOCX 等无影响。已入库文档需删除后重新上传才会按新方式切片。">
-          <Checkbox checked={rowPerChunk} onChange={(e) => setRowPerChunk(e.target.checked)}>
-            表格逐行切片（Excel/CSV，FAQ 表用）
-          </Checkbox>
+          <QuestionCircleOutlined style={{ color: '#94a3b8', cursor: 'pointer' }} />
         </Tooltip>
       </div>
 
