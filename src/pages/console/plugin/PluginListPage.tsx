@@ -135,8 +135,9 @@ export default function PluginListPage() {
   }, [all, tab, keyword, myId]);
 
   // 顶部统计：插件数 / 动作总数 / 引用总数。
-  const totalTools = useMemo(() => all.reduce((s, p) => s + (p.toolCount ?? 0), 0), [all]);
-  const totalRefs = useMemo(() => all.reduce((s, p) => s + (p.refAgentCount ?? 0), 0), [all]);
+  // 后端把数字按字符串下发（避免雪花 ID 精度丢失的全局策略），故 Number() 兜底，否则 + 会变字符串拼接。
+  const totalTools = useMemo(() => all.reduce((s, p) => s + Number(p.toolCount ?? 0), 0), [all]);
+  const totalRefs = useMemo(() => all.reduce((s, p) => s + Number(p.refAgentCount ?? 0), 0), [all]);
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
