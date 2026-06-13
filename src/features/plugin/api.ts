@@ -210,6 +210,29 @@ export const pluginTestApi = {
     post<TestResult>(`/admin/plugin/plugins/${pluginId}/test`, payload),
 };
 
+/** 「测试获取」结果：成功回 httpStatus + rawBody + parsedJson + durationMs；失败只回 error */
+export interface AuthTestFetchResult {
+  httpStatus?: number;
+  rawBody?: string;
+  /** 已解析的响应对象树（供点选字段）；非 JSON 时为空 */
+  parsedJson?: unknown;
+  durationMs?: number;
+  /** 业务/配置错误（凭证缺失、URL 非法、第三方报错等） */
+  error?: string;
+}
+
+export const pluginAuthApi = {
+  /**
+   * 用已存凭证真实调一次换 token 接口，原样回传响应供点选字段（仅 OAUTH2 / TOKEN_FETCH）。
+   * 传草稿 authType/authConfig，使「改了认证方式但还没保存」也能直接测。
+   */
+  testFetch: (pluginId: string, authConfig?: string, authType?: string) =>
+    post<AuthTestFetchResult>(`/admin/plugin/plugins/${pluginId}/auth/test-fetch`, {
+      authConfig,
+      authType,
+    }),
+};
+
 // ── AI 生成 / 微调：后端 /admin/plugin/ai/* 返回的「插件草稿」传输模型 ──────────
 // 这是与编辑器无关的中间结构；转成 FieldDef[]+HttpForm 在 utils/toolSpec.ts 做。
 

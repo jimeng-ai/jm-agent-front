@@ -33,6 +33,8 @@ import AiGenerateModal from '@/features/plugin/components/AiGenerateModal';
 import RefinePluginModal from '@/features/plugin/components/RefinePluginModal';
 import CredentialPanel from '@/features/plugin/components/CredentialPanel';
 import TestPanel from '@/features/plugin/components/TestPanel';
+import AuthConfigEditor from '@/features/plugin/components/authconfig/AuthConfigEditor';
+import { FORM_AUTH_TYPES } from '@/features/plugin/utils/authConfig';
 import type { PluginAuthType, PluginTool } from '@/api/types';
 
 const AUTH_TYPE_OPTIONS: { label: string; value: PluginAuthType }[] = [
@@ -44,16 +46,6 @@ const AUTH_TYPE_OPTIONS: { label: string; value: PluginAuthType }[] = [
   { label: 'OAuth2 (client_credentials)', value: 'OAUTH2' },
   { label: '通用 Token 获取', value: 'TOKEN_FETCH' },
 ];
-
-// 哪些认证方式需要填 auth_config（非密 JSON）+ 各自示例
-const AUTH_CONFIG_HINTS: Partial<Record<PluginAuthType, string>> = {
-  API_KEY: '示例：{ "location": "header", "key_name": "X-API-Key" }',
-  HMAC: '示例：{ "algorithm": "HMAC_SHA256", "sign_template": "...", "placement": { "type": "header", "name": "X-Sign" } }',
-  OAUTH2:
-    '示例：{ "token_url": "https://auth.x.com/oauth/token", "scope": "read", "client_auth": "body" }（凭证 Tab 填 client_id / client_secret）',
-  TOKEN_FETCH:
-    '示例：{ "token_request": { "method": "POST", "url": "https://auth.x.com/login", "content_type": "application/json", "headers": { "Content-Type": "application/json" }, "body": "{\\"appKey\\":\\"{{secrets.appKey}}\\"}" }, "token_path": "$.data.token", "expire_path": "$.data.expire", "inject": { "location": "header", "name": "Authorization", "prefix": "Bearer " } }',
-};
 
 export default function PluginEditorPage() {
   const { id = '' } = useParams();
@@ -80,7 +72,16 @@ export default function PluginEditorPage() {
   });
 
   const saveMut = useMutation({
-    mutationFn: (v: Record<string, unknown>) => pluginApi.update(id, v),
+    // 只提交可编辑字段：antd Form 的 initialValues 含整份 plugin，onFinish 会连 update_time/create_time/
+    // tenant_id/status 等只读审计字段一起回传；若原样发给后端会把旧 update_time 写回、且有篡改风险。
+    mutationFn: (v: Record<string, unknown>) =>
+      pluginApi.update(id, {
+        name: v.name as string,
+        baseUrl: v.baseUrl as string | undefined,
+        description: v.description as string | undefined,
+        authType: v.authType as PluginAuthType | undefined,
+        authConfig: v.authConfig as string | undefined,
+      }),
     onSuccess: () => {
       message.success('保存成功');
       qc.invalidateQueries({ queryKey: ['plugin', 'detail', id] });
@@ -162,17 +163,19 @@ export default function PluginEditorPage() {
                     name="authType"
                     extra="决定凭证 Tab 里要填哪些字段；NONE 表示接口不需鉴权"
                   >
-                    <Select options={AUTH_TYPE_OPTIONS} />
+                    <Select
+                      options={AUTH_TYPE_OPTIONS}
+                      onChange={() => form.setFieldsValue({ authConfig: '' })}
+                    />
                   </Form.Item>
                   <Form.Item noStyle shouldUpdate={(prev, next) => prev.authType !== next.authType}>
                     {({ getFieldValue }) => {
                       const at = getFieldValue('authType') as PluginAuthType | undefined;
-                      if (!at || !(at in AUTH_CONFIG_HINTS)) return null;
+                      if (!at || !FORM_AUTH_TYPES.includes(at)) return null;
                       return (
                         <Form.Item
-                          label={`auth_config (${at} 非密配置 JSON)`}
+                          label="认证配置"
                           name="authConfig"
-                          extra={AUTH_CONFIG_HINTS[at]}
                           rules={[
                             {
                               validator: (_, v) => {
@@ -187,10 +190,7 @@ export default function PluginEditorPage() {
                             },
                           ]}
                         >
-                          <Input.TextArea
-                            rows={6}
-                            style={{ fontFamily: 'Menlo, monospace', fontSize: 12 }}
-                          />
+                          <AuthConfigEditor authType={at} pluginId={id} />
                         </Form.Item>
                       );
                     }}

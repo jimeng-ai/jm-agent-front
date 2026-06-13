@@ -204,6 +204,25 @@ export default function TestPanel({ open, pluginId, onClose }: Props) {
             <Alert type="error" message={result.error} />
           ) : (
             <Space direction="vertical" style={{ width: '100%' }} size={12}>
+              <div>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  抽取结果（返回给 Agent）
+                </Typography.Text>
+                <pre style={resultBox}>
+                  {JSON.stringify('extracted' in result ? result.extracted : result, null, 2)}
+                </pre>
+              </div>
+
+              {result.response && (
+                <details>
+                  <summary style={{ cursor: 'pointer', fontSize: 12, color: '#8c8c8c' }}>
+                    原始响应体
+                  </summary>
+                  <pre style={resultBox}>{result.response}</pre>
+                </details>
+              )}
+
+              {/* 最终请求（curl）放最下面；宽松渲染保证无论是否报错都能回显 */}
               {result.curl && (
                 <div>
                   <div
@@ -238,24 +257,6 @@ export default function TestPanel({ open, pluginId, onClose }: Props) {
                   </div>
                   <pre style={resultBox}>{result.curl}</pre>
                 </div>
-              )}
-
-              <div>
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  抽取结果（返回给 Agent）
-                </Typography.Text>
-                <pre style={resultBox}>
-                  {JSON.stringify('extracted' in result ? result.extracted : result, null, 2)}
-                </pre>
-              </div>
-
-              {result.response && (
-                <details>
-                  <summary style={{ cursor: 'pointer', fontSize: 12, color: '#8c8c8c' }}>
-                    原始响应体
-                  </summary>
-                  <pre style={resultBox}>{result.response}</pre>
-                </details>
               )}
             </Space>
           )}
