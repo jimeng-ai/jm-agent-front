@@ -30,6 +30,7 @@ const STATUS_OPTIONS = [
   { label: '成功', value: 'SUCCESS' },
   { label: '告警', value: 'WARN' },
   { label: '错误', value: 'ERROR' },
+  { label: '用户停止', value: 'CANCELLED' },
 ] as const;
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];

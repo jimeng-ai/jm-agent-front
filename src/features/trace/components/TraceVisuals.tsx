@@ -101,6 +101,8 @@ const STATUS_STYLE: Record<
   },
   WARN: { bg: '#fffbeb', fg: '#b45309', dot: '#f59e0b', label: '告警' },
   ERROR: { bg: '#fef2f2', fg: '#b91c1c', dot: '#ef4444', label: '错误' },
+  // 用户主动停止：中性灰，不用错误红——不是失败，只是被人为终止。
+  CANCELLED: { bg: '#f1f5f9', fg: '#475569', dot: '#94a3b8', label: '用户停止' },
 };
 
 /** 状态 pill：圆点 + 文案，对齐设计稿 StatusTag。 */

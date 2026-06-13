@@ -140,6 +140,26 @@ export default function TraceReplayDrawer({ traceId, open, onClose }: Props) {
               ))}
             </div>
           )}
+
+          {/* 用户主动停止：时间线末尾给一条中性提示，说明为何没有后续输出（非错误） */}
+          {data.status === 'CANCELLED' && (
+            <div
+              style={{
+                marginTop: 12,
+                padding: '8px 12px',
+                borderRadius: 8,
+                background: '#f1f5f9',
+                color: '#475569',
+                fontSize: 13,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <span>⏸</span>
+              <span>用户主动停止了本次生成，输出可能不完整。</span>
+            </div>
+          )}
         </div>
       )}
     </Drawer>

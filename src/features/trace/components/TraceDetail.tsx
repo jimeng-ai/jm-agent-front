@@ -129,9 +129,9 @@ function StepRow({ step }: { step: TraceStep }) {
       <div style={{ minWidth: 0 }}>
         <div style={{ fontWeight: 500 }}>
           {step.title}
-          {step.status === 'ERROR' && (
+          {(step.status === 'ERROR' || step.status === 'CANCELLED') && (
             <span style={{ marginLeft: 8 }}>
-              <TraceStatusTag status="ERROR" />
+              <TraceStatusTag status={step.status} />
             </span>
           )}
         </div>

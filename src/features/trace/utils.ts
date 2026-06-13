@@ -12,12 +12,14 @@ export const STATUS_TEXT: Record<TraceStatus, string> = {
   SUCCESS: '成功',
   WARN: '告警',
   ERROR: '错误',
+  CANCELLED: '用户停止',
 };
 
 export const STATUS_COLOR: Record<TraceStatus, string> = {
   SUCCESS: 'success',
   WARN: 'warning',
   ERROR: 'error',
+  CANCELLED: 'default',
 };
 
 export const STEP_TYPE_TEXT: Record<StepType, string> = {

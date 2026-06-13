@@ -2,7 +2,8 @@
 // 注意：data-service 全局开启 write_numbers_as_strings，数值字段到前端可能是 string，
 // 渲染时统一用 utils.num() 兜底。
 
-export type TraceStatus = 'SUCCESS' | 'WARN' | 'ERROR';
+// CANCELLED：用户主动停止生成（非错误，不计入错误率），后端 TraceRecorder 落库。
+export type TraceStatus = 'SUCCESS' | 'WARN' | 'ERROR' | 'CANCELLED';
 
 export type StepType = 'LLM' | 'KB_SEARCH' | 'RERANK' | 'TOOL_CALL' | 'PLUGIN_TRIGGER';
 
