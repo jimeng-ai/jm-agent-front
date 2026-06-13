@@ -150,9 +150,18 @@ export interface PluginCredential {
   credentialJson?: Record<string, unknown>;
 }
 
+/** 知识库索引状态汇总（由后端按文档状态聚合）。 */
+export type KbIndexStatus = 'READY' | 'INDEXING' | 'ERROR';
+
 export interface KnowledgeBase extends BaseEntity {
   name: string;
   description?: string;
+  // 列表页聚合统计（后端 fillStats 回填；numbers-as-strings → 渲染时用 Number() 兜底）。
+  docCount?: number | string;
+  chunkCount?: number | string;
+  totalSize?: number | string;
+  doneCount?: number | string;
+  indexStatus?: KbIndexStatus;
 }
 
 export type DocStatus =
