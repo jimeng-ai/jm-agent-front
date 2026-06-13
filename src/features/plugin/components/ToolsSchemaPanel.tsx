@@ -14,7 +14,6 @@ import {
 import { CopyOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import { pluginToolApi } from '@/features/plugin/api';
-import { jsonSchemaToFields } from '@/features/plugin/utils/schema';
 import type { PluginTool } from '@/api/types';
 
 const { Text } = Typography;
@@ -29,13 +28,6 @@ interface Props {
   onDelete: (toolId: string) => void;
   /** 启用开关切换成功后回调（让父级 invalidate 工具列表）。 */
   onChanged: () => void;
-}
-
-/** 由 inputSchema 推参数 chip 文案：数组加 []，非必填加 ?。 */
-function paramChips(schema?: Record<string, unknown>): string[] {
-  return jsonSchemaToFields(schema)
-    .filter((f) => f.name)
-    .map((f) => `${f.name}${f.type === 'array' ? '[]' : ''}${f.required ? '' : '?'}`);
 }
 
 const mono: React.CSSProperties = { fontFamily: 'Menlo, monospace' };
@@ -107,7 +99,6 @@ export default function ToolsSchemaPanel({
       ) : (
         <Space direction="vertical" size={10} style={{ width: '100%' }}>
           {tools.map((tool) => {
-            const chips = paramChips(tool.inputSchema);
             const active = selected?.id === tool.id;
             return (
               <div
@@ -128,30 +119,8 @@ export default function ToolsSchemaPanel({
                       <span style={{ fontWeight: 600, fontSize: 14 }}>
                         {tool.title || tool.name}
                       </span>
-                      {tool.title && (
-                        <span style={{ ...mono, fontSize: 12, color: '#999' }}>{tool.name}</span>
-                      )}
                       <Text type="secondary">{tool.description}</Text>
                     </Space>
-                    {chips.length > 0 && (
-                      <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                        {chips.map((c) => (
-                          <span
-                            key={c}
-                            style={{
-                              ...mono,
-                              fontSize: 12,
-                              color: '#595959',
-                              background: '#f5f5f5',
-                              borderRadius: 6,
-                              padding: '2px 8px',
-                            }}
-                          >
-                            {c}
-                          </span>
-                        ))}
-                      </div>
-                    )}
                   </div>
                   <Space size={4} onClick={(e) => e.stopPropagation()}>
                     <Tooltip title="编辑">
@@ -199,9 +168,6 @@ export default function ToolsSchemaPanel({
             <Space size={8}>
               <Text type="secondary">当前选中：</Text>
               <span style={{ fontWeight: 600 }}>{selected.title || selected.name}</span>
-              {selected.title && (
-                <span style={{ ...mono, fontSize: 12, color: '#999' }}>{selected.name}</span>
-              )}
               <Tag color={selected.enabled ? 'green' : 'default'}>
                 {selected.enabled ? '已启用' : '已停用'}
               </Tag>
