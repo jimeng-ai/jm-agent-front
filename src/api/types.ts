@@ -39,6 +39,8 @@ export interface BaseEntity {
   tenantId?: string;
   createTime?: string;
   updateTime?: string;
+  /** 创建人用户 ID（后端 create_user 列）。用于区分「我创建 / 团队共享」。 */
+  createUser?: string;
   /** 创建人显示名（后端读时解析 create_user，非持久化）。 */
   creatorName?: string;
 }
@@ -112,6 +114,10 @@ export interface Plugin extends BaseEntity {
   authType?: PluginAuthType;
   authConfig?: string;
   status: EntityStatus;
+  /** 动作（工具）数量；非持久化，列表接口回填。 */
+  toolCount?: number;
+  /** 被多少个 Agent 引用；非持久化，列表接口回填。 */
+  refAgentCount?: number;
 }
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
