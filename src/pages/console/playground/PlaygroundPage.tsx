@@ -3,21 +3,16 @@ import { Card, Col, Row, Select, Space, Typography } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { agentApi, parseKbCount } from '@/features/agent/api';
-import { kbApi } from '@/features/knowledge/api';
 import ChatPanel from '@/features/chat-admin/components/ChatPanel';
+import PlaygroundEmpty from './PlaygroundEmpty';
 
 export default function PlaygroundPage() {
   const { agentId: routeAgentId } = useParams();
   const [agentId, setAgentId] = useState<string | undefined>(routeAgentId);
-  const [kbId, setKbId] = useState<string | undefined>();
 
   const agentsQuery = useQuery({
     queryKey: ['agent', 'list', 'all'],
     queryFn: () => agentApi.list(),
-  });
-  const kbQuery = useQuery({
-    queryKey: ['kb', 'list'],
-    queryFn: kbApi.list,
   });
 
   // 选中 Agent 后拉详情 + 绑定插件：用于把空状态对齐到对话页的 hero（头像/自我介绍/能力胶囊/预设问题）。
@@ -37,7 +32,9 @@ export default function PlaygroundPage() {
   const kbCount = parseKbCount(agent?.kbConfig);
   const toolCount = pluginsQuery.data?.length ?? 0;
 
-  const panelKey = useMemo(() => `${agentId ?? ''}-${kbId ?? ''}`, [agentId, kbId]);
+  // 知识库不再手动挂载：Agent 已绑定的知识库由后端按 agentId 自动启用（RagSkillToolExecutor
+  // 在无显式 kb_id 时回退 agent.getKbIds()）。调试台保持与对话端一致。
+  const panelKey = useMemo(() => agentId ?? '', [agentId]);
 
   return (
     <div style={{ height: 'calc(100vh - 132px)', display: 'flex', flexDirection: 'column' }}>
@@ -63,20 +60,6 @@ export default function PlaygroundPage() {
                   }))}
                 />
               </div>
-              <div>
-                <div style={{ marginBottom: 4 }}>知识库（可选，启用 RAG）</div>
-                <Select
-                  style={{ width: '100%' }}
-                  allowClear
-                  placeholder="挂载知识库"
-                  value={kbId}
-                  onChange={setKbId}
-                  options={(kbQuery.data ?? []).map((k) => ({
-                    label: k.name,
-                    value: k.id,
-                  }))}
-                />
-              </div>
             </Space>
           </Card>
         </Col>
@@ -87,21 +70,24 @@ export default function PlaygroundPage() {
             styles={{ body: { height: 'calc(100% - 38px)', padding: 0 } }}
             title="对话"
           >
-            <ChatPanel
-              key={panelKey}
-              agentId={agentId}
-              kbId={kbId}
-              topK={5}
-              rerank={false}
-              preview
-              agentName={agent?.name}
-              agentDescription={agent?.description}
-              agentAvatar={agent?.avatarUrl}
-              agentModel={agent?.model}
-              kbCount={kbCount}
-              toolCount={toolCount}
-              presetQuestions={agent?.presetQuestions}
-            />
+            {agentId ? (
+              <ChatPanel
+                key={panelKey}
+                agentId={agentId}
+                topK={5}
+                rerank={false}
+                preview
+                agentName={agent?.name}
+                agentDescription={agent?.description}
+                agentAvatar={agent?.avatarUrl}
+                agentModel={agent?.model}
+                kbCount={kbCount}
+                toolCount={toolCount}
+                presetQuestions={agent?.presetQuestions}
+              />
+            ) : (
+              <PlaygroundEmpty />
+            )}
           </Card>
         </Col>
       </Row>

@@ -1,0 +1,140 @@
+/* 调试台未选择 Agent 时的空状态：温和、留白、与产品蓝调一致。 */
+.pg-empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px 32px 40px;
+  gap: 4px;
+  /* 柔和的径向底纹，营造氛围而非纯白 */
+  background:
+    radial-gradient(120% 90% at 50% 8%, var(--primary-tint, #eff6ff) 0%, transparent 60%),
+    radial-gradient(80% 60% at 50% 100%, #f8fafc 0%, transparent 70%);
+  animation: pg-empty-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes pg-empty-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pg-empty__art {
+  width: 220px;
+  height: 184px;
+  margin-bottom: 12px;
+}
+
+/* 机器人整体缓慢悬浮 */
+.pg-empty__float {
+  transform-origin: 50% 60%;
+  animation: pg-float 5.5s ease-in-out infinite;
+}
+@keyframes pg-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+/* 影子随悬浮呼吸 */
+.pg-empty__shadow {
+  animation: pg-shadow 5.5s ease-in-out infinite;
+  transform-origin: center;
+}
+@keyframes pg-shadow {
+  0%,
+  100% {
+    transform: scaleX(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scaleX(0.86);
+    opacity: 0.32;
+  }
+}
+
+/* 火花闪烁 */
+.pg-empty__spark {
+  transform-origin: center;
+  animation: pg-spark 3s ease-in-out infinite;
+}
+.pg-empty__spark--b {
+  animation-delay: 1.4s;
+}
+@keyframes pg-spark {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.7);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.pg-empty__title {
+  margin: 4px 0 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: #0f172a;
+  letter-spacing: 0.2px;
+}
+
+.pg-empty__desc {
+  margin: 0;
+  max-width: 360px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #64748b;
+}
+
+/* 指向左侧参数面板的引导胶囊 */
+.pg-empty__hint {
+  margin-top: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px 7px 11px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--primary-dark, #1d4ed8);
+  background: var(--primary-light, #dbeafe);
+  border: 1px solid color-mix(in srgb, var(--primary, #2563eb) 22%, transparent);
+}
+
+.pg-empty__arrow {
+  display: inline-flex;
+  animation: pg-nudge 1.6s ease-in-out infinite;
+}
+@keyframes pg-nudge {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pg-empty,
+  .pg-empty__float,
+  .pg-empty__shadow,
+  .pg-empty__spark,
+  .pg-empty__arrow {
+    animation: none;
+  }
+}
