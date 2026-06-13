@@ -1,0 +1,313 @@
+/* 知识库详情：头部 + 统计卡 + 工具栏 + 文档列表，参考 Atlas 设计稿。
+   设计令牌与 knowledge-list.css 保持一致（#0f172a 主文字 / #94a3b8 次要 / #2563eb 蓝 / #e8edf3 边框）。 */
+
+/* ---------- 头部 ---------- */
+.kbd-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: #64748b;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.kbd-back:hover {
+  color: #2563eb;
+}
+.kbd-back__sep {
+  color: #cbd5e1;
+}
+.kbd-back__crumb {
+  color: #94a3b8;
+}
+.kbd-back__name {
+  color: #475569;
+  font-weight: 500;
+}
+
+.kbd-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.kbd-head__main {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-width: 0;
+}
+.kbd-head__icon {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  color: #2563eb;
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  box-shadow: inset 0 0 0 1px rgb(37 99 235 / 0.08);
+}
+.kbd-head__titlerow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.kbd-head__title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: 0.2px;
+  line-height: 1.2;
+}
+.kbd-head__sub {
+  margin-top: 7px;
+  font-size: 13px;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kbd-head__actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ---------- 状态徽章（与列表页一致） ---------- */
+.kbd-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.kbd-badge__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.kbd-badge--ready {
+  color: #059669;
+  background: #ecfdf5;
+}
+.kbd-badge--ready .kbd-badge__dot {
+  background: #10b981;
+}
+.kbd-badge--indexing {
+  color: #d97706;
+  background: #fffbeb;
+}
+.kbd-badge--indexing .kbd-badge__dot {
+  background: #f59e0b;
+}
+.kbd-badge--error {
+  color: #dc2626;
+  background: #fef2f2;
+}
+.kbd-badge--error .kbd-badge__dot {
+  background: #ef4444;
+}
+
+/* ---------- 统计卡 ---------- */
+.kbd-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.kbd-stat {
+  padding: 18px 20px;
+  background: #fff;
+  border: 1px solid #e8edf3;
+  border-radius: 14px;
+}
+.kbd-stat__label {
+  font-size: 13px;
+  color: #94a3b8;
+  margin-bottom: 10px;
+}
+.kbd-stat__value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: 0.3px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 工具栏 ---------- */
+.kbd-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.kbd-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: #f1f5f9;
+  border-radius: 10px;
+}
+.kbd-chip {
+  padding: 5px 14px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.kbd-chip:hover {
+  color: #334155;
+}
+.kbd-chip--active {
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.08);
+}
+.kbd-toolbar__right {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.kbd-rowchunk {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+/* ---------- 文档列表 ---------- */
+.kbd-list {
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid #e8edf3;
+  border-radius: 14px;
+  overflow: hidden;
+}
+.kbd-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  border-top: 1px solid #f1f5f9;
+  transition: background 0.12s ease;
+}
+.kbd-row:first-child {
+  border-top: none;
+}
+.kbd-row:hover {
+  background: #f8fafc;
+}
+
+.kbd-ftype {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.kbd-ftype--pdf {
+  color: #dc2626;
+  background: #fef2f2;
+}
+.kbd-ftype--md {
+  color: #2563eb;
+  background: #eff6ff;
+}
+.kbd-ftype--doc {
+  color: #2563eb;
+  background: #eef4ff;
+}
+.kbd-ftype--xls {
+  color: #059669;
+  background: #ecfdf5;
+}
+.kbd-ftype--txt {
+  color: #64748b;
+  background: #f1f5f9;
+}
+.kbd-ftype--other {
+  color: #7c3aed;
+  background: #f5f3ff;
+}
+
+.kbd-row__body {
+  flex: 1;
+  min-width: 0;
+}
+.kbd-row__name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f172a;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kbd-row__meta {
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kbd-row__err {
+  color: #dc2626;
+}
+
+.kbd-row__right {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+/* 悬浮才显示的行内操作 */
+.kbd-row__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.kbd-row:hover .kbd-row__actions {
+  opacity: 1;
+}
+
+.kbd-empty {
+  padding: 64px 0;
+}
