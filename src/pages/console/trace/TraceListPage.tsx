@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { App, Button, DatePicker, Input, Segmented, Space, Table, Tooltip, Typography } from 'antd';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -50,6 +51,20 @@ export default function TraceListPage() {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [selectedId, setSelectedId] = useState<string>();
   const [exporting, setExporting] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // 命令面板等外部入口可通过 ?traceId=xxx 深链直接打开某条调用链路详情。
+  // 详情按 traceId 独立拉取，不受列表时间窗口/筛选影响，因此即便不在当前列表也能展开。
+  useEffect(() => {
+    const deepLinkId = searchParams.get('traceId');
+    if (deepLinkId) {
+      setSelectedId(deepLinkId);
+      searchParams.delete('traceId');
+      setSearchParams(searchParams, { replace: true });
+    }
+    // 仅在 traceId 参数出现时同步一次，消费后即从 URL 移除。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const filter: TraceQuery = useMemo(
     () => ({

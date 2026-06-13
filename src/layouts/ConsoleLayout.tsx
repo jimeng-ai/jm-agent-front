@@ -1,10 +1,11 @@
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Spin, Tooltip } from 'antd';
 import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
 import WorkbenchSidebar from '@/components/atlas/WorkbenchSidebar';
 import { workbenchCrumbs } from '@/components/atlas/workbenchNav';
 import { SearchIcon, BellIcon } from '@/components/icons/AtlasIcons';
+import CommandPalette from '@/features/search/components/CommandPalette';
 
 const COLLAPSE_KEY = 'atlas-sidebar-collapsed';
 
@@ -13,6 +14,7 @@ export default function ConsoleLayout() {
   const crumbs = workbenchCrumbs(location.pathname);
   // 侧边栏显隐：偏好持久化到 localStorage，刷新后保持。
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === '1');
+  const [searchOpen, setSearchOpen] = useState(false);
   const toggleSidebar = () => {
     setCollapsed((prev) => {
       const next = !prev;
@@ -20,6 +22,18 @@ export default function ConsoleLayout() {
       return next;
     });
   };
+
+  // 全局快捷键 ⌘K / Ctrl+K 打开命令面板。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   return (
     <div className={'atlas-app' + (collapsed ? ' sidebar-collapsed' : '')}>
@@ -51,11 +65,11 @@ export default function ConsoleLayout() {
             ))}
           </div>
           <div className="spacer" />
-          <div className="atlas-search">
+          <button type="button" className="atlas-search" onClick={() => setSearchOpen(true)}>
             <SearchIcon size={14} />
             <span>搜索 Agent、文档、Trace…</span>
             <span className="kbd">⌘K</span>
-          </div>
+          </button>
           <button type="button" className="atlas-icon-btn" title="通知">
             <BellIcon size={16} />
             <span className="dot" />
@@ -81,6 +95,8 @@ export default function ConsoleLayout() {
           </Suspense>
         </main>
       </div>
+
+      <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>
   );
 }
