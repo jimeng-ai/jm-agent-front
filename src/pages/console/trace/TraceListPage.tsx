@@ -1,10 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { App, Button, DatePicker, Input, Segmented, Space, Table, Tooltip, Typography } from 'antd';
+import {
+  App,
+  Button,
+  DatePicker,
+  Input,
+  Segmented,
+  Select,
+  Space,
+  Table,
+  Tooltip,
+  Typography,
+} from 'antd';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useQuery } from '@tanstack/react-query';
 import { downloadTracesCsv, traceApi } from '@/features/trace/api';
+import { SCENE_OPTIONS } from '@/features/trace/sceneLabels';
 import TraceDetail from '@/features/trace/components/TraceDetail';
 import { TraceStatusTag } from '@/features/trace/components/TraceVisuals';
 import type { TraceLog, TraceQuery, TraceStatus } from '@/features/trace/types';
@@ -45,6 +57,7 @@ export default function TraceListPage() {
     dayjs(),
   ]);
   const [status, setStatus] = useState<'ALL' | TraceStatus>('ALL');
+  const [sceneCode, setSceneCode] = useState<string>();
   const [keyword, setKeyword] = useState('');
   const [searchKeyword, setSearchKeyword] = useState('');
   const [page, setPage] = useState(1);
@@ -72,8 +85,9 @@ export default function TraceListPage() {
       end: dateRange[1].endOf('day').valueOf(),
       status: status === 'ALL' ? undefined : status,
       keyword: searchKeyword || undefined,
+      sceneCode: sceneCode || undefined,
     }),
-    [dateRange, status, searchKeyword],
+    [dateRange, status, searchKeyword, sceneCode],
   );
 
   const overviewQ = useQuery({
@@ -177,6 +191,17 @@ export default function TraceListPage() {
               options={STATUS_OPTIONS as unknown as { label: string; value: string }[]}
               value={status}
               onChange={(v) => resetTo<'ALL' | TraceStatus>(setStatus)(v as 'ALL' | TraceStatus)}
+            />
+            <Select
+              allowClear
+              placeholder="全部场景"
+              style={{ width: 160 }}
+              options={SCENE_OPTIONS}
+              value={sceneCode}
+              onChange={(v) => {
+                setSceneCode(v);
+                setPage(1);
+              }}
             />
             <Input.Search
               allowClear

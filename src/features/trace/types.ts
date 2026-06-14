@@ -127,4 +127,6 @@ export interface TraceQuery {
   end?: number;
   status?: TraceStatus;
   keyword?: string;
+  /** 场景筛选（scene_code，如 agent_gen）。 */
+  sceneCode?: string;
 }
