@@ -51,9 +51,21 @@ export const builderApi = {
   cancelRun: (runId: string) => post<void>(`/admin/agent-builder/runs/${runId}/cancel`, {}),
 };
 
+/** 与 chat-admin ToolCallView 对齐：progress/tool_result 事件里的工具调用 */
+export interface BuilderToolCall {
+  id: string;
+  name: string;
+  desc?: string;
+  input?: unknown;
+  status: 'running' | 'success' | 'error';
+  output?: string;
+}
+
 export interface BuilderRunHandlers {
   onDelta?: (text: string) => void;
   onDraftUpdate?: (draft: BuilderDraft) => void;
+  onToolCall?: (calls: BuilderToolCall[]) => void;
+  onToolResult?: (results: BuilderToolCall[]) => void;
   onError?: (err: Error) => void;
   onDone?: () => void;
 }
@@ -79,6 +91,16 @@ function dispatch(event: string, data: string, h: BuilderRunHandlers) {
         const p = JSON.parse(data) as { delta?: string; text?: string };
         const t = p.delta ?? p.text ?? '';
         if (t) h.onDelta?.(t);
+        break;
+      }
+      case 'progress': {
+        const p = JSON.parse(data) as { calls?: BuilderToolCall[] };
+        if (p.calls?.length) h.onToolCall?.(p.calls);
+        break;
+      }
+      case 'tool_result': {
+        const p = JSON.parse(data) as { results?: BuilderToolCall[] };
+        if (p.results?.length) h.onToolResult?.(p.results);
         break;
       }
       case 'error': {
