@@ -15,10 +15,12 @@ export const kbApi = {
 export const docApi = {
   list: (kbId: string) => get<KbDocument[]>(`/rag/kb/${kbId}/documents`),
   detail: (docId: string) => get<KbDocument>(`/rag/documents/${docId}`),
-  upload: (kbId: string, file: File, rowPerChunk = false) =>
-    upload<KbDocument>(`/rag/kb/${kbId}/documents`, file, 'file', {
-      rowPerChunk: String(rowPerChunk),
-    }),
+  // 仅上传存储，文档落为「待确认（STAGED）」，不触发入库；需随后调 confirm。
+  upload: (kbId: string, file: File) =>
+    upload<KbDocument>(`/rag/kb/${kbId}/documents`, file, 'file'),
+  // 确认入库：把本知识库所有待确认文档一并推进流水线。rowPerChunk 仅对 xlsx/csv 生效。
+  confirm: (kbId: string, rowPerChunk = false) =>
+    post<KbDocument[]>(`/rag/kb/${kbId}/documents/confirm?rowPerChunk=${rowPerChunk}`),
   delete: (docId: string) => del<void>(`/rag/documents/${docId}`),
   retry: (docId: string) => post<void>(`/rag/documents/${docId}/retry`),
   chunks: (docId: string) => get<KbChunk[]>(`/rag/documents/${docId}/chunks`),

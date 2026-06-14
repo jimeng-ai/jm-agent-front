@@ -2,19 +2,12 @@ import { useMemo, useState } from 'react';
 import { DatePicker, Modal } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
 import { agentApi } from '@/features/agent/api';
 import { pluginApi } from '@/features/plugin/api';
 import { kbApi } from '@/features/knowledge/api';
 import { dashboardApi } from '@/features/dashboard/api';
 import { AreaChart, BarChart, PieChart, Sparkline } from '@/components/atlas/Charts';
-import {
-  PlusIcon,
-  UploadIcon,
-  PlayIcon,
-  PlugIcon,
-  ArrowRightIcon,
-} from '@/components/icons/AtlasIcons';
+import { ArrowRightIcon } from '@/components/icons/AtlasIcons';
 
 const { RangePicker } = DatePicker;
 
@@ -100,7 +93,6 @@ function rangePresets(): { label: string; value: [Dayjs, Dayjs] }[] {
 }
 
 export default function DashboardPage() {
-  const navigate = useNavigate();
   // 时间窗口默认近 30 天；RangePicker 含端点，精确到天。
   const [range, setRange] = useState<[Dayjs, Dayjs]>(() => [dayjs().subtract(29, 'day'), dayjs()]);
   // 「模型用量 Top」的「查看全部」弹窗：展示时间范围内全部模型的调用分布（饼图）。
@@ -498,51 +490,6 @@ export default function DashboardPage() {
           </div>
         )}
       </Modal>
-
-      {/* Quick actions */}
-      <div className="atlas-card pad">
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>快速操作</div>
-        </div>
-        <div className="qa-grid">
-          <button type="button" className="qa" onClick={() => navigate('/console/agents')}>
-            <div className="qa-icon">
-              <PlusIcon size={14} />
-            </div>
-            <div>
-              <div className="qa-title">新建 Agent</div>
-              <div className="qa-sub">从模板或空白开始</div>
-            </div>
-          </button>
-          <button type="button" className="qa" onClick={() => navigate('/console/knowledge')}>
-            <div className="qa-icon">
-              <UploadIcon size={14} />
-            </div>
-            <div>
-              <div className="qa-title">上传知识库文档</div>
-              <div className="qa-sub">PDF、Word、Markdown</div>
-            </div>
-          </button>
-          <button type="button" className="qa" onClick={() => navigate('/console/playground')}>
-            <div className="qa-icon">
-              <PlayIcon size={14} />
-            </div>
-            <div>
-              <div className="qa-title">打开 Playground</div>
-              <div className="qa-sub">对话调试与回放</div>
-            </div>
-          </button>
-          <button type="button" className="qa" onClick={() => navigate('/console/plugins')}>
-            <div className="qa-icon">
-              <PlugIcon size={14} />
-            </div>
-            <div>
-              <div className="qa-title">新建插件</div>
-              <div className="qa-sub">用 TypeScript / Python 暴露能力</div>
-            </div>
-          </button>
-        </div>
-      </div>
     </>
   );
 }

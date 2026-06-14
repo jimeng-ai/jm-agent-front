@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   App,
@@ -96,10 +96,8 @@ export default function KnowledgeDetailPage() {
   const [chunksDoc, setChunksDoc] = useState<KbDocument | null>(null);
   const [filter, setFilter] = useState<DocFilter>('all');
   const [keyword, setKeyword] = useState('');
-  // 表格逐行切片：勾选后 Excel/CSV 每数据行独立成 chunk（FAQ 表用）。用 ref 让 customRequest 读到最新值。
+  // 表格逐行切片：勾选后 Excel/CSV 每数据行独立成 chunk（FAQ 表用）。值在点「确认入库」时随 confirm 一并下发。
   const [rowPerChunk, setRowPerChunk] = useState(false);
-  const rowPerChunkRef = useRef(rowPerChunk);
-  rowPerChunkRef.current = rowPerChunk;
 
   const kbQuery = useQuery({
     queryKey: ['kb', 'detail', kbId],
@@ -134,17 +132,18 @@ export default function KnowledgeDetailPage() {
   const uploadProps: UploadProps = useMemo(
     () => ({
       multiple: true,
-      // 在弹窗里展示每个文件的上传进度/结果，让用户看到「拖入即开始」，而非误以为要点「完成」才处理。
-      showUploadList: true,
+      // 关掉 antd 自带上传列表：待确认文件改由下方「待确认文件」区统一展示（来自后端，关窗重开仍在）。
+      showUploadList: false,
       customRequest: async ({ file, onSuccess, onError }) => {
         try {
-          // 后端按「kb + 内容 sha256」幂等：传同一内容的文件，若旧记录已 DONE 会直接返回旧记录、跳过整条流水线（不新建文档）。
-          // 此时返回的 status 已是 DONE，提示「已在库中」而非「已加入队列」，否则用户会困惑为何列表不增。
-          const doc = await docApi.upload(kbId, file as File, rowPerChunkRef.current);
+          // 仅上传存储，文档落为「待确认」，不触发入库。需用户随后点「确认入库」。
+          // 后端按「kb + 内容 sha256」幂等：同内容文件若旧记录已 DONE 会直接返回、跳过（不新建文档），
+          // 此时提示「已在库中」而非「待确认」，否则用户会困惑为何列表不增。
+          const doc = await docApi.upload(kbId, file as File);
           if (doc?.status === 'DONE') {
             message.info(`${(file as File).name} 已在库中，内容未变更，已跳过重复入库`);
           } else {
-            message.success(`${(file as File).name} 已加入入库队列`);
+            message.success(`${(file as File).name} 已上传，待确认入库`);
           }
           qc.invalidateQueries({ queryKey: ['kb', kbId, 'docs'] });
           onSuccess?.({}, new XMLHttpRequest());
@@ -157,25 +156,45 @@ export default function KnowledgeDetailPage() {
     [kbId, message, qc],
   );
 
+  // 确认入库：把本知识库所有「待确认」文档一并推进流水线，rowPerChunk 随本次勾选下发。
+  const confirmMut = useMutation({
+    mutationFn: () => docApi.confirm(kbId, rowPerChunk),
+    onSuccess: (docs) => {
+      if (!docs || docs.length === 0) {
+        message.info('没有待确认的文件');
+      } else {
+        message.success(`已开始处理 ${docs.length} 个文件`);
+      }
+      qc.invalidateQueries({ queryKey: ['kb', kbId, 'docs'] });
+      setUploadOpen(false);
+    },
+    onError: () => message.error('确认入库失败'),
+  });
+
   const docs = useMemo(() => docsQuery.data ?? [], [docsQuery.data]);
 
-  // 统计卡：从文档列表实时计算，保证准确（文档数 / 切片数 / 总大小）。
-  const stats = useMemo(() => {
-    const chunks = docs.reduce((s, d) => s + toNum(d.totalChunks), 0);
-    const size = docs.reduce((s, d) => s + toNum(d.fileSize), 0);
-    return { docCount: docs.length, chunks, size };
-  }, [docs]);
+  // 「待确认（STAGED）」文档只是上传暂存、尚未入库，不进主列表/统计——只在上传弹窗里集中展示与确认。
+  const stagedDocs = useMemo(() => docs.filter((d) => d.status === 'STAGED'), [docs]);
+  const liveDocs = useMemo(() => docs.filter((d) => d.status !== 'STAGED'), [docs]);
+  const stagedCount = stagedDocs.length;
 
-  // 筛选 + 文件名搜索。
+  // 统计卡：只算已入库（非待确认）文档（文档数 / 切片数 / 总大小）。
+  const stats = useMemo(() => {
+    const chunks = liveDocs.reduce((s, d) => s + toNum(d.totalChunks), 0);
+    const size = liveDocs.reduce((s, d) => s + toNum(d.fileSize), 0);
+    return { docCount: liveDocs.length, chunks, size };
+  }, [liveDocs]);
+
+  // 筛选 + 文件名搜索（待确认文档不在主列表展示）。
   const shown = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
-    return docs.filter((d) => {
+    return liveDocs.filter((d) => {
       if (filter === 'indexed' && d.status !== 'DONE') return false;
       if (filter === 'indexing' && !isPending(d.status)) return false;
       if (kw && !d.title.toLowerCase().includes(kw)) return false;
       return true;
     });
-  }, [docs, filter, keyword]);
+  }, [liveDocs, filter, keyword]);
 
   if (kbQuery.isLoading) {
     return (
@@ -281,7 +300,7 @@ export default function KnowledgeDetailPage() {
       ) : shown.length === 0 ? (
         <Empty
           className="kbd-empty"
-          description={docs.length === 0 ? '暂无文档，点击「上传文档」开始' : '没有匹配的文档'}
+          description={liveDocs.length === 0 ? '暂无文档，点击「上传文档」开始' : '没有匹配的文档'}
         />
       ) : (
         <div className="kbd-list">
@@ -374,7 +393,20 @@ export default function KnowledgeDetailPage() {
         title="上传文档"
         open={uploadOpen}
         onCancel={() => setUploadOpen(false)}
-        footer={<Button onClick={() => setUploadOpen(false)}>关闭</Button>}
+        footer={[
+          <Button key="cancel" onClick={() => setUploadOpen(false)}>
+            取消
+          </Button>,
+          <Button
+            key="confirm"
+            type="primary"
+            loading={confirmMut.isPending}
+            disabled={stagedCount === 0}
+            onClick={() => confirmMut.mutate()}
+          >
+            确认入库{stagedCount > 0 ? `（${stagedCount}）` : ''}
+          </Button>,
+        ]}
         destroyOnClose
       >
         <Dragger {...uploadProps} style={{ marginBottom: 16 }}>
@@ -388,14 +420,45 @@ export default function KnowledgeDetailPage() {
         </Dragger>
 
         <p style={{ margin: '0 0 12px', fontSize: 12.5, color: '#94a3b8' }}>
-          文件加入后即开始解析与向量化，无需等待本窗口——可直接关闭，回到列表查看处理进度。
+          文件上传后停在「待确认」，点下方「确认入库」才开始切片与向量化（确认前不进文档列表）。
         </p>
 
+        {/* 待确认文件：来自后端的 STAGED 文档，关窗重开仍在；确认后才进主列表并开始处理。 */}
+        {stagedCount > 0 && (
+          <div className="kbd-staged">
+            <div className="kbd-staged__title">待确认文件（{stagedCount}）</div>
+            <div className="kbd-staged__list">
+              {stagedDocs.map((d) => {
+                const ft = fileType(d.title);
+                return (
+                  <div className="kbd-staged__row" key={d.id}>
+                    <span className={`kbd-ftype ${ft.cls}`}>{ft.label}</span>
+                    <span className="kbd-staged__name" title={d.title}>
+                      {d.title}
+                    </span>
+                    <span className="kbd-staged__size">{formatBytes(toNum(d.fileSize))}</span>
+                    <Tooltip title="移除">
+                      <Button
+                        type="text"
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        loading={delMut.isPending && delMut.variables === d.id}
+                        onClick={() => delMut.mutate(d.id)}
+                      />
+                    </Tooltip>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* 表格逐行切片：仅对 Excel/CSV 生效，勾选后每个数据行单独成 chunk（适合 FAQ 表，一问一答各自可检索）。
-            放在上传弹窗内，让用户在上传动线里必然看到该选项。 */}
+            值在点「确认入库」时统一下发给本批文件，对本批的 PDF/DOCX 等无影响。 */}
         <Checkbox checked={rowPerChunk} onChange={(e) => setRowPerChunk(e.target.checked)}>
           表格逐行切片（仅 Excel/CSV 生效）
-          <Tooltip title="勾选后，上传的 Excel/CSV 会按「每个数据行」独立切片（一行一 chunk），适合 FAQ / 问答表；不勾选则按字数合并多行。仅对表格类文件生效，对 PDF/DOCX 等无影响。已入库文档需删除后重新上传才会按新方式切片。">
+          <Tooltip title="勾选后，确认入库时 Excel/CSV 会按「每个数据行」独立切片（一行一 chunk），适合 FAQ / 问答表；不勾选则按字数合并多行。仅对表格类文件生效，对 PDF/DOCX 等无影响；本批没有表格文件时勾选也无妨。已入库文档需删除后重新上传才会按新方式切片。">
             <QuestionCircleOutlined
               style={{ color: '#94a3b8', cursor: 'pointer', marginLeft: 6 }}
             />

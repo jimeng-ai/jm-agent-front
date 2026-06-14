@@ -175,6 +175,7 @@ export interface KnowledgeBase extends BaseEntity {
 }
 
 export type DocStatus =
+  | 'STAGED'
   | 'UPLOADED'
   | 'PARSING'
   | 'CHUNKING'

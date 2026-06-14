@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Avatar, Button, Image, Spin } from 'antd';
 import {
   CopyOutlined,
@@ -11,8 +11,11 @@ import {
   FileOutlined,
   DownOutlined,
   RightOutlined,
-  CodeOutlined,
   StopOutlined,
+  FileSearchOutlined,
+  LinkOutlined,
+  ApiOutlined,
+  ExperimentOutlined,
 } from '@ant-design/icons';
 import { App } from 'antd';
 import dayjs from 'dayjs';
@@ -21,6 +24,14 @@ import CitationReferences from './CitationReferences';
 import AttachmentThumb from './AttachmentThumb';
 import { downloadArtifact, fetchArtifactBlob } from '@/api/agentFiles';
 import { glyphColor } from '@/utils/glyph';
+import {
+  inferStepKind,
+  kindLabel,
+  stepTitle,
+  formatStepInput,
+  summarizeResult,
+  type StepKind,
+} from '@/features/chat-admin/utils/stepKind';
 import type {
   ArtifactRef,
   ChatMessage,
@@ -55,74 +66,78 @@ function formatElapsed(ms: number): string {
   return `${Math.floor(total / 60)} 分 ${total % 60} 秒`;
 }
 
-function formatToolInput(input: unknown): string {
-  if (input == null) return '';
-  if (typeof input === 'object' && !Array.isArray(input)) {
-    return Object.entries(input as Record<string, unknown>)
-      .map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
-      .join('，');
+/** 分类 → 左侧图标。kb 检索 / tool 通用 / plugin 外联 / skill 技能。 */
+function kindIcon(kind: StepKind) {
+  switch (kind) {
+    case 'kb':
+      return <FileSearchOutlined />;
+    case 'plugin':
+      return <ApiOutlined />;
+    case 'skill':
+      return <ExperimentOutlined />;
+    default:
+      return <LinkOutlined />;
   }
-  return typeof input === 'string' ? input : JSON.stringify(input);
 }
 
-function ToolCallPill({ tc }: { tc: ToolCallView }) {
-  const icon =
-    tc.status === 'running' ? (
-      <LoadingOutlined spin />
-    ) : tc.status === 'success' ? (
-      <CheckCircleOutlined style={{ color: '#52c41a' }} />
-    ) : (
-      <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
-    );
-  const verb =
-    tc.status === 'running'
-      ? '正在调用工具'
-      : tc.status === 'success'
-        ? '已调用工具'
-        : '工具调用失败';
-  const inputStr = formatToolInput(tc.input);
+/** 步骤状态图标：进行中转圈 / 成功绿勾 / 失败红叉。 */
+function statusIcon(status: ToolCallView['status']) {
+  if (status === 'running') return <LoadingOutlined spin />;
+  if (status === 'success') return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
+  return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
+}
+
+/**
+ * 单个工具调用卡片：左侧彩色图标块 + 标题(+分类标签) + 入参副标题 + 右侧结果摘要/状态。
+ * 原始入参/输出不丢，折进「查看详情」，展开仍是深色 pre。分类由前端启发式推断，推不准回退通用「工具」。
+ */
+function ToolStepCard({ tc }: { tc: ToolCallView }) {
+  const [showDetail, setShowDetail] = useState(false);
+  const kind = inferStepKind(tc);
+  const title = stepTitle(tc);
+  const sub = formatStepInput(tc.input);
+  const summary = summarizeResult(tc, kind);
+  const hasDetail = tc.input != null || !!tc.output;
+  const inputPretty =
+    tc.input == null
+      ? ''
+      : typeof tc.input === 'string'
+        ? tc.input
+        : JSON.stringify(tc.input, null, 2);
+  const outputText = tc.output
+    ? tc.output.length > 4000
+      ? `${tc.output.slice(0, 4000)}\n…（已截断）`
+      : tc.output
+    : '';
+
   return (
-    <div>
-      <div
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 6,
-          fontSize: 12,
-          color: '#595959',
-          background: '#f5f5f5',
-          border: '1px solid #eee',
-          borderRadius: 6,
-          padding: '4px 10px',
-          marginRight: 6,
-          marginBottom: 6,
-        }}
-      >
-        {icon}
-        <span>
-          {verb} <b>{tc.name}</b>
-          {tc.desc ? <span style={{ color: '#8c8c8c' }}>（{tc.desc}）</span> : null}
-          {inputStr ? <span style={{ color: '#8c8c8c' }}> · {inputStr}</span> : null}
-        </span>
+    <div className={`chat-step chat-step--${kind}`}>
+      <div className="chat-step__icon">{kindIcon(kind)}</div>
+      <div className="chat-step__body">
+        <div className="chat-step__title">
+          <span className={title.mono ? 'chat-step__title--mono' : undefined}>{title.text}</span>
+          <span className="chat-step__tag">{kindLabel(kind)}</span>
+        </div>
+        {sub ? <div className="chat-step__sub">{sub}</div> : null}
+        {hasDetail && (
+          <>
+            <button className="chat-step__detail-toggle" onClick={() => setShowDetail((s) => !s)}>
+              {showDetail ? <DownOutlined /> : <RightOutlined />}
+              {showDetail ? '收起详情' : '查看详情'}
+            </button>
+            {showDetail && (
+              <>
+                {inputPretty ? <pre className="chat-step__pre">{inputPretty}</pre> : null}
+                {outputText ? <pre className="chat-step__pre">{outputText}</pre> : null}
+              </>
+            )}
+          </>
+        )}
       </div>
-      {tc.output ? (
-        <pre
-          style={{
-            margin: '0 0 6px',
-            padding: 8,
-            background: '#0f172a',
-            color: '#e2e8f0',
-            borderRadius: 6,
-            fontSize: 12,
-            maxHeight: 240,
-            overflow: 'auto',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-all',
-          }}
-        >
-          {tc.output.length > 4000 ? `${tc.output.slice(0, 4000)}\n…（已截断）` : tc.output}
-        </pre>
-      ) : null}
+      <div className="chat-step__result">
+        {summary ? <span>{summary}</span> : null}
+        {statusIcon(tc.status)}
+      </div>
     </div>
   );
 }
@@ -296,117 +311,157 @@ function ThinkingTimer({ startedAt }: { startedAt: number }) {
   );
 }
 
-/** 把连续的工具步骤聚成一个可折叠块：流式中默认展开（看实时进度），完成/历史默认收起。 */
+/**
+ * 「处理过程」面板：把一轮里「最后一次工具调用之前」的所有段（叙述 + 工具卡片）收进一个可折叠块，
+ * 叙述与卡片按真实顺序交错。流式中默认展开（看实时进度），完成/历史默认收起。
+ */
 function ToolProcessGroup({
-  calls,
-  defaultOpen,
+  children,
+  stepCount,
+  running,
+  elapsedMs,
+  streaming,
 }: {
-  calls: ToolCallView[];
-  defaultOpen?: boolean;
+  children: ReactNode;
+  stepCount: number;
+  running: boolean;
+  elapsedMs?: number;
+  streaming: boolean;
 }) {
-  const [open, setOpen] = useState(!!defaultOpen);
-  const running = calls.some((c) => c.status === 'running');
+  // 流式中默认展开（看实时进度），完成/历史默认收起。
+  const [open, setOpen] = useState(streaming);
+  // 流式结束（streaming: true → false）时自动收起，即使用户中途手动展开过。
+  const prevStreaming = useRef(streaming);
+  useEffect(() => {
+    if (prevStreaming.current && !streaming) setOpen(false);
+    prevStreaming.current = streaming;
+  }, [streaming]);
   return (
-    <div
-      style={{
-        marginBottom: 8,
-        border: '1px solid #eee',
-        borderRadius: 8,
-        background: '#fafafa',
-        overflow: 'hidden',
-      }}
-    >
-      <button
-        onClick={() => setOpen((o) => !o)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          width: '100%',
-          padding: '6px 10px',
-          border: 'none',
-          background: 'transparent',
-          cursor: 'pointer',
-          fontSize: 12,
-          color: '#595959',
-          textAlign: 'left',
-        }}
-      >
+    <div className="chat-proc">
+      <button className="chat-proc__head" onClick={() => setOpen((o) => !o)}>
         {open ? (
-          <DownOutlined style={{ fontSize: 10 }} />
+          <DownOutlined style={{ fontSize: 11, color: 'var(--text-3)' }} />
         ) : (
-          <RightOutlined style={{ fontSize: 10 }} />
+          <RightOutlined style={{ fontSize: 11, color: 'var(--text-3)' }} />
         )}
-        <CodeOutlined />
-        <span>执行过程 · {calls.length} 步</span>
-        {running && <LoadingOutlined spin style={{ marginLeft: 4 }} />}
-        <span style={{ marginLeft: 'auto', color: '#bfbfbf' }}>{open ? '收起' : '展开'}</span>
+        <span className="chat-proc__title">处理过程</span>
+        {running ? (
+          <LoadingOutlined spin style={{ color: 'var(--text-3)' }} />
+        ) : elapsedMs != null ? (
+          <span className="chat-proc__elapsed">{formatElapsed(elapsedMs)}</span>
+        ) : (
+          <span className="chat-proc__elapsed">· {stepCount} 步</span>
+        )}
+        <span className="chat-proc__toggle">{open ? '收起' : '展开'}</span>
       </button>
-      {open && (
-        <div style={{ padding: '4px 10px 8px' }}>
-          {calls.map((tc) => (
-            <ToolCallPill key={tc.id} tc={tc} />
-          ))}
-        </div>
-      )}
+      {open && <div className="chat-proc__body">{children}</div>}
     </div>
   );
 }
 
-/** 按真实顺序渲染助手片段：连续 tool 片段折叠成「执行过程」块，text/artifact 原样穿插。 */
-function renderSegments(segments: MessageSegment[], status?: ChatStatus): ReactNode[] {
+/** 面板内的单段：工具→卡片，叙述→无气泡纯文本，产物→卡片。 */
+function ProcessItem({ seg }: { seg: MessageSegment }) {
+  if (seg.type === 'tool') return <ToolStepCard tc={seg.call} />;
+  if (seg.type === 'artifact') {
+    return isImageArtifact(seg.artifact) ? (
+      <ArtifactImageGrid artifacts={[seg.artifact]} />
+    ) : (
+      <ArtifactCard artifact={seg.artifact} />
+    );
+  }
+  return (
+    <div className="chat-proc__narration">
+      <Markdown content={stripRefMarkers(seg.text)} />
+    </div>
+  );
+}
+
+/** 线性渲染答案区（无工具时即整条消息）：叙述气泡 + 连续图片合并网格 + 普通产物卡片。 */
+function renderLinear(
+  segs: MessageSegment[],
+  status: ChatStatus | undefined,
+  keyBase: number,
+): ReactNode[] {
   const out: ReactNode[] = [];
-  let run: ToolCallView[] = [];
   let imgRun: ArtifactRef[] = [];
-  const flush = () => {
-    if (run.length) {
-      out.push(
-        <ToolProcessGroup
-          key={`tg-${run[0].id}`}
-          calls={run}
-          defaultOpen={status === 'streaming'}
-        />,
-      );
-      run = [];
-    }
-  };
-  // 连续的图片产物合并成一个网格，避免每张各占一行把对话拉得过长。
   const flushImgs = () => {
     if (imgRun.length) {
-      out.push(<ArtifactImageGrid key={`ig-${imgRun[0].artifactId}`} artifacts={imgRun} />);
+      out.push(
+        <ArtifactImageGrid key={`ig-${keyBase}-${imgRun[0].artifactId}`} artifacts={imgRun} />,
+      );
       imgRun = [];
     }
   };
-  segments.forEach((seg, i) => {
-    if (seg.type === 'tool') {
-      flushImgs();
-      run.push(seg.call);
-      return;
-    }
-    flush();
+  segs.forEach((seg, i) => {
     if (seg.type === 'artifact') {
       if (isImageArtifact(seg.artifact)) {
         imgRun.push(seg.artifact);
       } else {
         flushImgs();
         out.push(
-          <div key={`a${i}`} style={{ marginBottom: 8 }}>
+          <div key={`a${keyBase}-${i}`} style={{ marginBottom: 8 }}>
             <ArtifactCard artifact={seg.artifact} />
           </div>,
         );
       }
+    } else if (seg.type === 'tool') {
+      // 答案区理论上不再有工具；兜底渲染为卡片，绝不丢数据。
+      flushImgs();
+      out.push(
+        <div key={`t${keyBase}-${i}`} style={{ marginBottom: 8 }}>
+          <ToolStepCard tc={seg.call} />
+        </div>,
+      );
     } else {
       flushImgs();
-      const isLast = i === segments.length - 1;
+      const isLast = i === segs.length - 1;
       out.push(
-        <div key={`s${i}`} className="chat-bubble-assistant" style={{ marginBottom: 8 }}>
+        <div key={`s${keyBase}-${i}`} className="chat-bubble-assistant" style={{ marginBottom: 8 }}>
           <Markdown content={stripRefMarkers(seg.text)} cursor={isLast && status === 'streaming'} />
         </div>,
       );
     }
   });
-  flush();
   flushImgs();
+  return out;
+}
+
+/**
+ * 按真实顺序渲染助手片段：
+ * - 无工具调用：整条消息线性渲染（叙述气泡 + 产物）。
+ * - 有工具调用：「最后一次工具调用（含）之前」的段全部收进「处理过程」面板（叙述与卡片交错），
+ *   之后的段作为最终答案落在面板下方。
+ */
+function renderSegments(
+  segments: MessageSegment[],
+  status?: ChatStatus,
+  elapsedMs?: number,
+): ReactNode[] {
+  let lastToolIdx = -1;
+  segments.forEach((s, i) => {
+    if (s.type === 'tool') lastToolIdx = i;
+  });
+  if (lastToolIdx === -1) return renderLinear(segments, status, 0);
+
+  const procSegs = segments.slice(0, lastToolIdx + 1);
+  const answerSegs = segments.slice(lastToolIdx + 1);
+  const stepCount = procSegs.filter((s) => s.type === 'tool').length;
+  const running = procSegs.some((s) => s.type === 'tool' && s.call.status === 'running');
+
+  const out: ReactNode[] = [
+    <ToolProcessGroup
+      key="proc"
+      stepCount={stepCount}
+      running={running}
+      elapsedMs={status === 'streaming' ? undefined : elapsedMs}
+      streaming={status === 'streaming'}
+    >
+      {procSegs.map((seg, i) => (
+        <ProcessItem key={`p${i}`} seg={seg} />
+      ))}
+    </ToolProcessGroup>,
+  ];
+  out.push(...renderLinear(answerSegs, status, lastToolIdx + 1));
   return out;
 }
 
@@ -469,8 +524,8 @@ export default function MessageBubble({ message, agentName, agentAvatar }: Props
         ) : (
           <>
             {message.segments && message.segments.length > 0 ? (
-              // 有序片段：叙述文本 → 「执行过程」折叠块 → 产物 → 答案，按真实发生顺序交错渲染
-              renderSegments(message.segments, message.status)
+              // 有序片段：叙述 + 工具卡片收进「处理过程」面板，最终答案落在下方，按真实顺序渲染
+              renderSegments(message.segments, message.status, message.elapsedMs)
             ) : message.content ? (
               <div className="chat-bubble-assistant">
                 <Markdown

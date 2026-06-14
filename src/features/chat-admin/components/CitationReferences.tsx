@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Collapse, Typography } from 'antd';
-import { FileTextOutlined } from '@ant-design/icons';
+import { EyeOutlined } from '@ant-design/icons';
 import type { ChatCitation } from '@/api/types';
 
 interface Props {
@@ -45,10 +45,16 @@ export default function CitationReferences({ citations }: Props) {
   const groups = groupByDoc(citations);
   if (groups.length === 0) return null;
 
+  // 每个文档取首个有页码的片段作为行内页码提示（对齐截图里的「· p.12」）。
+  const groupPage = (g: DocGroup): number | null => {
+    const hit = g.snippets.find((s) => s.pageNum != null);
+    return hit?.pageNum ?? null;
+  };
+
   return (
     <div style={{ marginTop: 8, maxWidth: 560 }}>
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        参考来源 ({groups.length})
+        引用 · {groups.length}
       </Typography.Text>
       <Collapse
         ghost
@@ -61,15 +67,14 @@ export default function CitationReferences({ citations }: Props) {
           border: '1px solid #f0f0f0',
           borderRadius: 8,
         }}
-        items={groups.map((g) => ({
+        items={groups.map((g, gi) => ({
           key: g.key,
           label: (
-            <span style={{ fontSize: 13 }}>
-              <FileTextOutlined style={{ color: '#1677ff', marginRight: 6 }} />
-              {g.docTitle}
-              <Typography.Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
-                命中 {g.snippets.length} 个片段
-              </Typography.Text>
+            <span className="chat-cite__row">
+              <span className="chat-cite__idx">[{gi + 1}]</span>
+              <span className="chat-cite__name">{g.docTitle}</span>
+              {groupPage(g) != null && <span className="chat-cite__meta">· p.{groupPage(g)}</span>}
+              <EyeOutlined className="chat-cite__eye" />
             </span>
           ),
           children: (

@@ -1,6 +1,7 @@
 import type { DocStatus } from '@/api/types';
 
 export const DOC_STATUS_TEXT: Record<DocStatus, string> = {
+  STAGED: '待确认',
   UPLOADED: '已上传',
   PARSING: '解析中',
   CHUNKING: '切片中',
@@ -11,6 +12,7 @@ export const DOC_STATUS_TEXT: Record<DocStatus, string> = {
 };
 
 export const DOC_STATUS_COLOR: Record<DocStatus, string> = {
+  STAGED: 'default',
   UPLOADED: 'default',
   PARSING: 'processing',
   CHUNKING: 'processing',
@@ -21,6 +23,7 @@ export const DOC_STATUS_COLOR: Record<DocStatus, string> = {
 };
 
 export const DOC_STATUS_PROGRESS: Record<DocStatus, number> = {
+  STAGED: 0,
   UPLOADED: 10,
   PARSING: 30,
   CHUNKING: 50,
@@ -30,8 +33,9 @@ export const DOC_STATUS_PROGRESS: Record<DocStatus, number> = {
   FAILED: 100,
 };
 
+// STAGED（待确认）不算「处理中」：它没在跑流水线，不该触发列表轮询、也不该被「处理中」筛选收入。
 export function isPending(status: DocStatus) {
-  return status !== 'DONE' && status !== 'FAILED';
+  return status !== 'STAGED' && status !== 'DONE' && status !== 'FAILED';
 }
 
 export function formatBytes(bytes?: number) {

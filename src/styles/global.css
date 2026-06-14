@@ -1785,3 +1785,218 @@ img.chat-agent-glyph {
   max-width: 100%;
   word-break: break-word;
 }
+
+/* ============ 处理过程面板（叙述 + 工具调用卡片交错） ============ */
+.chat-proc {
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+/* 头部：处理过程 · 耗时，可折叠 */
+.chat-proc__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--fs-14);
+  color: var(--text-2);
+  text-align: left;
+}
+.chat-proc__head:hover {
+  background: var(--hover-bg);
+}
+.chat-proc__title {
+  font-weight: 600;
+  color: var(--text);
+}
+.chat-proc__elapsed {
+  color: var(--text-3);
+  font-size: var(--fs-12);
+}
+.chat-proc__toggle {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: var(--fs-12);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.chat-proc__body {
+  padding: 2px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* 面板里的叙述文字：无气泡，纯文本，行距舒展 */
+.chat-proc__narration {
+  font-size: var(--fs-14);
+  line-height: 1.7;
+  color: var(--text);
+}
+.chat-proc__narration p {
+  margin: 0;
+}
+
+/* ============ 单个工具调用卡片 ============ */
+.chat-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  transition: box-shadow 0.15s;
+}
+.chat-step:hover {
+  box-shadow: var(--card-hover-shadow);
+}
+/* 左侧彩色圆角图标块 */
+.chat-step__icon {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+}
+.chat-step__body {
+  flex: 1;
+  min-width: 0;
+}
+.chat-step__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: var(--fs-15);
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.4;
+}
+.chat-step__title--mono {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--fs-14);
+}
+/* 分类标签（知识库 / 工具 / 插件 / Skill） */
+.chat-step__tag {
+  font-size: var(--fs-12);
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: var(--r-sm);
+  line-height: 1.6;
+}
+.chat-step__sub {
+  margin-top: 3px;
+  font-size: var(--fs-13);
+  color: var(--text-3);
+  word-break: break-word;
+}
+/* 右侧结果摘要 + 状态 */
+.chat-step__result {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-13);
+  color: var(--text-3);
+  padding-top: 2px;
+}
+/* 查看详情：原始入参 / 输出 */
+.chat-step__detail-toggle {
+  margin-top: 8px;
+  font-size: var(--fs-12);
+  color: var(--text-3);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.chat-step__detail-toggle:hover {
+  color: var(--text-2);
+}
+.chat-step__pre {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: var(--r-md);
+  font-size: var(--fs-12);
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 四种分类配色：图标块 + 标签 */
+.chat-step--kb .chat-step__icon {
+  background: #ecfdf5;
+  color: #059669;
+}
+.chat-step--kb .chat-step__tag {
+  background: #ecfdf5;
+  color: #059669;
+}
+.chat-step--tool .chat-step__icon {
+  background: #fff7ed;
+  color: #ea580c;
+}
+.chat-step--tool .chat-step__tag {
+  background: #fff7ed;
+  color: #ea580c;
+}
+.chat-step--plugin .chat-step__icon {
+  background: #f5f3ff;
+  color: #7c3aed;
+}
+.chat-step--plugin .chat-step__tag {
+  background: #f5f3ff;
+  color: #7c3aed;
+}
+.chat-step--skill .chat-step__icon {
+  background: var(--primary-tint);
+  color: var(--primary);
+}
+.chat-step--skill .chat-step__tag {
+  background: var(--primary-tint);
+  color: var(--primary);
+}
+
+/* ============ 引用来源（编号行） ============ */
+.chat-cite__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-13);
+}
+.chat-cite__idx {
+  flex-shrink: 0;
+  color: var(--primary);
+  font-weight: 600;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+.chat-cite__name {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-cite__meta {
+  color: var(--text-3);
+  font-size: var(--fs-12);
+}
+.chat-cite__eye {
+  margin-left: auto;
+  color: var(--text-3);
+}
