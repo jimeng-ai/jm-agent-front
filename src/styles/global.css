@@ -2056,17 +2056,59 @@ img.chat-agent-glyph {
   align-items: center;
   padding: 56px 24px 48px;
 }
-.builder-hero__icon {
-  width: 72px;
-  height: 72px;
-  border-radius: 20px;
-  background: linear-gradient(135deg, #3d7bff 0%, #1e5cff 100%);
+/* Twinkle 图标：96 圆角方块 + 主星呼吸 + 两颗小星错峰闪烁 */
+.ai-spark {
+  position: relative;
+  flex: none;
+  width: 96px;
+  height: 96px;
+  border-radius: 28px;
+  background: linear-gradient(140deg, #4b86ff 0%, #1e5cff 60%, #1652e6 100%);
+  box-shadow: 0 16px 32px rgba(30, 92, 255, 0.32);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  box-shadow: 0 12px 28px rgba(30, 92, 255, 0.28);
-  animation: builder-float 4.5s ease-in-out infinite;
+}
+.ai-spark__main {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.12));
+  transform-origin: center;
+  animation: spark-breathe 2.8s ease-in-out infinite;
+}
+.ai-spark__s {
+  position: absolute;
+  transform-origin: center;
+}
+.ai-spark__s1 {
+  top: 20px;
+  right: 22px;
+  animation: spark-twinkle 2.4s ease-in-out infinite;
+}
+.ai-spark__s2 {
+  bottom: 22px;
+  left: 24px;
+  animation: spark-twinkle 2.4s ease-in-out infinite 1.2s;
+}
+@keyframes spark-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.92;
+  }
+  50% {
+    transform: scale(1.09);
+    opacity: 1;
+  }
+}
+@keyframes spark-twinkle {
+  0%,
+  100% {
+    transform: scale(0.6);
+    opacity: 0.25;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 .builder-hero__title {
   margin: 24px 0 0;
@@ -2091,7 +2133,9 @@ img.chat-agent-glyph {
   border-radius: 14px;
   padding: 16px 16px 12px;
   background: #fff;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 .builder-hero__inputwrap:focus-within {
   border-color: #4080ff;
@@ -2115,7 +2159,10 @@ img.chat-agent-glyph {
   padding: 18px 20px;
   cursor: pointer;
   background: #fff;
-  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s,
+    transform 0.2s;
 }
 .builder-scene-card:hover {
   border-color: #bcd0ff;

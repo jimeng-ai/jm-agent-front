@@ -58,12 +58,35 @@ const SCENES = [
   },
 ];
 
+/** 4 角星 path（24x24 viewBox） */
+const STAR_PATH = 'M12 2.5l1.9 6.1 6.1 1.9-6.1 1.9L12 18.5l-1.9-6.1L4 10.5l6.1-1.9z';
+
+/** Twinkle 图标：主星呼吸缩放 + 两颗小星错峰闪烁。 */
 function SparkleIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="34" height="34" fill="currentColor" aria-hidden>
-      <path d="M12 3l1.7 5.6L19 10l-5.3 1.4L12 17l-1.7-5.6L5 10l5.3-1.4z" />
-      <path d="M18.5 3.5l.8 2.4 2.4.8-2.4.8-.8 2.4-.8-2.4-2.4-.8 2.4-.8z" opacity="0.85" />
-    </svg>
+    <div className="ai-spark" aria-hidden>
+      <svg className="ai-spark__main" viewBox="0 0 24 24" width="46" height="46" fill="#fff">
+        <path d={STAR_PATH} />
+      </svg>
+      <svg
+        className="ai-spark__s ai-spark__s1"
+        viewBox="0 0 24 24"
+        width="16"
+        height="16"
+        fill="#fff"
+      >
+        <path d={STAR_PATH} />
+      </svg>
+      <svg
+        className="ai-spark__s ai-spark__s2"
+        viewBox="0 0 24 24"
+        width="12"
+        height="12"
+        fill="#fff"
+      >
+        <path d={STAR_PATH} />
+      </svg>
+    </div>
   );
 }
 
@@ -262,9 +285,7 @@ export default function AgentBuilderWizardPage() {
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         {header}
         <div className="builder-hero">
-          <div className="builder-hero__icon">
-            <SparkleIcon />
-          </div>
+          <SparkleIcon />
           <h1 className="builder-hero__title">用一句话，生成一个 Agent</h1>
           <p className="builder-hero__sub">
             描述你要解决的问题，AI 会帮你配好 Prompt、知识库、工具与模型，边问边生成。
