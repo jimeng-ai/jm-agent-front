@@ -193,7 +193,9 @@ function FeedbackHistoryRow({
   return (
     <div style={{ borderBottom: '1px solid #f0f0f0', paddingBottom: 12 }}>
       <Space>
-        <Tag color={type === 1 ? 'volcano' : 'blue'}>{TYPE_LABEL[type]}</Tag>
+        <Tag color={Number(type) === 1 ? 'volcano' : 'blue'}>
+          {TYPE_LABEL[Number(type) as FeedbackType]}
+        </Tag>
         <Text type="secondary" style={{ fontSize: 12 }}>
           {new Date(createTime).toLocaleString()}
         </Text>
