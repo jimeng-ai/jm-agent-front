@@ -69,3 +69,27 @@ export const agentApi = {
   unbindPlugin: (id: string, pluginId: string) =>
     del<void>(`/admin/agent/agents/${id}/plugins/${pluginId}`),
 };
+
+/** GET /data/admin/models 返回项；与调试台模型下拉 option 结构一致（value/label + maxTemp）。 */
+export interface ModelOption {
+  value: string;
+  label: string;
+  provider: string;
+  maxTemp: number;
+  description?: string;
+}
+
+/**
+ * 拉取可选模型目录（单一真相源）。后端 maxTemp 可能按字符串下发（见 jm-api-numbers-as-strings），
+ * 这里 Number() 兜底。
+ */
+export async function getModelCatalog(): Promise<ModelOption[]> {
+  const rows = await get<ModelOption[]>('/admin/models');
+  return (rows ?? []).map((m) => ({
+    value: m.value,
+    label: m.label,
+    provider: m.provider,
+    maxTemp: Number(m.maxTemp ?? 2),
+    description: m.description,
+  }));
+}

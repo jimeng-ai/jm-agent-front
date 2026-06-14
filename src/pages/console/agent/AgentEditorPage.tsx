@@ -25,9 +25,9 @@ import {
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
-import { agentApi } from '@/features/agent/api';
+import { agentApi, getModelCatalog } from '@/features/agent/api';
 import {
-  AVAILABLE_MODELS,
+  FALLBACK_MODELS,
   DEFAULT_MAX_TEMP,
   DEFAULT_SYSTEM_PROMPT,
 } from '@/features/agent/constants';
@@ -70,12 +70,19 @@ export default function AgentEditorPage() {
     rerank: true,
   });
 
-  // Temperature 滑块上限随所选模型变化：Claude=1，GPT=2（见 AVAILABLE_MODELS.maxTemp）。
+  // 模型目录走后端单一真相源；接口加载中/失败 → 离线兜底，保证下拉不空白。
+  const modelsQuery = useQuery({
+    queryKey: ['models', 'catalog'],
+    queryFn: getModelCatalog,
+    staleTime: 5 * 60 * 1000,
+  });
+  const modelOptions = modelsQuery.data?.length ? modelsQuery.data : FALLBACK_MODELS;
+
+  // Temperature 滑块上限随所选模型变化：Claude=1，GPT=2（见 modelOptions.maxTemp）。
   const selectedModel = Form.useWatch('model', form);
   // 头像占位首字随名称变化。
   const watchedName = Form.useWatch('name', form);
-  const maxTemp =
-    AVAILABLE_MODELS.find((m) => m.value === selectedModel)?.maxTemp ?? DEFAULT_MAX_TEMP;
+  const maxTemp = modelOptions.find((m) => m.value === selectedModel)?.maxTemp ?? DEFAULT_MAX_TEMP;
 
   const agentQuery = useQuery({
     queryKey: ['agent', 'detail', id],
@@ -197,7 +204,7 @@ export default function AgentEditorPage() {
           const mp = parseJsonObj(agent.modelParams) ?? {};
           return {
             ...agent,
-            model: agent.model ?? AVAILABLE_MODELS[0].value,
+            model: agent.model ?? modelOptions[0]?.value ?? FALLBACK_MODELS[0].value,
             systemPrompt: agent.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
             modelParams: {
               temperature: typeof mp.temperature === 'number' ? mp.temperature : 0.7,
@@ -275,12 +282,11 @@ export default function AgentEditorPage() {
                 <Card style={{ maxWidth: 560 }}>
                   <Form.Item label="模型" name="model" rules={[{ required: true }]}>
                     <Select
-                      options={AVAILABLE_MODELS}
+                      options={modelOptions}
                       onChange={(val) => {
                         // 切到上限更低的模型（如 GPT→Claude）时，把已超限的 temperature 夹回上限内。
                         const nextMax =
-                          AVAILABLE_MODELS.find((m) => m.value === val)?.maxTemp ??
-                          DEFAULT_MAX_TEMP;
+                          modelOptions.find((m) => m.value === val)?.maxTemp ?? DEFAULT_MAX_TEMP;
                         const cur = form.getFieldValue(['modelParams', 'temperature']);
                         if (typeof cur === 'number' && cur > nextMax) {
                           form.setFieldValue(['modelParams', 'temperature'], nextMax);
