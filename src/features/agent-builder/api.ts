@@ -33,7 +33,8 @@ export const builderApi = {
   startSession: () => post<StartSessionResponse>('/admin/agent-builder/sessions', {}),
   turn: (
     conversationId: string,
-    payload: { query: string; fileIds?: number[]; attachments?: unknown },
+    // fileIds 用字符串传：19 位雪花 Long 用 number 会丢精度（见 numbers-as-strings 约定）。
+    payload: { query: string; fileIds?: (string | number)[]; attachments?: unknown },
   ) => post<TurnStartResponse>(`/admin/agent-builder/sessions/${conversationId}/turns`, payload),
   getDraft: (conversationId: string) =>
     get<BuilderDraft>(`/admin/agent-builder/sessions/${conversationId}/draft`),

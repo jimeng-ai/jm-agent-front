@@ -1,16 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
-import { App, Button, Input, Space, Tag, Typography } from 'antd';
+import { useEffect, useRef, useState, type ClipboardEvent } from 'react';
+import { App, Button, Input, Popconfirm, Space, Typography, Upload, type UploadProps } from 'antd';
 import {
   ArrowLeftOutlined,
   LoadingOutlined,
   PaperClipOutlined,
+  ReloadOutlined,
   SendOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { Upload } from 'antd';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { upload } from '@/api/client';
+import { uploadAgentFile } from '@/api/agentFiles';
 import {
   builderApi,
   consumeBuilderRun,
@@ -18,17 +18,16 @@ import {
   type BuilderToolCall,
 } from '@/features/agent-builder/api';
 import AgentPreviewCard from '@/features/agent-builder/components/AgentPreviewCard';
+import AttachmentThumb from '@/features/chat-admin/components/AttachmentThumb';
 import MessageBubble from '@/features/chat-admin/components/MessageBubble';
-import { newMessage, type ChatMessage, type MessageSegment } from '@/features/chat-admin/types';
+import {
+  newMessage,
+  type ChatAttachment,
+  type ChatMessage,
+  type MessageSegment,
+} from '@/features/chat-admin/types';
 
 const { Title } = Typography;
-
-interface PendingFile {
-  id: number;
-  name: string;
-  url: string;
-  contentType: string;
-}
 
 /** 落地页场景卡片：点击直接用对应描述起手生成。 */
 const SCENES = [
@@ -105,14 +104,24 @@ export default function AgentBuilderWizardPage() {
   const [selectedPluginIds, setSelectedPluginIds] = useState<number[]>([]);
   const [selectedKbIds, setSelectedKbIds] = useState<number[]>([]);
   const [input, setInput] = useState('');
-  const [files, setFiles] = useState<PendingFile[]>([]);
+  const [attached, setAttached] = useState<ChatAttachment[]>([]);
   const [generating, setGenerating] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
+
+  const isUploading = attached.some((a) => a.uploading);
   const abortRef = useRef<AbortController>();
   const composingRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef<string>();
 
-  const started = messages.length > 0;
+  // 已生成草稿（名称/人设/描述任一有内容）→ 视为已进入工作区，即使对话被清空也保留右侧预览
+  const hasDraft = !!(
+    draft.name?.trim() ||
+    draft.systemPrompt?.trim() ||
+    draft.description?.trim()
+  );
+  const started = messages.length > 0 || hasDraft;
 
   useEffect(() => {
     builderApi
@@ -128,6 +137,31 @@ export default function AgentBuilderWizardPage() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages]);
+
+  /**
+   * 重置对话：只清空对话内容（聊天记录/输入/附件），并开一个全新会话回到落地页。
+   * 注意：保留右侧已生成的 Agent 草稿（draft / 已选插件 / 已选知识库），不做重置。
+   */
+  const resetConversation = async () => {
+    abortRef.current?.abort();
+    activeIdRef.current = undefined;
+    setGenerating(false);
+    setMessages([]);
+    setInput('');
+    setAttached([]);
+    setConversationId(undefined);
+    setResetting(true);
+    try {
+      const r = await builderApi.startSession();
+      setConversationId(String(r.conversationId));
+      // 故意不调用 setDraft：新会话草稿为空，会覆盖掉用户已生成的草稿。
+      message.success('已清空对话');
+    } catch (e) {
+      message.error((e as Error)?.message ?? '重置失败');
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const applyDraft = (d: BuilderDraft) => {
     setDraft(d);
@@ -174,23 +208,23 @@ export default function AgentBuilderWizardPage() {
     });
 
   /** 发起一轮生成（hero「开始生成」、场景卡片、工作区输入框共用）。 */
-  const startTurn = async (query: string, fileIds: number[]) => {
+  const startTurn = async (query: string) => {
     if (!conversationId || !query.trim() || generating) return;
+
+    // 仅取已上传完成的附件（排除还在上传中的占位项）。
+    // fileId 是 19 位雪花 Long，后端以字符串下发；必须以字符串传回，Number() 会丢精度→「文件不存在」。
+    const ready = attached.filter((a) => !a.uploading);
+    const fileIds = ready.map((a) => String(a.fileId));
 
     const userMsg: ChatMessage = {
       ...newMessage('user', query),
-      attachments: files.map((f) => ({
-        fileId: f.id,
-        filename: f.name,
-        url: f.url,
-        contentType: f.contentType,
-      })),
+      attachments: ready,
     };
     const aiMsg = newMessage('assistant', '');
     activeIdRef.current = aiMsg.id;
     setMessages((m) => [...m, userMsg, aiMsg]);
     setInput('');
-    setFiles([]);
+    setAttached([]);
     setGenerating(true);
 
     let resp;
@@ -229,28 +263,63 @@ export default function AgentBuilderWizardPage() {
     );
   };
 
-  const send = () =>
-    void startTurn(
-      input.trim(),
-      files.map((f) => f.id),
-    );
+  const send = () => void startTurn(input.trim());
 
-  const uploadFile = async (file: File) => {
+  // 上传单个文件：临时占位缩略图（loading 态）→ 上传 → 替换真实 fileId / 失败移除。
+  // 回形针按钮（customRequest）与「粘贴图片」（onPaste）共用同一条链路，保证两条入口行为一致。
+  const uploadOne = async (file: File) => {
+    const localUrl = URL.createObjectURL(file);
+    const tempId = `uploading-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setAttached((prev) => [
+      ...prev,
+      {
+        fileId: tempId,
+        filename: file.name,
+        contentType: file.type,
+        url: localUrl,
+        uploading: true,
+      },
+    ]);
     try {
-      const r = await upload<{ fileId: number; filename: string }>('/agent/files', file);
-      setFiles((f) => [
-        ...f,
-        {
-          id: Number(r.fileId),
-          name: r.filename ?? file.name,
-          url: URL.createObjectURL(file),
-          contentType: file.type,
-        },
-      ]);
+      const res = await uploadAgentFile(file);
+      setAttached((prev) =>
+        prev.map((a) =>
+          a.fileId === tempId
+            ? {
+                fileId: res.fileId,
+                filename: res.filename,
+                contentType: res.contentType ?? file.type,
+                url: localUrl,
+              }
+            : a,
+        ),
+      );
     } catch (e) {
-      message.error((e as Error)?.message ?? '上传失败');
+      setAttached((prev) => prev.filter((a) => a.fileId !== tempId));
+      URL.revokeObjectURL(localUrl);
+      message.error(`文件上传失败：${(e as Error)?.message ?? '未知错误'}`);
     }
-    return false;
+  };
+
+  const uploadFile: UploadProps['customRequest'] = async (options) => {
+    try {
+      await uploadOne(options.file as File);
+      options.onSuccess?.({});
+    } catch (e) {
+      options.onError?.(e as Error);
+    }
+  };
+
+  // 粘贴图片：从剪贴板捞出图片项（截图 / 复制的图）直接走上传，纯文本粘贴照常进输入框。
+  const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (generating) return;
+    const images = Array.from(e.clipboardData?.items ?? [])
+      .filter((it) => it.kind === 'file' && it.type.startsWith('image/'))
+      .map((it) => it.getAsFile())
+      .filter((f): f is File => !!f);
+    if (images.length === 0) return; // 没有图片：让默认粘贴把文本填进输入框
+    e.preventDefault(); // 有图片：阻止把图片 blob 当乱码塞进文本框
+    images.forEach((f) => void uploadOne(f));
   };
 
   const createMut = useMutation({
@@ -269,14 +338,41 @@ export default function AgentBuilderWizardPage() {
   });
 
   const header = (
-    <Space style={{ marginBottom: 12 }}>
-      <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/console/agents')}>
-        返回
-      </Button>
-      <Title level={4} style={{ margin: 0 }}>
-        AI 对话生成 Agent
-      </Title>
-    </Space>
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 12,
+      }}
+    >
+      <Space>
+        <Button
+          type="text"
+          icon={<ArrowLeftOutlined />}
+          onClick={() => navigate('/console/agents')}
+        >
+          返回
+        </Button>
+        <Title level={4} style={{ margin: 0 }}>
+          AI 对话生成 Agent
+        </Title>
+      </Space>
+      {started && (
+        <Popconfirm
+          title="重置对话"
+          description="将清空当前对话内容并开始新会话；右侧已生成的 Agent 草稿会保留。"
+          okText="清空对话"
+          cancelText="取消"
+          okButtonProps={{ danger: true }}
+          onConfirm={resetConversation}
+        >
+          <Button icon={<ReloadOutlined />} loading={resetting}>
+            重置对话
+          </Button>
+        </Popconfirm>
+      )}
+    </div>
   );
 
   // ============ 落地页（未开始）============
@@ -292,13 +388,33 @@ export default function AgentBuilderWizardPage() {
           </p>
 
           <div className="builder-hero__inputwrap">
+            {attached.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 12,
+                  marginBottom: 10,
+                  padding: '0 2px',
+                }}
+              >
+                {attached.map((a, i) => (
+                  <AttachmentThumb
+                    key={`${a.fileId}-${i}`}
+                    item={a}
+                    onRemove={() => setAttached((prev) => prev.filter((_, j) => j !== i))}
+                  />
+                ))}
+              </div>
+            )}
             <Input.TextArea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               autoSize={{ minRows: 3, maxRows: 8 }}
               variant="borderless"
-              placeholder="例如：做一个电商售后客服 Agent，能处理退换货、物流查询和投诉工单…"
+              placeholder="例如：做一个电商售后客服 Agent，能处理退换货、物流查询和投诉工单…（可粘贴或上传图片/资料）"
               style={{ padding: 0, fontSize: 15 }}
+              onPaste={handlePaste}
               onCompositionStart={() => (composingRef.current = true)}
               onCompositionEnd={() => (composingRef.current = false)}
               onKeyDown={(e) => {
@@ -313,12 +429,22 @@ export default function AgentBuilderWizardPage() {
                 }
               }}
             />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginTop: 8,
+              }}
+            >
+              <Upload customRequest={uploadFile} showUploadList={false} multiple>
+                <Button type="text" icon={<PaperClipOutlined />} title="上传图片 / 资料" />
+              </Upload>
               <Button
                 type="primary"
                 size="large"
                 icon={generating ? <LoadingOutlined /> : <ThunderboltOutlined />}
-                disabled={!input.trim() || !conversationId}
+                disabled={!input.trim() || !conversationId || isUploading}
                 loading={generating}
                 onClick={send}
               >
@@ -333,7 +459,7 @@ export default function AgentBuilderWizardPage() {
               <div
                 key={s.title}
                 className="builder-scene-card"
-                onClick={() => !generating && conversationId && void startTurn(s.seed, [])}
+                onClick={() => !generating && conversationId && void startTurn(s.seed)}
               >
                 <div className="builder-scene-card__emoji">{s.emoji}</div>
                 <div className="builder-scene-card__title">{s.title}</div>
@@ -372,30 +498,38 @@ export default function AgentBuilderWizardPage() {
             </div>
           </div>
 
-          <div style={{ borderTop: '1px solid #f0f0f0', padding: 12, background: '#fafafa' }}>
-            {!!files.length && (
-              <Space wrap style={{ marginBottom: 8 }}>
-                {files.map((f) => (
-                  <Tag
-                    key={f.id}
-                    closable
-                    onClose={() => setFiles((list) => list.filter((x) => x.id !== f.id))}
-                  >
-                    📎 {f.name}
-                  </Tag>
-                ))}
-              </Space>
-            )}
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-              <Upload beforeUpload={uploadFile} showUploadList={false} multiple>
-                <Button icon={<PaperClipOutlined />} />
-              </Upload>
+          <div style={{ padding: '12px 16px 16px' }}>
+            <div
+              style={{
+                background: '#fff',
+                border: `1px solid ${inputFocused ? '#4096ff' : '#d9d9d9'}`,
+                borderRadius: 16,
+                padding: '12px 16px 8px',
+                transition: 'border-color 0.2s, box-shadow 0.2s',
+                boxShadow: inputFocused ? '0 0 0 3px rgba(64,150,255,0.12)' : 'none',
+              }}
+            >
+              {attached.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 10 }}>
+                  {attached.map((a, i) => (
+                    <AttachmentThumb
+                      key={`${a.fileId}-${i}`}
+                      item={a}
+                      onRemove={() => setAttached((prev) => prev.filter((_, j) => j !== i))}
+                    />
+                  ))}
+                </div>
+              )}
               <Input.TextArea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                autoSize={{ minRows: 1, maxRows: 5 }}
-                placeholder="输入消息，Enter 发送，Shift+Enter 换行"
-                style={{ borderRadius: 8 }}
+                autoSize={{ minRows: 1, maxRows: 6 }}
+                variant="borderless"
+                placeholder="和 Agent 构建器 说点什么…（可粘贴或上传图片/资料）"
+                style={{ padding: 0, fontSize: 14, resize: 'none' }}
+                onPaste={handlePaste}
+                onFocus={() => setInputFocused(true)}
+                onBlur={() => setInputFocused(false)}
                 onCompositionStart={() => (composingRef.current = true)}
                 onCompositionEnd={() => (composingRef.current = false)}
                 onKeyDown={(e) => {
@@ -410,15 +544,35 @@ export default function AgentBuilderWizardPage() {
                   }
                 }}
               />
-              <Button
-                type="primary"
-                icon={<SendOutlined />}
-                loading={generating}
-                disabled={!input.trim()}
-                onClick={send}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginTop: 6,
+                }}
               >
-                发送
-              </Button>
+                <Upload customRequest={uploadFile} showUploadList={false} multiple>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<PaperClipOutlined />}
+                    title="上传图片 / 资料"
+                  />
+                </Upload>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12, color: '#bfbfbf' }}>Enter 发送</span>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<SendOutlined />}
+                    loading={generating}
+                    disabled={!input.trim() || isUploading}
+                    onClick={send}
+                    style={{ color: input.trim() && !isUploading ? '#4096ff' : undefined }}
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>
