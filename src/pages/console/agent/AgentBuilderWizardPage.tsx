@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { App, Button, Input, Space, Tag, Typography, Upload } from 'antd';
+import { App, Button, Input, Space, Tag, Typography } from 'antd';
 import {
   ArrowLeftOutlined,
+  LoadingOutlined,
   PaperClipOutlined,
-  RobotOutlined,
   SendOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
+import { Upload } from 'antd';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { upload } from '@/api/client';
@@ -19,7 +21,7 @@ import AgentPreviewCard from '@/features/agent-builder/components/AgentPreviewCa
 import MessageBubble from '@/features/chat-admin/components/MessageBubble';
 import { newMessage, type ChatMessage, type MessageSegment } from '@/features/chat-admin/types';
 
-const { Text, Title } = Typography;
+const { Title } = Typography;
 
 interface PendingFile {
   id: number;
@@ -28,7 +30,43 @@ interface PendingFile {
   contentType: string;
 }
 
-/** 把工具调用映射成对话页的 MessageSegment（draft_agent 展示成"更新草稿"步骤）。 */
+/** 落地页场景卡片：点击直接用对应描述起手生成。 */
+const SCENES = [
+  {
+    emoji: '💬',
+    title: '客服 / 售后',
+    desc: '退换货、物流查询、投诉工单',
+    seed: '做一个电商售后客服 Agent，能处理退换货、物流查询和投诉工单，语气友好专业',
+  },
+  {
+    emoji: '📊',
+    title: '数据分析',
+    desc: '查库、跑数、生成图表与结论',
+    seed: '做一个数据分析助手，能查库、跑数、生成图表并给出结论',
+  },
+  {
+    emoji: '📚',
+    title: '知识库问答',
+    desc: '基于企业文档精准问答',
+    seed: '基于公司制度文档做一个知识库问答助手，回答要有依据、能引用来源',
+  },
+  {
+    emoji: '⌨️',
+    title: '代码助手',
+    desc: 'Review、补全、解释与重构',
+    seed: '做一个代码助手，能做 code review、补全、解释与重构',
+  },
+];
+
+function SparkleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="34" height="34" fill="currentColor" aria-hidden>
+      <path d="M12 3l1.7 5.6L19 10l-5.3 1.4L12 17l-1.7-5.6L5 10l5.3-1.4z" />
+      <path d="M18.5 3.5l.8 2.4 2.4.8-2.4.8-.8 2.4-.8-2.4-2.4-.8 2.4-.8z" opacity="0.85" />
+    </svg>
+  );
+}
+
 function toolDesc(name: string): string {
   return name === 'draft_agent' ? '更新 Agent 草稿配置' : name;
 }
@@ -47,9 +85,11 @@ export default function AgentBuilderWizardPage() {
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [generating, setGenerating] = useState(false);
   const abortRef = useRef<AbortController>();
-  const composingRef = useRef(false); // 输入法组词中：回车不发送
+  const composingRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const activeIdRef = useRef<string>(); // 当前流式中的 assistant 消息 id
+  const activeIdRef = useRef<string>();
+
+  const started = messages.length > 0;
 
   useEffect(() => {
     builderApi
@@ -62,7 +102,6 @@ export default function AgentBuilderWizardPage() {
     return () => abortRef.current?.abort();
   }, [message]);
 
-  // 新内容到达时滚到底
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages]);
@@ -73,7 +112,6 @@ export default function AgentBuilderWizardPage() {
     if (d.recommendedKbIds) setSelectedKbIds(d.recommendedKbIds.map(Number));
   };
 
-  /** 不可变地更新当前流式 assistant 消息 */
   const patchActive = (fn: (m: ChatMessage) => ChatMessage) => {
     setMessages((list) => list.map((m) => (m.id === activeIdRef.current ? fn(m) : m)));
   };
@@ -99,8 +137,7 @@ export default function AgentBuilderWizardPage() {
           desc: toolDesc(c.name),
           input: c.input,
           status: finalize ? (c.status ?? 'success') : (c.status ?? 'running'),
-          // output 仅接受字符串（对话页同口径）；draft_agent 结果是对象，传字符串化或忽略，
-          // 否则 stepKind 的 output.trim() 会因非字符串崩溃（e.trim is not a function）。
+          // output 仅接受字符串（draft_agent 结果是对象，会让 stepKind 的 .trim 崩溃）。
           output: typeof c.output === 'string' ? c.output : undefined,
         };
         if (idx >= 0 && segs[idx].type === 'tool')
@@ -113,10 +150,9 @@ export default function AgentBuilderWizardPage() {
       return { ...m, segments: segs };
     });
 
-  const send = async () => {
-    if (!conversationId || !input.trim() || generating) return;
-    const query = input.trim();
-    const fileIds = files.map((f) => f.id);
+  /** 发起一轮生成（hero「开始生成」、场景卡片、工作区输入框共用）。 */
+  const startTurn = async (query: string, fileIds: number[]) => {
+    if (!conversationId || !query.trim() || generating) return;
 
     const userMsg: ChatMessage = {
       ...newMessage('user', query),
@@ -170,9 +206,14 @@ export default function AgentBuilderWizardPage() {
     );
   };
 
+  const send = () =>
+    void startTurn(
+      input.trim(),
+      files.map((f) => f.id),
+    );
+
   const uploadFile = async (file: File) => {
     try {
-      // 后端 AgentFileView 的主键字段名是 fileId（不是 id）。
       const r = await upload<{ fileId: number; filename: string }>('/agent/files', file);
       setFiles((f) => [
         ...f,
@@ -186,7 +227,7 @@ export default function AgentBuilderWizardPage() {
     } catch (e) {
       message.error((e as Error)?.message ?? '上传失败');
     }
-    return false; // 阻止 antd 默认上传
+    return false;
   };
 
   const createMut = useMutation({
@@ -204,21 +245,90 @@ export default function AgentBuilderWizardPage() {
     onError: (e) => message.error((e as Error)?.message ?? '创建失败'),
   });
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 12 }}>
-      <Space>
-        <Button
-          type="text"
-          icon={<ArrowLeftOutlined />}
-          onClick={() => navigate('/console/agents')}
-        >
-          返回
-        </Button>
-        <Title level={4} style={{ margin: 0 }}>
-          AI 对话生成 Agent
-        </Title>
-      </Space>
+  const header = (
+    <Space style={{ marginBottom: 12 }}>
+      <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/console/agents')}>
+        返回
+      </Button>
+      <Title level={4} style={{ margin: 0 }}>
+        AI 对话生成 Agent
+      </Title>
+    </Space>
+  );
 
+  // ============ 落地页（未开始）============
+  if (!started) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        {header}
+        <div className="builder-hero">
+          <div className="builder-hero__icon">
+            <SparkleIcon />
+          </div>
+          <h1 className="builder-hero__title">用一句话，生成一个 Agent</h1>
+          <p className="builder-hero__sub">
+            描述你要解决的问题，AI 会帮你配好 Prompt、知识库、工具与模型，边问边生成。
+          </p>
+
+          <div className="builder-hero__inputwrap">
+            <Input.TextArea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              autoSize={{ minRows: 3, maxRows: 8 }}
+              variant="borderless"
+              placeholder="例如：做一个电商售后客服 Agent，能处理退换货、物流查询和投诉工单…"
+              style={{ padding: 0, fontSize: 15 }}
+              onCompositionStart={() => (composingRef.current = true)}
+              onCompositionEnd={() => (composingRef.current = false)}
+              onKeyDown={(e) => {
+                if (
+                  e.key === 'Enter' &&
+                  !e.shiftKey &&
+                  !composingRef.current &&
+                  !e.nativeEvent.isComposing
+                ) {
+                  e.preventDefault();
+                  send();
+                }
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+              <Button
+                type="primary"
+                size="large"
+                icon={generating ? <LoadingOutlined /> : <ThunderboltOutlined />}
+                disabled={!input.trim() || !conversationId}
+                loading={generating}
+                onClick={send}
+              >
+                开始生成
+              </Button>
+            </div>
+          </div>
+
+          <div className="builder-hero__divider">或从场景起手</div>
+          <div className="builder-scene-grid">
+            {SCENES.map((s) => (
+              <div
+                key={s.title}
+                className="builder-scene-card"
+                onClick={() => !generating && conversationId && void startTurn(s.seed, [])}
+              >
+                <div className="builder-scene-card__emoji">{s.emoji}</div>
+                <div className="builder-scene-card__title">{s.title}</div>
+                <div className="builder-scene-card__desc">{s.desc}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ============ 工作区（已开始）============
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {header}
       <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0 }}>
         {/* 左：聊天 */}
         <div
@@ -234,40 +344,11 @@ export default function AgentBuilderWizardPage() {
           }}
         >
           <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
-            {messages.length === 0 ? (
-              <div
-                style={{
-                  height: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 12,
-                  color: '#8c8c8c',
-                }}
-              >
-                <span className="builder-empty-icon">
-                  <RobotOutlined />
-                </span>
-                <Text type="secondary" style={{ fontSize: 15, marginTop: 4 }}>
-                  描述你想要的 Agent，我来帮你设计
-                </Text>
-                <Space direction="vertical" align="center" size={4}>
-                  <Text type="secondary" style={{ fontSize: 13 }}>
-                    例如：「做一个处理售后退货的客服助手，语气友好专业」
-                  </Text>
-                  <Text type="secondary" style={{ fontSize: 13 }}>
-                    或：「基于公司制度文档做一个知识库问答助手」
-                  </Text>
-                </Space>
-              </div>
-            ) : (
-              <div style={{ maxWidth: 760, margin: '0 auto' }}>
-                {messages.map((m) => (
-                  <MessageBubble key={m.id} message={m} agentName="Agent 构建器" />
-                ))}
-              </div>
-            )}
+            <div style={{ maxWidth: 760, margin: '0 auto' }}>
+              {messages.map((m) => (
+                <MessageBubble key={m.id} message={m} agentName="Agent 构建器" />
+              ))}
+            </div>
           </div>
 
           <div style={{ borderTop: '1px solid #f0f0f0', padding: 12, background: '#fafafa' }}>
@@ -294,14 +375,9 @@ export default function AgentBuilderWizardPage() {
                 autoSize={{ minRows: 1, maxRows: 5 }}
                 placeholder="输入消息，Enter 发送，Shift+Enter 换行"
                 style={{ borderRadius: 8 }}
-                onCompositionStart={() => {
-                  composingRef.current = true;
-                }}
-                onCompositionEnd={() => {
-                  composingRef.current = false;
-                }}
+                onCompositionStart={() => (composingRef.current = true)}
+                onCompositionEnd={() => (composingRef.current = false)}
                 onKeyDown={(e) => {
-                  // 输入法组词中的回车（中文选词）不发送；Shift+Enter 换行。
                   if (
                     e.key === 'Enter' &&
                     !e.shiftKey &&
@@ -309,7 +385,7 @@ export default function AgentBuilderWizardPage() {
                     !e.nativeEvent.isComposing
                   ) {
                     e.preventDefault();
-                    void send();
+                    send();
                   }
                 }}
               />
@@ -318,7 +394,7 @@ export default function AgentBuilderWizardPage() {
                 icon={<SendOutlined />}
                 loading={generating}
                 disabled={!input.trim()}
-                onClick={() => void send()}
+                onClick={send}
               >
                 发送
               </Button>

@@ -2046,3 +2046,92 @@ img.chat-agent-glyph {
   background: radial-gradient(circle, rgba(22, 119, 255, 0.12) 0%, rgba(22, 119, 255, 0) 68%);
   animation: builder-glow 4s ease-in-out infinite;
 }
+
+/* AI 生成 Agent 向导：落地 hero */
+.builder-hero {
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 56px 24px 48px;
+}
+.builder-hero__icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #3d7bff 0%, #1e5cff 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  box-shadow: 0 12px 28px rgba(30, 92, 255, 0.28);
+  animation: builder-float 4.5s ease-in-out infinite;
+}
+.builder-hero__title {
+  margin: 24px 0 0;
+  font-size: 30px;
+  font-weight: 700;
+  color: #1d2129;
+  letter-spacing: 0.5px;
+}
+.builder-hero__sub {
+  margin: 14px 0 0;
+  max-width: 560px;
+  text-align: center;
+  color: #86909c;
+  font-size: 15px;
+  line-height: 1.7;
+}
+.builder-hero__inputwrap {
+  width: 100%;
+  max-width: 720px;
+  margin-top: 36px;
+  border: 1px solid #e5e6eb;
+  border-radius: 14px;
+  padding: 16px 16px 12px;
+  background: #fff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.builder-hero__inputwrap:focus-within {
+  border-color: #4080ff;
+  box-shadow: 0 0 0 3px rgba(64, 128, 255, 0.12);
+}
+.builder-hero__divider {
+  margin: 40px 0 18px;
+  color: #c9cdd4;
+  font-size: 13px;
+}
+.builder-scene-grid {
+  width: 100%;
+  max-width: 720px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.builder-scene-card {
+  border: 1px solid #eef0f3;
+  border-radius: 14px;
+  padding: 18px 20px;
+  cursor: pointer;
+  background: #fff;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+.builder-scene-card:hover {
+  border-color: #bcd0ff;
+  box-shadow: 0 8px 20px rgba(30, 92, 255, 0.1);
+  transform: translateY(-2px);
+}
+.builder-scene-card__emoji {
+  font-size: 22px;
+}
+.builder-scene-card__title {
+  margin: 12px 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1d2129;
+}
+.builder-scene-card__desc {
+  font-size: 13px;
+  color: #86909c;
+}
