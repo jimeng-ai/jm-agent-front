@@ -43,12 +43,11 @@ export const WORKBENCH_NAV: NavItem[] = [
     Icon: PlugIcon,
     module: 'PLUGIN_MODULE',
   },
-  {
-    key: 'feedback',
-    label: '产品反馈',
-    path: '/console/feedback',
-    Icon: MessageIcon,
-  },
+];
+
+// 顶部栏入口（不在左侧侧边栏渲染）：产品反馈放在上方导航栏。
+export const TOPBAR_NAV: NavItem[] = [
+  { key: 'feedback', label: '产品反馈', path: '/console/feedback', Icon: MessageIcon },
 ];
 
 export const DEBUG_NAV: NavItem[] = [
@@ -63,7 +62,9 @@ export const DEBUG_NAV: NavItem[] = [
 ];
 
 export function workbenchCrumbs(pathname: string): string[] {
-  const match = [...WORKBENCH_NAV, ...DEBUG_NAV].find((n) => pathname.startsWith(n.path));
+  const match = [...WORKBENCH_NAV, ...TOPBAR_NAV, ...DEBUG_NAV].find((n) =>
+    pathname.startsWith(n.path),
+  );
   if (!match) return ['控制台'];
   return ['Atlas', match.label];
 }

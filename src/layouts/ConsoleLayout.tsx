@@ -1,9 +1,9 @@
 import { Suspense, useEffect, useState } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Spin, Tooltip } from 'antd';
 import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
 import WorkbenchSidebar from '@/components/atlas/WorkbenchSidebar';
-import { workbenchCrumbs } from '@/components/atlas/workbenchNav';
+import { workbenchCrumbs, TOPBAR_NAV } from '@/components/atlas/workbenchNav';
 import { SearchIcon, BellIcon } from '@/components/icons/AtlasIcons';
 import CommandPalette from '@/features/search/components/CommandPalette';
 
@@ -11,6 +11,7 @@ const COLLAPSE_KEY = 'atlas-sidebar-collapsed';
 
 export default function ConsoleLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
   const crumbs = workbenchCrumbs(location.pathname);
   // 侧边栏显隐：偏好持久化到 localStorage，刷新后保持。
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === '1');
@@ -65,6 +66,32 @@ export default function ConsoleLayout() {
             ))}
           </div>
           <div className="spacer" />
+          {TOPBAR_NAV.map((item) => {
+            const { Icon } = item;
+            const active = location.pathname.startsWith(item.path);
+            return (
+              <button
+                key={item.key}
+                type="button"
+                className="atlas-icon-btn"
+                onClick={() => navigate(item.path)}
+                style={{
+                  width: 'auto',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '0 12px',
+                  marginRight: 4,
+                  fontSize: 13,
+                  fontWeight: active ? 600 : 500,
+                  color: active ? 'var(--accent)' : undefined,
+                }}
+              >
+                <Icon size={16} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
           <button type="button" className="atlas-search" onClick={() => setSearchOpen(true)}>
             <SearchIcon size={14} />
             <span>搜索 Agent、文档、Trace…</span>
