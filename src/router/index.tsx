@@ -10,6 +10,7 @@ const LoginPage = lazy(() => import('@/pages/login/LoginPage'));
 const DashboardPage = lazy(() => import('@/pages/console/DashboardPage'));
 const AgentListPage = lazy(() => import('@/pages/console/agent/AgentListPage'));
 const AgentEditorPage = lazy(() => import('@/pages/console/agent/AgentEditorPage'));
+const AgentBuilderWizardPage = lazy(() => import('@/pages/console/agent/AgentBuilderWizardPage'));
 const PluginListPage = lazy(() => import('@/pages/console/plugin/PluginListPage'));
 const PluginEditorPage = lazy(() => import('@/pages/console/plugin/PluginEditorPage'));
 const KnowledgeListPage = lazy(() => import('@/pages/console/knowledge/KnowledgeListPage'));
@@ -51,6 +52,14 @@ export default function AppRouter() {
             element={
               <ModuleRoute module="AGENT_MODULE">
                 <AgentListPage />
+              </ModuleRoute>
+            }
+          />
+          <Route
+            path="agents/new"
+            element={
+              <ModuleRoute module="AGENT_MODULE">
+                <AgentBuilderWizardPage />
               </ModuleRoute>
             }
           />

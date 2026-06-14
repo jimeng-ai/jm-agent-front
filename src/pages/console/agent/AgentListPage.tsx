@@ -1,11 +1,24 @@
 import { useState } from 'react';
-import { App, Button, Form, Input, Modal, Popconfirm, Space, Table, Tag, Typography } from 'antd';
+import {
+  App,
+  Button,
+  Dropdown,
+  Form,
+  Input,
+  Modal,
+  Popconfirm,
+  Space,
+  Table,
+  Tag,
+  Typography,
+} from 'antd';
 import {
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
   ExperimentOutlined,
   PlusOutlined,
+  RobotOutlined,
   SendOutlined,
   ShareAltOutlined,
 } from '@ant-design/icons';
@@ -77,9 +90,28 @@ export default function AgentListPage() {
         <Typography.Title level={3} style={{ margin: 0 }}>
           Agent
         </Typography.Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
-          新建 Agent
-        </Button>
+        <Dropdown
+          menu={{
+            items: [
+              {
+                key: 'ai',
+                icon: <RobotOutlined />,
+                label: 'AI 对话生成',
+                onClick: () => navigate('/console/agents/new'),
+              },
+              {
+                key: 'blank',
+                icon: <PlusOutlined />,
+                label: '空白手动创建',
+                onClick: () => setOpen(true),
+              },
+            ],
+          }}
+        >
+          <Button type="primary" icon={<PlusOutlined />}>
+            新建 Agent
+          </Button>
+        </Dropdown>
       </div>
 
       <Table<Agent>
