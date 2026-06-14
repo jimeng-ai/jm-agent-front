@@ -6,6 +6,7 @@ import {
   PlayIcon,
   SparklesIcon,
   ListIcon,
+  MessageIcon,
 } from '@/components/icons/AtlasIcons';
 
 export type NavItem = {
@@ -41,6 +42,12 @@ export const WORKBENCH_NAV: NavItem[] = [
     path: '/console/plugins',
     Icon: PlugIcon,
     module: 'PLUGIN_MODULE',
+  },
+  {
+    key: 'feedback',
+    label: '产品反馈',
+    path: '/console/feedback',
+    Icon: MessageIcon,
   },
 ];
 

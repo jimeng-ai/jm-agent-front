@@ -16,6 +16,7 @@ const KnowledgeListPage = lazy(() => import('@/pages/console/knowledge/Knowledge
 const KnowledgeDetailPage = lazy(() => import('@/pages/console/knowledge/KnowledgeDetailPage'));
 const PlaygroundPage = lazy(() => import('@/pages/console/playground/PlaygroundPage'));
 const TraceListPage = lazy(() => import('@/pages/console/trace/TraceListPage'));
+const FeedbackPage = lazy(() => import('@/pages/console/feedback/FeedbackPage'));
 const ChatHomePage = lazy(() => import('@/pages/chat/ChatHomePage'));
 const ChatConversationPage = lazy(() => import('@/pages/chat/ConversationPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
@@ -103,6 +104,8 @@ export default function AppRouter() {
           />
           {/* 调用日志：v1 不加新 module 权限，登录态即可访问 */}
           <Route path="traces" element={<TraceListPage />} />
+          {/* 产品反馈：登录态即可访问，不受模块限制 */}
+          <Route path="feedback" element={<FeedbackPage />} />
         </Route>
 
         <Route
