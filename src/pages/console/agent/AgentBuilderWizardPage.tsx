@@ -246,8 +246,10 @@ export default function AgentBuilderWizardPage() {
                   color: '#8c8c8c',
                 }}
               >
-                <RobotOutlined style={{ fontSize: 40, color: '#bfbfbf' }} />
-                <Text type="secondary" style={{ fontSize: 15 }}>
+                <span className="builder-empty-icon">
+                  <RobotOutlined />
+                </span>
+                <Text type="secondary" style={{ fontSize: 15, marginTop: 4 }}>
                   描述你想要的 Agent，我来帮你设计
                 </Text>
                 <Space direction="vertical" align="center" size={4}>
@@ -255,7 +257,7 @@ export default function AgentBuilderWizardPage() {
                     例如：「做一个处理售后退货的客服助手，语气友好专业」
                   </Text>
                   <Text type="secondary" style={{ fontSize: 13 }}>
-                    或：「帮我写一个能查天气、给穿衣建议的生活助手」
+                    或：「基于公司制度文档做一个知识库问答助手」
                   </Text>
                 </Space>
               </div>

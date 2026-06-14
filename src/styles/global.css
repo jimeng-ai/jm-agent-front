@@ -2000,3 +2000,35 @@ img.chat-agent-glyph {
   margin-left: auto;
   color: var(--text-3);
 }
+
+/* AI 生成 Agent 向导：空状态动效 icon（漂浮 + 脉冲光环，模拟动图） */
+@keyframes builder-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+@keyframes builder-pulse {
+  0% { transform: scale(0.85); opacity: 0.55; }
+  70% { transform: scale(1.5); opacity: 0; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+.builder-empty-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #e6f0ff 0%, #f0f5ff 100%);
+  color: #1677ff;
+  font-size: 34px;
+  animation: builder-float 2.6s ease-in-out infinite;
+}
+.builder-empty-icon::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid #1677ff;
+  animation: builder-pulse 2.2s ease-out infinite;
+}
