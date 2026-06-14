@@ -101,8 +101,9 @@ export default function AgentBuilderWizardPage() {
 
   const uploadFile = async (file: File) => {
     try {
-      const r = await upload<{ id: number; filename: string }>('/agent/files', file);
-      setFiles((f) => [...f, { id: Number(r.id), name: r.filename ?? file.name }]);
+      // 后端 AgentFileView 的主键字段名是 fileId（不是 id）。
+      const r = await upload<{ fileId: number; filename: string }>('/agent/files', file);
+      setFiles((f) => [...f, { id: Number(r.fileId), name: r.filename ?? file.name }]);
     } catch (e) {
       message.error((e as Error)?.message ?? '上传失败');
     }
