@@ -4,7 +4,7 @@ import { Spin, Tooltip } from 'antd';
 import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
 import WorkbenchSidebar from '@/components/atlas/WorkbenchSidebar';
 import { workbenchCrumbs, TOPBAR_NAV } from '@/components/atlas/workbenchNav';
-import { SearchIcon, BellIcon } from '@/components/icons/AtlasIcons';
+import { SearchIcon } from '@/components/icons/AtlasIcons';
 import CommandPalette from '@/features/search/components/CommandPalette';
 
 const COLLAPSE_KEY = 'atlas-sidebar-collapsed';
@@ -98,10 +98,6 @@ export default function ConsoleLayout() {
               </button>
             );
           })}
-          <button type="button" className="atlas-icon-btn" title="通知">
-            <BellIcon size={16} />
-            <span className="dot" />
-          </button>
         </header>
 
         <main className="atlas-content">
