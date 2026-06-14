@@ -2001,34 +2001,48 @@ img.chat-agent-glyph {
   color: var(--text-3);
 }
 
-/* AI 生成 Agent 向导：空状态动效 icon（漂浮 + 脉冲光环，模拟动图） */
+/* AI 生成 Agent 向导：空状态动效 icon（低饱和、缓慢漂浮 + 柔和氛围辉光，克制高级） */
 @keyframes builder-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
 }
-@keyframes builder-pulse {
-  0% { transform: scale(0.85); opacity: 0.55; }
-  70% { transform: scale(1.5); opacity: 0; }
-  100% { transform: scale(1.5); opacity: 0; }
+@keyframes builder-glow {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.06);
+  }
 }
 .builder-empty-icon {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #e6f0ff 0%, #f0f5ff 100%);
-  color: #1677ff;
-  font-size: 34px;
-  animation: builder-float 2.6s ease-in-out infinite;
+  width: 64px;
+  height: 64px;
+  color: #aab2c0;
+  font-size: 38px;
+  animation: builder-float 4s ease-in-out infinite;
 }
-.builder-empty-icon::after {
+.builder-empty-icon > .anticon {
+  position: relative;
+  z-index: 1;
+}
+/* 背后一层柔和径向辉光：呼吸式淡入淡出，无硬边 */
+.builder-empty-icon::before {
   content: '';
   position: absolute;
-  inset: 0;
+  inset: -16px;
   border-radius: 50%;
-  border: 2px solid #1677ff;
-  animation: builder-pulse 2.2s ease-out infinite;
+  background: radial-gradient(circle, rgba(22, 119, 255, 0.12) 0%, rgba(22, 119, 255, 0) 68%);
+  animation: builder-glow 4s ease-in-out infinite;
 }
