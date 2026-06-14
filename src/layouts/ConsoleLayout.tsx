@@ -66,6 +66,11 @@ export default function ConsoleLayout() {
             ))}
           </div>
           <div className="spacer" />
+          <button type="button" className="atlas-search" onClick={() => setSearchOpen(true)}>
+            <SearchIcon size={14} />
+            <span>搜索 Agent、文档、Trace…</span>
+            <span className="kbd">⌘K</span>
+          </button>
           {TOPBAR_NAV.map((item) => {
             const { Icon } = item;
             const active = location.pathname.startsWith(item.path);
@@ -75,28 +80,24 @@ export default function ConsoleLayout() {
                 type="button"
                 className="atlas-icon-btn"
                 onClick={() => navigate(item.path)}
+                title={item.label}
                 style={{
                   width: 'auto',
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 6,
                   padding: '0 12px',
-                  marginRight: 4,
+                  marginLeft: 4,
                   fontSize: 13,
                   fontWeight: active ? 600 : 500,
                   color: active ? 'var(--accent)' : undefined,
                 }}
               >
                 <Icon size={16} />
-                <span>{item.label}</span>
+                <span>反馈</span>
               </button>
             );
           })}
-          <button type="button" className="atlas-search" onClick={() => setSearchOpen(true)}>
-            <SearchIcon size={14} />
-            <span>搜索 Agent、文档、Trace…</span>
-            <span className="kbd">⌘K</span>
-          </button>
           <button type="button" className="atlas-icon-btn" title="通知">
             <BellIcon size={16} />
             <span className="dot" />
