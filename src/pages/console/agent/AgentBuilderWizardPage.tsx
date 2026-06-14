@@ -99,7 +99,9 @@ export default function AgentBuilderWizardPage() {
           desc: toolDesc(c.name),
           input: c.input,
           status: finalize ? (c.status ?? 'success') : (c.status ?? 'running'),
-          output: c.output,
+          // output 仅接受字符串（对话页同口径）；draft_agent 结果是对象，传字符串化或忽略，
+          // 否则 stepKind 的 output.trim() 会因非字符串崩溃（e.trim is not a function）。
+          output: typeof c.output === 'string' ? c.output : undefined,
         };
         if (idx >= 0 && segs[idx].type === 'tool')
           segs[idx] = {
