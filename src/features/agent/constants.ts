@@ -4,6 +4,7 @@
  * `maxTemp` 标注各厂商 temperature 上限：Anthropic(Claude)=1，OpenAI(GPT)=2。
  */
 export const FALLBACK_MODELS = [
+  { label: 'Claude Opus 4.8', value: 'claude-opus-4-8', provider: 'anthropic', maxTemp: 1 },
   { label: 'Claude Opus 4.7', value: 'claude-opus-4-7', provider: 'anthropic', maxTemp: 1 },
   { label: 'Claude Sonnet 4.6', value: 'claude-sonnet-4-6', provider: 'anthropic', maxTemp: 1 },
   {
