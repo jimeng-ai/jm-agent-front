@@ -225,14 +225,20 @@ export function useSSE() {
       const citations = citationsRef.current;
       const artifacts = [...artifactsRef.current];
       const elapsedMs = Math.round(performance.now() - startedAtRef.current);
-      setState({
-        status: 'done',
-        text: finalText,
-        citations,
-        segments: finalSegments,
-        artifacts,
-        files: [],
-        elapsedMs,
+      // 若收尾前已收到 error 事件（如「模型已下线」这类早失败：先发 error 帧、再发终止帧），
+      // 保留 error 状态与原因，别被无条件的 'done' 覆盖——否则错误只闪一下就变空气泡。
+      setState((s) => {
+        const failed = s.status === 'error';
+        return {
+          status: failed ? 'error' : 'done',
+          text: finalText,
+          citations,
+          segments: finalSegments,
+          artifacts,
+          files: [],
+          elapsedMs,
+          ...(failed ? { error: s.error } : {}),
+        };
       });
       onDoneFinalText?.({
         text: finalText,
