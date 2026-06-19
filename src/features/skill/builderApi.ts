@@ -32,8 +32,11 @@ const BASE = '/tenant/skills/builder';
 export const skillBuilderApi = {
   startSession: () => post<StartSkillSessionResponse>(`${BASE}/sessions`, {}),
 
-  startTurn: (conversationId: string, text: string) =>
-    post<SkillTurnStartResponse>(`${BASE}/sessions/${conversationId}/turns`, { text }),
+  startTurn: (
+    conversationId: string,
+    // fileIds 用字符串传：19 位雪花 Long 用 number 会丢精度（见 numbers-as-strings 约定）。
+    payload: { query: string; fileIds?: (string | number)[]; attachments?: unknown },
+  ) => post<SkillTurnStartResponse>(`${BASE}/sessions/${conversationId}/turns`, payload),
 
   getDraft: (conversationId: string) => get<SkillDraft>(`${BASE}/sessions/${conversationId}/draft`),
 

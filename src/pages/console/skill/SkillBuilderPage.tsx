@@ -4,6 +4,7 @@ import type { UploadProps } from 'antd';
 import {
   ArrowLeftOutlined,
   LoadingOutlined,
+  PaperClipOutlined,
   ReloadOutlined,
   SendOutlined,
   UploadOutlined,
@@ -16,8 +17,16 @@ import {
   consumeSkillBuilderRun,
   type SkillDraft,
 } from '@/features/skill/builderApi';
+import AttachmentThumb from '@/features/chat-admin/components/AttachmentThumb';
 import MessageBubble from '@/features/chat-admin/components/MessageBubble';
-import { newMessage, type ChatMessage, type MessageSegment } from '@/features/chat-admin/types';
+import MessageComposer from '@/features/chat-admin/components/MessageComposer';
+import { useAttachments } from '@/features/chat-admin/hooks/useAttachments';
+import {
+  newMessage,
+  type ChatAttachment,
+  type ChatMessage,
+  type MessageSegment,
+} from '@/features/chat-admin/types';
 
 const { Title, Text } = Typography;
 
@@ -129,9 +138,9 @@ export default function SkillBuilderPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState<SkillDraft>({});
   const [input, setInput] = useState('');
+  const att = useAttachments();
   const [generating, setGenerating] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [inputFocused, setInputFocused] = useState(false);
 
   const abortRef = useRef<AbortController>();
   const composingRef = useRef(false);
@@ -162,6 +171,7 @@ export default function SkillBuilderPage() {
     setGenerating(false);
     setMessages([]);
     setInput('');
+    att.reset();
     setConversationId(undefined);
     setResetting(true);
     try {
@@ -189,19 +199,30 @@ export default function SkillBuilderPage() {
       return { ...m, content: m.content + t, segments: segs };
     });
 
-  const startTurn = async (query: string) => {
+  const startTurn = async (query: string, attachments: ChatAttachment[] = []) => {
     if (!conversationId || !query.trim() || generating) return;
 
-    const userMsg = newMessage('user', query);
+    // fileId 是 19 位雪花 Long，后端以字符串下发；必须以字符串传回，Number() 会丢精度→「文件不存在」。
+    const fileIds = attachments.map((a) => String(a.fileId));
+
+    const userMsg: ChatMessage = {
+      ...newMessage('user', query),
+      attachments: attachments.length ? attachments : undefined,
+    };
     const aiMsg = newMessage('assistant', '');
     activeIdRef.current = aiMsg.id;
     setMessages((m) => [...m, userMsg, aiMsg]);
     setInput('');
+    att.reset();
     setGenerating(true);
 
     let resp;
     try {
-      resp = await skillBuilderApi.startTurn(conversationId, query);
+      resp = await skillBuilderApi.startTurn(conversationId, {
+        query,
+        fileIds: fileIds.length ? fileIds : undefined,
+        attachments: attachments.length ? attachments : undefined,
+      });
     } catch (e) {
       setGenerating(false);
       patchActive((m) => ({
@@ -230,7 +251,11 @@ export default function SkillBuilderPage() {
     );
   };
 
-  const send = () => void startTurn(input.trim());
+  /** 落地页「开始生成」与回车：带上当前已上传完成的附件。 */
+  const send = () => {
+    const ready = att.attached.filter((a) => !a.uploading);
+    void startTurn(input.trim(), ready);
+  };
 
   const finalizeMut = useMutation({
     mutationFn: () => skillBuilderApi.finalize(conversationId!),
@@ -318,13 +343,33 @@ export default function SkillBuilderPage() {
               padding: '16px 20px 10px',
             }}
           >
+            {att.attached.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 12,
+                  marginBottom: 10,
+                  padding: '0 2px',
+                }}
+              >
+                {att.attached.map((a, i) => (
+                  <AttachmentThumb
+                    key={`${a.fileId}-${i}`}
+                    item={a}
+                    onRemove={() => att.removeAt(i)}
+                  />
+                ))}
+              </div>
+            )}
             <Input.TextArea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               autoSize={{ minRows: 3, maxRows: 8 }}
               variant="borderless"
-              placeholder="例如：做一个能调用天气 API、返回格式化天气摘要的 Doer Skill…"
+              placeholder="例如：做一个能调用天气 API、返回格式化天气摘要的 Doer Skill…（可粘贴或上传图片/资料）"
               style={{ padding: 0, fontSize: 15 }}
+              onPaste={att.handlePaste}
               onCompositionStart={() => (composingRef.current = true)}
               onCompositionEnd={() => (composingRef.current = false)}
               onKeyDown={(e) => {
@@ -339,12 +384,22 @@ export default function SkillBuilderPage() {
                 }
               }}
             />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginTop: 8,
+              }}
+            >
+              <Upload customRequest={att.uploadFile} showUploadList={false} multiple>
+                <Button type="text" icon={<PaperClipOutlined />} title="上传图片 / 资料" />
+              </Upload>
               <Button
                 type="primary"
                 size="large"
                 icon={generating ? <LoadingOutlined /> : <SendOutlined />}
-                disabled={!input.trim() || !conversationId}
+                disabled={!input.trim() || !conversationId || att.isUploading}
                 loading={generating}
                 onClick={send}
               >
@@ -384,61 +439,16 @@ export default function SkillBuilderPage() {
           </div>
 
           <div style={{ padding: '12px 16px 16px' }}>
-            <div
-              style={{
-                background: '#fff',
-                border: `1px solid ${inputFocused ? '#4096ff' : '#d9d9d9'}`,
-                borderRadius: 16,
-                padding: '12px 16px 8px',
-                transition: 'border-color 0.2s, box-shadow 0.2s',
-                boxShadow: inputFocused ? '0 0 0 3px rgba(64,150,255,0.12)' : 'none',
-              }}
-            >
-              <Input.TextArea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                autoSize={{ minRows: 1, maxRows: 6 }}
-                variant="borderless"
-                placeholder="和 Skill 构建器说点什么…"
-                style={{ padding: 0, fontSize: 14, resize: 'none' }}
-                onFocus={() => setInputFocused(true)}
-                onBlur={() => setInputFocused(false)}
-                onCompositionStart={() => (composingRef.current = true)}
-                onCompositionEnd={() => (composingRef.current = false)}
-                onKeyDown={(e) => {
-                  if (
-                    e.key === 'Enter' &&
-                    !e.shiftKey &&
-                    !composingRef.current &&
-                    !e.nativeEvent.isComposing
-                  ) {
-                    e.preventDefault();
-                    send();
-                  }
-                }}
-              />
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'flex-end',
-                  marginTop: 6,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 12, color: '#bfbfbf' }}>Enter 发送</span>
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<SendOutlined />}
-                    loading={generating}
-                    disabled={!input.trim()}
-                    onClick={send}
-                    style={{ color: input.trim() ? '#4096ff' : undefined }}
-                  />
-                </div>
-              </div>
-            </div>
+            <MessageComposer
+              value={input}
+              onChange={setInput}
+              onSubmit={(text, files) => startTurn(text, files)}
+              attachments={att}
+              busy={generating}
+              placeholder="和 Skill 构建器说点什么…（可粘贴或上传图片/资料）"
+              uploadTitle="上传图片 / 资料"
+              maxRows={6}
+            />
           </div>
         </div>
 

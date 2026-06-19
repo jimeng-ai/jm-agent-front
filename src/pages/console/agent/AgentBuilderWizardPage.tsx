@@ -1,16 +1,14 @@
-import { useEffect, useRef, useState, type ClipboardEvent } from 'react';
-import { App, Button, Input, Popconfirm, Space, Typography, Upload, type UploadProps } from 'antd';
+import { useEffect, useRef, useState } from 'react';
+import { App, Button, Input, Popconfirm, Space, Typography, Upload } from 'antd';
 import {
   ArrowLeftOutlined,
   LoadingOutlined,
   PaperClipOutlined,
   ReloadOutlined,
-  SendOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { uploadAgentFile } from '@/api/agentFiles';
 import {
   builderApi,
   consumeBuilderRun,
@@ -20,6 +18,8 @@ import {
 import AgentPreviewCard from '@/features/agent-builder/components/AgentPreviewCard';
 import AttachmentThumb from '@/features/chat-admin/components/AttachmentThumb';
 import MessageBubble from '@/features/chat-admin/components/MessageBubble';
+import MessageComposer from '@/features/chat-admin/components/MessageComposer';
+import { useAttachments } from '@/features/chat-admin/hooks/useAttachments';
 import {
   newMessage,
   type ChatAttachment,
@@ -104,12 +104,10 @@ export default function AgentBuilderWizardPage() {
   const [selectedPluginIds, setSelectedPluginIds] = useState<number[]>([]);
   const [selectedKbIds, setSelectedKbIds] = useState<number[]>([]);
   const [input, setInput] = useState('');
-  const [attached, setAttached] = useState<ChatAttachment[]>([]);
+  const att = useAttachments();
   const [generating, setGenerating] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [inputFocused, setInputFocused] = useState(false);
 
-  const isUploading = attached.some((a) => a.uploading);
   const abortRef = useRef<AbortController>();
   const composingRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -148,7 +146,7 @@ export default function AgentBuilderWizardPage() {
     setGenerating(false);
     setMessages([]);
     setInput('');
-    setAttached([]);
+    att.reset();
     setConversationId(undefined);
     setResetting(true);
     try {
@@ -207,24 +205,22 @@ export default function AgentBuilderWizardPage() {
       return { ...m, segments: segs };
     });
 
-  /** 发起一轮生成（hero「开始生成」、场景卡片、工作区输入框共用）。 */
-  const startTurn = async (query: string) => {
+  /** 发起一轮生成（hero「开始生成」、场景卡片、工作区输入框共用）。附件由调用方传入。 */
+  const startTurn = async (query: string, attachments: ChatAttachment[] = []) => {
     if (!conversationId || !query.trim() || generating) return;
 
-    // 仅取已上传完成的附件（排除还在上传中的占位项）。
     // fileId 是 19 位雪花 Long，后端以字符串下发；必须以字符串传回，Number() 会丢精度→「文件不存在」。
-    const ready = attached.filter((a) => !a.uploading);
-    const fileIds = ready.map((a) => String(a.fileId));
+    const fileIds = attachments.map((a) => String(a.fileId));
 
     const userMsg: ChatMessage = {
       ...newMessage('user', query),
-      attachments: ready,
+      attachments: attachments.length ? attachments : undefined,
     };
     const aiMsg = newMessage('assistant', '');
     activeIdRef.current = aiMsg.id;
     setMessages((m) => [...m, userMsg, aiMsg]);
     setInput('');
-    setAttached([]);
+    att.reset();
     setGenerating(true);
 
     let resp;
@@ -232,6 +228,7 @@ export default function AgentBuilderWizardPage() {
       resp = await builderApi.turn(conversationId, {
         query,
         fileIds: fileIds.length ? fileIds : undefined,
+        attachments: attachments.length ? attachments : undefined,
       });
     } catch (e) {
       setGenerating(false);
@@ -263,63 +260,10 @@ export default function AgentBuilderWizardPage() {
     );
   };
 
-  const send = () => void startTurn(input.trim());
-
-  // 上传单个文件：临时占位缩略图（loading 态）→ 上传 → 替换真实 fileId / 失败移除。
-  // 回形针按钮（customRequest）与「粘贴图片」（onPaste）共用同一条链路，保证两条入口行为一致。
-  const uploadOne = async (file: File) => {
-    const localUrl = URL.createObjectURL(file);
-    const tempId = `uploading-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    setAttached((prev) => [
-      ...prev,
-      {
-        fileId: tempId,
-        filename: file.name,
-        contentType: file.type,
-        url: localUrl,
-        uploading: true,
-      },
-    ]);
-    try {
-      const res = await uploadAgentFile(file);
-      setAttached((prev) =>
-        prev.map((a) =>
-          a.fileId === tempId
-            ? {
-                fileId: res.fileId,
-                filename: res.filename,
-                contentType: res.contentType ?? file.type,
-                url: localUrl,
-              }
-            : a,
-        ),
-      );
-    } catch (e) {
-      setAttached((prev) => prev.filter((a) => a.fileId !== tempId));
-      URL.revokeObjectURL(localUrl);
-      message.error(`文件上传失败：${(e as Error)?.message ?? '未知错误'}`);
-    }
-  };
-
-  const uploadFile: UploadProps['customRequest'] = async (options) => {
-    try {
-      await uploadOne(options.file as File);
-      options.onSuccess?.({});
-    } catch (e) {
-      options.onError?.(e as Error);
-    }
-  };
-
-  // 粘贴图片：从剪贴板捞出图片项（截图 / 复制的图）直接走上传，纯文本粘贴照常进输入框。
-  const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
-    if (generating) return;
-    const images = Array.from(e.clipboardData?.items ?? [])
-      .filter((it) => it.kind === 'file' && it.type.startsWith('image/'))
-      .map((it) => it.getAsFile())
-      .filter((f): f is File => !!f);
-    if (images.length === 0) return; // 没有图片：让默认粘贴把文本填进输入框
-    e.preventDefault(); // 有图片：阻止把图片 blob 当乱码塞进文本框
-    images.forEach((f) => void uploadOne(f));
+  /** 落地页「开始生成」与回车：带上当前已上传完成的附件。 */
+  const send = () => {
+    const ready = att.attached.filter((a) => !a.uploading);
+    void startTurn(input.trim(), ready);
   };
 
   const createMut = useMutation({
@@ -388,7 +332,7 @@ export default function AgentBuilderWizardPage() {
           </p>
 
           <div className="builder-hero__inputwrap">
-            {attached.length > 0 && (
+            {att.attached.length > 0 && (
               <div
                 style={{
                   display: 'flex',
@@ -398,11 +342,11 @@ export default function AgentBuilderWizardPage() {
                   padding: '0 2px',
                 }}
               >
-                {attached.map((a, i) => (
+                {att.attached.map((a, i) => (
                   <AttachmentThumb
                     key={`${a.fileId}-${i}`}
                     item={a}
-                    onRemove={() => setAttached((prev) => prev.filter((_, j) => j !== i))}
+                    onRemove={() => att.removeAt(i)}
                   />
                 ))}
               </div>
@@ -414,7 +358,7 @@ export default function AgentBuilderWizardPage() {
               variant="borderless"
               placeholder="例如：做一个电商售后客服 Agent，能处理退换货、物流查询和投诉工单…（可粘贴或上传图片/资料）"
               style={{ padding: 0, fontSize: 15 }}
-              onPaste={handlePaste}
+              onPaste={att.handlePaste}
               onCompositionStart={() => (composingRef.current = true)}
               onCompositionEnd={() => (composingRef.current = false)}
               onKeyDown={(e) => {
@@ -437,14 +381,14 @@ export default function AgentBuilderWizardPage() {
                 marginTop: 8,
               }}
             >
-              <Upload customRequest={uploadFile} showUploadList={false} multiple>
+              <Upload customRequest={att.uploadFile} showUploadList={false} multiple>
                 <Button type="text" icon={<PaperClipOutlined />} title="上传图片 / 资料" />
               </Upload>
               <Button
                 type="primary"
                 size="large"
                 icon={generating ? <LoadingOutlined /> : <ThunderboltOutlined />}
-                disabled={!input.trim() || !conversationId || isUploading}
+                disabled={!input.trim() || !conversationId || att.isUploading}
                 loading={generating}
                 onClick={send}
               >
@@ -499,81 +443,16 @@ export default function AgentBuilderWizardPage() {
           </div>
 
           <div style={{ padding: '12px 16px 16px' }}>
-            <div
-              style={{
-                background: '#fff',
-                border: `1px solid ${inputFocused ? '#4096ff' : '#d9d9d9'}`,
-                borderRadius: 16,
-                padding: '12px 16px 8px',
-                transition: 'border-color 0.2s, box-shadow 0.2s',
-                boxShadow: inputFocused ? '0 0 0 3px rgba(64,150,255,0.12)' : 'none',
-              }}
-            >
-              {attached.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 10 }}>
-                  {attached.map((a, i) => (
-                    <AttachmentThumb
-                      key={`${a.fileId}-${i}`}
-                      item={a}
-                      onRemove={() => setAttached((prev) => prev.filter((_, j) => j !== i))}
-                    />
-                  ))}
-                </div>
-              )}
-              <Input.TextArea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                autoSize={{ minRows: 1, maxRows: 6 }}
-                variant="borderless"
-                placeholder="和 Agent 构建器 说点什么…（可粘贴或上传图片/资料）"
-                style={{ padding: 0, fontSize: 14, resize: 'none' }}
-                onPaste={handlePaste}
-                onFocus={() => setInputFocused(true)}
-                onBlur={() => setInputFocused(false)}
-                onCompositionStart={() => (composingRef.current = true)}
-                onCompositionEnd={() => (composingRef.current = false)}
-                onKeyDown={(e) => {
-                  if (
-                    e.key === 'Enter' &&
-                    !e.shiftKey &&
-                    !composingRef.current &&
-                    !e.nativeEvent.isComposing
-                  ) {
-                    e.preventDefault();
-                    send();
-                  }
-                }}
-              />
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginTop: 6,
-                }}
-              >
-                <Upload customRequest={uploadFile} showUploadList={false} multiple>
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<PaperClipOutlined />}
-                    title="上传图片 / 资料"
-                  />
-                </Upload>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 12, color: '#bfbfbf' }}>Enter 发送</span>
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<SendOutlined />}
-                    loading={generating}
-                    disabled={!input.trim() || isUploading}
-                    onClick={send}
-                    style={{ color: input.trim() && !isUploading ? '#4096ff' : undefined }}
-                  />
-                </div>
-              </div>
-            </div>
+            <MessageComposer
+              value={input}
+              onChange={setInput}
+              onSubmit={(text, files) => startTurn(text, files)}
+              attachments={att}
+              busy={generating}
+              placeholder="和 Agent 构建器说点什么…（可粘贴或上传图片/资料）"
+              uploadTitle="上传图片 / 资料"
+              maxRows={6}
+            />
           </div>
         </div>
 
