@@ -5,6 +5,7 @@ import ProtectedRoute from './ProtectedRoute';
 import ModuleRoute from './ModuleRoute';
 import ConsoleLayout from '@/layouts/ConsoleLayout';
 import ChatLayout from '@/layouts/ChatLayout';
+import StubPage from '@/components/StubPage';
 
 const LoginPage = lazy(() => import('@/pages/login/LoginPage'));
 const DashboardPage = lazy(() => import('@/pages/console/DashboardPage'));
@@ -18,6 +19,7 @@ const KnowledgeDetailPage = lazy(() => import('@/pages/console/knowledge/Knowled
 const PlaygroundPage = lazy(() => import('@/pages/console/playground/PlaygroundPage'));
 const TraceListPage = lazy(() => import('@/pages/console/trace/TraceListPage'));
 const FeedbackPage = lazy(() => import('@/pages/console/feedback/FeedbackPage'));
+const SkillListPage = lazy(() => import('@/pages/console/skill/SkillListPage'));
 const ChatHomePage = lazy(() => import('@/pages/chat/ChatHomePage'));
 const ChatConversationPage = lazy(() => import('@/pages/chat/ConversationPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
@@ -115,6 +117,12 @@ export default function AppRouter() {
           <Route path="traces" element={<TraceListPage />} />
           {/* 产品反馈：登录态即可访问，不受模块限制 */}
           <Route path="feedback" element={<FeedbackPage />} />
+          {/* 技能管理：登录态即可访问，不受模块限制 */}
+          <Route path="skills" element={<SkillListPage />} />
+          <Route
+            path="skill/builder"
+            element={<StubPage title="AI 生成 Skill" hint="Skill Builder 开发中" />}
+          />
         </Route>
 
         <Route

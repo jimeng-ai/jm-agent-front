@@ -7,6 +7,7 @@ import {
   SparklesIcon,
   ListIcon,
   MessageIcon,
+  SkillIcon,
 } from '@/components/icons/AtlasIcons';
 
 export type NavItem = {
@@ -42,6 +43,12 @@ export const WORKBENCH_NAV: NavItem[] = [
     path: '/console/plugins',
     Icon: PlugIcon,
     module: 'PLUGIN_MODULE',
+  },
+  {
+    key: 'skills',
+    label: '技能',
+    path: '/console/skills',
+    Icon: SkillIcon,
   },
 ];
 
