@@ -1,22 +1,13 @@
 import { del, get, post, upload } from '@/api/client';
-import type { SkillView } from './types';
-
-export interface ImportGithubPayload {
-  owner: string;
-  repo: string;
-  ref: string;
-  path?: string;
-}
+import type { SkillView, SkillDetailView } from './types';
 
 export const skillApi = {
   list: (mine?: boolean) =>
     get<SkillView[]>('/tenant/skills', mine !== undefined ? { mine } : undefined),
 
-  get: (id: string) => get<SkillView>(`/tenant/skills/${id}`),
+  get: (id: string) => get<SkillDetailView>(`/tenant/skills/${id}`),
 
   upload: (file: File) => upload<SkillView>('/tenant/skills/upload', file, 'file'),
-
-  importGithub: (payload: ImportGithubPayload) => post<SkillView>('/tenant/skills/import', payload),
 
   share: (id: string) => post<void>(`/tenant/skills/${id}/share`),
   unshare: (id: string) => post<void>(`/tenant/skills/${id}/unshare`),
