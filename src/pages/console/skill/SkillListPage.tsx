@@ -1,8 +1,8 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { App, Button, Input, Segmented, Select, Space, Typography } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { skillApi } from '@/features/skill/api';
 import SkillTheme from '@/features/skill/SkillTheme';
 import SkillDetailDrawer from './SkillDetailDrawer';
@@ -26,6 +26,19 @@ export default function SkillListPage() {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('ALL');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [detailId, setDetailId] = useState<string | null>(null);
+
+  // 全局搜索（⌘K）跳转 /console/skills?skillId=xxx 时，自动打开该技能详情抽屉。
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const skillId = searchParams.get('skillId');
+    if (skillId) {
+      setDetailId(skillId);
+      // 消费掉，避免刷新/回退再次弹出；replace 不污染历史。
+      const next = new URLSearchParams(searchParams);
+      next.delete('skillId');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const mine = filter === 'MINE' ? true : undefined;
 
