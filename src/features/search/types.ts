@@ -14,6 +14,23 @@ export interface DocumentHit {
   sourceType?: string;
 }
 
+export interface PluginHit {
+  id: string;
+  name: string;
+  description?: string;
+  status?: string;
+}
+
+export interface SkillHit {
+  id: string;
+  name: string;
+  description?: string;
+  /** PROMPT / DOER */
+  skillType?: string;
+  /** DRAFT / ACTIVE / DISABLED */
+  status?: string;
+}
+
 export interface TraceHit {
   traceId: string;
   agentName?: string;
@@ -25,6 +42,8 @@ export interface TraceHit {
 export interface GlobalSearchResult {
   agents: AgentHit[];
   documents: DocumentHit[];
+  plugins: PluginHit[];
+  skills: SkillHit[];
   traces: TraceHit[];
 }
 
@@ -32,4 +51,6 @@ export interface GlobalSearchResult {
 export type SearchItem =
   | { kind: 'agent'; hit: AgentHit }
   | { kind: 'document'; hit: DocumentHit }
+  | { kind: 'plugin'; hit: PluginHit }
+  | { kind: 'skill'; hit: SkillHit }
   | { kind: 'trace'; hit: TraceHit };
