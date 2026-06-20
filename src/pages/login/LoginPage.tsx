@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Button, Form, Input, App, Checkbox, Modal } from 'antd';
+import { Button, Form, Input, App, Checkbox } from 'antd';
 import { LockOutlined, UserOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -10,7 +10,7 @@ import type { BizError } from '@/api/types';
 import './LoginPage.css';
 
 export default function LoginPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const setAuth = useAuthStore((s) => s.setAuth);
@@ -60,7 +60,7 @@ export default function LoginPage() {
   });
 
   const onForgotPassword = () => {
-    Modal.info({
+    modal.info({
       title: '忘记密码',
       content: '请联系企业超级管理员或平台运营协助重置密码。',
       okText: '我知道了',
@@ -113,7 +113,9 @@ export default function LoginPage() {
             autoComplete="off"
             requiredMark={false}
           >
-            <h1 className="login-hi">欢迎回来 👋</h1>
+            <h1 className="login-hi">
+              欢迎回来 <span aria-hidden="true">👋</span>
+            </h1>
             <p className="login-hi-sub">登录以继续你的工作台</p>
 
             <Form.Item
@@ -135,9 +137,9 @@ export default function LoginPage() {
               <Form.Item name="remember" valuePropName="checked" noStyle>
                 <Checkbox>记住我</Checkbox>
               </Form.Item>
-              <span className="login-link" onClick={onForgotPassword}>
+              <button type="button" className="login-link" onClick={onForgotPassword}>
                 忘记密码？
-              </span>
+              </button>
             </div>
 
             <Button

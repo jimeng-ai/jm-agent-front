@@ -38,9 +38,11 @@ const routedStorage: StateStorage = {
  * 避免取消勾选后仍残留一份可被 rehydrate 捡回的 localStorage token。
  */
 export function setRememberMe(remember: boolean) {
+  // 先清两个 storage，避免上一次相反选择残留的 token 在下次 rehydrate 时被 getItem 优先捡回，
+  // 把本不该持久化的会话"提升"为 localStorage 持久化。
+  localStorage.removeItem(STORAGE_KEY);
+  sessionStorage.removeItem(STORAGE_KEY);
   activeStorage = remember ? localStorage : sessionStorage;
-  const other = remember ? sessionStorage : localStorage;
-  other.removeItem(STORAGE_KEY);
 }
 
 interface AuthState {
