@@ -245,6 +245,8 @@ export default function SkillBuilderPage() {
         onDone: () => {
           setGenerating(false);
           patchActive((m) => ({ ...m, status: 'done' }));
+          // 本轮可能通过 skill_install 从 GitHub 导入了 skill：让列表在返回时刷新可见。
+          qc.invalidateQueries({ queryKey: ['skill', 'list'] });
         },
       },
       ac.signal,
@@ -291,7 +293,7 @@ export default function SkillBuilderPage() {
           返回
         </Button>
         <Title level={4} style={{ margin: 0 }}>
-          AI 对话生成 Skill
+          AI 生成 / 导入 Skill
         </Title>
       </Space>
       {started && (
@@ -328,10 +330,11 @@ export default function SkillBuilderPage() {
           }}
         >
           <Title level={2} style={{ margin: 0 }}>
-            用一句话，生成一个 Skill
+            用一句话，生成或导入一个 Skill
           </Title>
           <Text type="secondary" style={{ fontSize: 15, textAlign: 'center' }}>
-            描述你想封装的技能，AI 会帮你生成 SKILL.md 主体与文件结构，边问边生成。
+            描述你想封装的技能，AI 边问边生成 SKILL.md 与文件结构； 或直接告诉 AI 你要从 GitHub
+            导入哪个 Skill，它会帮你找到并装好。
           </Text>
           <div
             style={{
@@ -367,7 +370,7 @@ export default function SkillBuilderPage() {
               onChange={(e) => setInput(e.target.value)}
               autoSize={{ minRows: 3, maxRows: 8 }}
               variant="borderless"
-              placeholder="例如：做一个能调用天气 API、返回格式化天气摘要的 Doer Skill…（可粘贴或上传图片/资料）"
+              placeholder="例如：做一个能调用天气 API、返回格式化天气摘要的 Doer Skill；或：把 github.com/anthropics/skills 里的 pdf 技能导入进来…（可粘贴或上传图片/资料）"
               style={{ padding: 0, fontSize: 15 }}
               onPaste={att.handlePaste}
               onCompositionStart={() => (composingRef.current = true)}
