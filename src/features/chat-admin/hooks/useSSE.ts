@@ -4,7 +4,8 @@ import { streamAgentExec, type FileStatusEvent } from '@/features/chat-admin/age
 import { consumeRun, type RunStreamHandlers } from '@/features/chat-admin/runApi';
 import { conversationApi, type TurnStartPayload } from '@/features/chat-admin/conversationApi';
 import type { ChatCitation } from '@/api/types';
-import type { ArtifactRef, MessageSegment } from '@/features/chat-admin/types';
+import type { ArtifactRef, MessageSegment, ToolCallView } from '@/features/chat-admin/types';
+import type { ToolResultItem } from '@/features/chat-admin/api';
 
 interface State {
   status: 'idle' | 'streaming' | 'done' | 'error';
@@ -127,18 +128,26 @@ export function useSSE() {
   );
 
   const onToolResult = useCallback(
-    (results: { id: string; name: string; status: 'success' | 'error' }[]) => {
+    (results: ToolResultItem[]) => {
       for (const r of results) {
         const idx = segmentsRef.current.findIndex((s) => s.type === 'tool' && s.call.id === r.id);
         if (idx >= 0) {
           const seg = segmentsRef.current[idx];
           if (seg.type === 'tool') {
-            segmentsRef.current[idx] = { type: 'tool', call: { ...seg.call, status: r.status } };
+            segmentsRef.current[idx] = {
+              type: 'tool',
+              call: { ...seg.call, status: r.status, output: r.output as ToolCallView['output'] },
+            };
           }
         } else {
           segmentsRef.current.push({
             type: 'tool',
-            call: { id: r.id, name: r.name, status: r.status },
+            call: {
+              id: r.id,
+              name: r.name,
+              status: r.status,
+              output: r.output as ToolCallView['output'],
+            },
           });
         }
       }

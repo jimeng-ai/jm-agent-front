@@ -93,21 +93,52 @@ function statusIcon(status: ToolCallView['status']) {
  */
 function ToolStepCard({ tc }: { tc: ToolCallView }) {
   const [showDetail, setShowDetail] = useState(false);
+
+  // generate_image 工具：输出为图片 URL 列表，渲染为图片画廊卡片（不走普通折叠详情）
+  const imgOut =
+    tc.name === 'generate_image' && tc.output && typeof tc.output === 'object'
+      ? (tc.output as { urls?: string[] })
+      : null;
+  if (imgOut && Array.isArray(imgOut.urls) && imgOut.urls.length > 0) {
+    return (
+      <div className="chat-step chat-step--tool">
+        <div className="chat-step__body">
+          <div className="chat-step__title">生成图片（{imgOut.urls.length}）</div>
+          <Image.PreviewGroup>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+                gap: 8,
+                marginTop: 8,
+              }}
+            >
+              {imgOut.urls.map((url, i) => (
+                <Image key={i} src={url} width="100%" style={{ borderRadius: 8 }} />
+              ))}
+            </div>
+          </Image.PreviewGroup>
+        </div>
+      </div>
+    );
+  }
+
   const kind = inferStepKind(tc);
   const title = stepTitle(tc);
   const sub = formatStepInput(tc.input);
   const summary = summarizeResult(tc, kind);
-  const hasDetail = tc.input != null || !!tc.output;
+  const outputString = typeof tc.output === 'string' ? tc.output : undefined;
+  const hasDetail = tc.input != null || !!outputString;
   const inputPretty =
     tc.input == null
       ? ''
       : typeof tc.input === 'string'
         ? tc.input
         : JSON.stringify(tc.input, null, 2);
-  const outputText = tc.output
-    ? tc.output.length > 4000
-      ? `${tc.output.slice(0, 4000)}\n…（已截断）`
-      : tc.output
+  const outputText = outputString
+    ? outputString.length > 4000
+      ? `${outputString.slice(0, 4000)}\n…（已截断）`
+      : outputString
     : '';
 
   return (

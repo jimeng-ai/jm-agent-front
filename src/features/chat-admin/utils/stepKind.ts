@@ -93,11 +93,15 @@ export function summarizeResult(call: ToolCallView, kind: StepKind): string | nu
   if (call.status === 'error') return '失败';
   if (call.status === 'running') return null;
 
-  const n = countFromOutput(call.output);
+  // output 可能是字符串（Bash stdout）或对象（如 generate_image 的 { urls, ... }）；
+  // countFromOutput / match 只对字符串有意义，对象时跳过。
+  const outputStr = typeof call.output === 'string' ? call.output : undefined;
+
+  const n = countFromOutput(outputStr);
   if (n != null) return kind === 'kb' ? `命中 ${n} 个分片` : `返回 ${n} 条`;
 
-  if (kind === 'plugin' && call.output) {
-    const m = call.output.match(/@\s*([^\s,，。、]{1,16})/);
+  if (kind === 'plugin' && outputStr) {
+    const m = outputStr.match(/@\s*([^\s,，。、]{1,16})/);
     if (m) return `已 @${m[1]}`;
   }
 

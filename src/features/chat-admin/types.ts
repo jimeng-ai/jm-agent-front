@@ -14,8 +14,9 @@ export interface ToolCallView {
   /** 入参 */
   input?: unknown;
   status: ToolCallStatus;
-  /** 工具输出（如 Bash stdout/stderr），来自代码执行 Agent 的 code_output 事件 */
-  output?: string;
+  /** 工具输出（如 Bash stdout/stderr），来自代码执行 Agent 的 code_output 事件；
+   *  generate_image 工具输出为 { urls, model, size, count } 对象。 */
+  output?: string | { urls?: string[]; model?: string; size?: string; count?: number };
 }
 
 /** 代码执行 Agent 产出的可下载产物（来自 SSE artifact 事件，已由后端改写 downloadUrl） */
