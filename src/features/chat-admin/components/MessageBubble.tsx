@@ -87,6 +87,37 @@ function statusIcon(status: ToolCallView['status']) {
   return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
 }
 
+/** 下载图片 URL：优先 fetch blob 触发下载；跨域被 CORS 拦时退化为新标签打开供右键保存。 */
+async function downloadImageUrl(url: string) {
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(String(resp.status));
+    const blob = await resp.blob();
+    const obj = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = obj;
+    a.download = `generated-${Date.now()}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(obj);
+  } catch {
+    window.open(url, '_blank', 'noopener');
+  }
+}
+
+/** generate_image 的图片结果(带 urls)：从折叠的「处理过程」提到答案区常显（选①：卡片即唯一图）。 */
+function isGeneratedImageSeg(seg: MessageSegment): boolean {
+  if (seg.type !== 'tool' || seg.call.name !== 'generate_image') return false;
+  const out = seg.call.output;
+  return (
+    !!out &&
+    typeof out === 'object' &&
+    Array.isArray((out as { urls?: string[] }).urls) &&
+    (out as { urls?: string[] }).urls!.length > 0
+  );
+}
+
 /**
  * 单个工具调用卡片：左侧彩色图标块 + 标题(+分类标签) + 入参副标题 + 右侧结果摘要/状态。
  * 原始入参/输出不丢，折进「查看详情」，展开仍是深色 pre。分类由前端启发式推断，推不准回退通用「工具」。
@@ -107,14 +138,47 @@ function ToolStepCard({ tc }: { tc: ToolCallView }) {
           <Image.PreviewGroup>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
               {imgOut.urls.map((url) => (
-                <Image
-                  key={url}
-                  src={url}
-                  style={{ maxWidth: 280, maxHeight: 280, borderRadius: 8 }}
-                />
+                <div key={url} style={{ position: 'relative', display: 'inline-block' }}>
+                  {/* antd Image 点击即放大预览(带缩放/旋转工具栏)；下载按钮 stopPropagation 不触发预览 */}
+                  <Image
+                    src={url}
+                    style={{ maxWidth: 280, maxHeight: 280, borderRadius: 8, display: 'block' }}
+                  />
+                  <Button
+                    size="small"
+                    icon={<DownloadOutlined />}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void downloadImageUrl(url);
+                    }}
+                    style={{ position: 'absolute', right: 6, bottom: 6, opacity: 0.92 }}
+                  >
+                    下载
+                  </Button>
+                </div>
               ))}
             </div>
           </Image.PreviewGroup>
+        </div>
+      </div>
+    );
+  }
+
+  // activate_skills：把「激活技能」渲染成简洁一行并列出激活的技能名（后端在发现阶段发的步骤事件）。
+  if (tc.name === 'activate_skills') {
+    const activated =
+      tc.output && typeof tc.output === 'object'
+        ? ((tc.output as { activated?: string[] }).activated ?? [])
+        : [];
+    const names = activated.length ? activated.join('、') : formatStepInput(tc.input);
+    return (
+      <div className="chat-step chat-step--skill">
+        <div className="chat-step__icon">{kindIcon('skill')}</div>
+        <div className="chat-step__body">
+          <div className="chat-step__title">
+            <span>激活技能{names ? `：${names}` : ''}</span>
+            <span className="chat-step__tag">Skill</span>
+          </div>
         </div>
       </div>
     );
@@ -465,9 +529,10 @@ function renderSegments(
   status?: ChatStatus,
   elapsedMs?: number,
 ): ReactNode[] {
+  // 生图结果不计入「处理过程」边界：让 generate_image 图片落到答案区常显(选①卡片即唯一图、不折叠)。
   let lastToolIdx = -1;
   segments.forEach((s, i) => {
-    if (s.type === 'tool') lastToolIdx = i;
+    if (s.type === 'tool' && !isGeneratedImageSeg(s)) lastToolIdx = i;
   });
   if (lastToolIdx === -1) return renderLinear(segments, status, 0);
 
