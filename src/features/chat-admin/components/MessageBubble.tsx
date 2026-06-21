@@ -105,16 +105,13 @@ function ToolStepCard({ tc }: { tc: ToolCallView }) {
         <div className="chat-step__body">
           <div className="chat-step__title">生成图片（{imgOut.urls.length}）</div>
           <Image.PreviewGroup>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-                gap: 8,
-                marginTop: 8,
-              }}
-            >
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
               {imgOut.urls.map((url) => (
-                <Image key={url} src={url} width="100%" style={{ borderRadius: 8 }} />
+                <Image
+                  key={url}
+                  src={url}
+                  style={{ maxWidth: 280, maxHeight: 280, borderRadius: 8 }}
+                />
               ))}
             </div>
           </Image.PreviewGroup>
