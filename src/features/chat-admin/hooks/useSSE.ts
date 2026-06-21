@@ -53,6 +53,9 @@ export function useSSE() {
   const citationsRef = useRef<ChatCitation[]>([]);
   const rafRef = useRef<number | null>(null);
   const startedAtRef = useRef(0);
+  // 后端 summary 事件给出的权威耗时（毫秒）。优先用它，避免前端 begin→done 墙钟在续播/重连/
+  // 双消费时被重置成几十毫秒（落库的耗时正确、实时显示却偏小的根因）。
+  const backendElapsedMsRef = useRef<number | null>(null);
   /** 当前在跑的 runId（服务端生成路径），停止据此取消。 */
   const runIdRef = useRef<string | null>(null);
 
@@ -182,6 +185,12 @@ export function useSSE() {
     [commit],
   );
 
+  const onSummary = useCallback((s: { elapsedSeconds?: number }) => {
+    if (typeof s.elapsedSeconds === 'number' && s.elapsedSeconds >= 0) {
+      backendElapsedMsRef.current = Math.round(s.elapsedSeconds * 1000);
+    }
+  }, []);
+
   const onArtifact = useCallback(
     (a: ArtifactRef) => {
       artifactsRef.current.push(a);
@@ -215,6 +224,7 @@ export function useSSE() {
     artifactsRef.current = [];
     citationsRef.current = [];
     startedAtRef.current = performance.now();
+    backendElapsedMsRef.current = null;
     setState({
       status: 'streaming',
       text: '',
@@ -240,7 +250,9 @@ export function useSSE() {
       );
       const citations = citationsRef.current;
       const artifacts = [...artifactsRef.current];
-      const elapsedMs = Math.round(performance.now() - startedAtRef.current);
+      // 优先用后端 summary 的权威耗时；缺失时回退到前端墙钟。
+      const elapsedMs =
+        backendElapsedMsRef.current ?? Math.round(performance.now() - startedAtRef.current);
       // 若收尾前已收到 error 事件（如「模型已下线」这类早失败：先发 error 帧、再发终止帧），
       // 保留 error 状态与原因，别被无条件的 'done' 覆盖——否则错误只闪一下就变空气泡。
       setState((s) => {
@@ -276,6 +288,7 @@ export function useSSE() {
       onCodeOutput,
       onArtifact,
       onFileStatus,
+      onSummary,
       onError: onStreamError,
       onDone: finalize,
     }),
@@ -287,6 +300,7 @@ export function useSSE() {
       onCodeOutput,
       onArtifact,
       onFileStatus,
+      onSummary,
       onStreamError,
     ],
   );

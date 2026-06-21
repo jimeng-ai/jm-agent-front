@@ -35,6 +35,8 @@ export interface AnswerStreamHandlers {
   onToolCall?: (calls: ToolCallProgress[]) => void;
   /** 工具执行完成（SSE tool_result 事件） */
   onToolResult?: (results: ToolResultItem[]) => void;
+  /** 生成汇总帧，携带后端权威耗时（秒） */
+  onSummary?: (s: { elapsedSeconds?: number }) => void;
   onError?: (err: Error) => void;
   onDone?: () => void;
 }
@@ -90,6 +92,13 @@ export function streamAnswer(
         try {
           const parsed = JSON.parse(data) as { results?: ToolResultItem[] };
           if (parsed.results?.length) handlers.onToolResult?.(parsed.results);
+        } catch {
+          /* ignore */
+        }
+      } else if (event === 'summary') {
+        try {
+          const parsed = JSON.parse(data) as { elapsed_seconds?: number };
+          handlers.onSummary?.({ elapsedSeconds: parsed.elapsed_seconds });
         } catch {
           /* ignore */
         }
