@@ -170,7 +170,16 @@ function ToolStepCard({ tc }: { tc: ToolCallView }) {
       tc.output && typeof tc.output === 'object'
         ? ((tc.output as { activated?: string[] }).activated ?? [])
         : [];
-    const names = activated.length ? activated.join('、') : formatStepInput(tc.input);
+    // 历史回看若 output 缺失，从入参 skill_names 兜底取技能名，避免显示成 "skill_names: [...]"。
+    const fromInput =
+      tc.input && typeof tc.input === 'object'
+        ? (tc.input as { skill_names?: string[] }).skill_names
+        : undefined;
+    const names = activated.length
+      ? activated.join('、')
+      : Array.isArray(fromInput)
+        ? fromInput.join('、')
+        : formatStepInput(tc.input);
     return (
       <div className="chat-step chat-step--skill">
         <div className="chat-step__icon">{kindIcon('skill')}</div>
