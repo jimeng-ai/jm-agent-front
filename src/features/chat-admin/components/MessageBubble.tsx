@@ -106,7 +106,7 @@ async function downloadImageUrl(url: string) {
   }
 }
 
-/** generate_image 的图片结果(带 urls)：从折叠的「处理过程」提到答案区常显（选①：卡片即唯一图）。 */
+/** generate_image 的图片结果(带 urls)。处理过程里渲染为紧凑步骤卡，大图由 GeneratedImages 在过程下方常显。 */
 function isGeneratedImageSeg(seg: MessageSegment): boolean {
   if (seg.type !== 'tool' || seg.call.name !== 'generate_image') return false;
   const out = seg.call.output;
@@ -118,6 +118,51 @@ function isGeneratedImageSeg(seg: MessageSegment): boolean {
   );
 }
 
+/** 收集若干片段里 generate_image 的全部图片 url（按出现顺序去重）。 */
+function collectGeneratedUrls(segs: MessageSegment[]): string[] {
+  const urls: string[] = [];
+  for (const s of segs) {
+    if (!isGeneratedImageSeg(s) || s.type !== 'tool') continue;
+    for (const u of (s.call.output as { urls?: string[] }).urls ?? []) {
+      if (!urls.includes(u)) urls.push(u);
+    }
+  }
+  return urls;
+}
+
+/** 显眼大图：放在「处理过程」下方常显，点击放大预览 + 每张带下载按钮。 */
+function GeneratedImages({ urls }: { urls: string[] }) {
+  if (!urls.length) return null;
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <Image.PreviewGroup>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {urls.map((url) => (
+            <div key={url} style={{ position: 'relative', display: 'inline-block' }}>
+              {/* antd Image 点击即放大预览；下载按钮 stopPropagation 不触发预览 */}
+              <Image
+                src={url}
+                style={{ maxWidth: 320, maxHeight: 320, borderRadius: 8, display: 'block' }}
+              />
+              <Button
+                size="small"
+                icon={<DownloadOutlined />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void downloadImageUrl(url);
+                }}
+                style={{ position: 'absolute', right: 6, bottom: 6, opacity: 0.92 }}
+              >
+                下载
+              </Button>
+            </div>
+          ))}
+        </div>
+      </Image.PreviewGroup>
+    </div>
+  );
+}
+
 /**
  * 单个工具调用卡片：左侧彩色图标块 + 标题(+分类标签) + 入参副标题 + 右侧结果摘要/状态。
  * 原始入参/输出不丢，折进「查看详情」，展开仍是深色 pre。分类由前端启发式推断，推不准回退通用「工具」。
@@ -125,40 +170,20 @@ function isGeneratedImageSeg(seg: MessageSegment): boolean {
 function ToolStepCard({ tc }: { tc: ToolCallView }) {
   const [showDetail, setShowDetail] = useState(false);
 
-  // generate_image 工具：输出为图片 URL 列表，渲染为图片画廊卡片（不走普通折叠详情）
-  const imgOut =
-    tc.name === 'generate_image' && tc.output && typeof tc.output === 'object'
-      ? (tc.output as { urls?: string[] })
-      : null;
-  if (imgOut && Array.isArray(imgOut.urls) && imgOut.urls.length > 0) {
+  // generate_image 工具：在「处理过程」里渲染为紧凑步骤卡(与「激活技能」对称)；大图由 GeneratedImages 在过程下方常显。
+  if (tc.name === 'generate_image') {
+    const urls =
+      tc.output && typeof tc.output === 'object'
+        ? ((tc.output as { urls?: string[] }).urls ?? [])
+        : [];
     return (
       <div className="chat-step chat-step--tool">
+        <div className="chat-step__icon">{kindIcon('tool')}</div>
         <div className="chat-step__body">
-          <div className="chat-step__title">生成图片（{imgOut.urls.length}）</div>
-          <Image.PreviewGroup>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-              {imgOut.urls.map((url) => (
-                <div key={url} style={{ position: 'relative', display: 'inline-block' }}>
-                  {/* antd Image 点击即放大预览(带缩放/旋转工具栏)；下载按钮 stopPropagation 不触发预览 */}
-                  <Image
-                    src={url}
-                    style={{ maxWidth: 280, maxHeight: 280, borderRadius: 8, display: 'block' }}
-                  />
-                  <Button
-                    size="small"
-                    icon={<DownloadOutlined />}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void downloadImageUrl(url);
-                    }}
-                    style={{ position: 'absolute', right: 6, bottom: 6, opacity: 0.92 }}
-                  >
-                    下载
-                  </Button>
-                </div>
-              ))}
-            </div>
-          </Image.PreviewGroup>
+          <div className="chat-step__title">
+            <span>生成图片{urls.length ? `（${urls.length}）` : ''}</span>
+            <span className="chat-step__tag">工具</span>
+          </div>
         </div>
       </div>
     );
@@ -538,10 +563,10 @@ function renderSegments(
   status?: ChatStatus,
   elapsedMs?: number,
 ): ReactNode[] {
-  // 生图结果不计入「处理过程」边界：让 generate_image 图片落到答案区常显(选①卡片即唯一图、不折叠)。
+  // 边界=最后一次工具调用：之前(含)的叙述/技能/提示词/生图步骤全进「处理过程」；之后的只有模型最终文字。
   let lastToolIdx = -1;
   segments.forEach((s, i) => {
-    if (s.type === 'tool' && !isGeneratedImageSeg(s)) lastToolIdx = i;
+    if (s.type === 'tool') lastToolIdx = i;
   });
   if (lastToolIdx === -1) return renderLinear(segments, status, 0);
 
@@ -549,6 +574,8 @@ function renderSegments(
   const answerSegs = segments.slice(lastToolIdx + 1);
   const stepCount = procSegs.filter((s) => s.type === 'tool').length;
   const running = procSegs.some((s) => s.type === 'tool' && s.call.status === 'running');
+  // 生成的大图单独提到「处理过程」下方常显(可放大+下载)；处理过程里 generate_image 仅是紧凑步骤卡。
+  const genUrls = collectGeneratedUrls(procSegs);
 
   const out: ReactNode[] = [
     <ToolProcessGroup
@@ -563,6 +590,7 @@ function renderSegments(
       ))}
     </ToolProcessGroup>,
   ];
+  if (genUrls.length) out.push(<GeneratedImages key="genimg" urls={genUrls} />);
   out.push(...renderLinear(answerSegs, status, lastToolIdx + 1));
   return out;
 }
