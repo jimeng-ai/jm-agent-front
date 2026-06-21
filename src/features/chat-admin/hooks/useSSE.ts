@@ -131,12 +131,19 @@ export function useSSE() {
     (results: ToolResultItem[]) => {
       for (const r of results) {
         const idx = segmentsRef.current.findIndex((s) => s.type === 'tool' && s.call.id === r.id);
+        // 仅当 tool_result 带 output 时才写入：代码执行 Agent 的 stdout 由先到的 code_output 事件填入
+        // call.output，随后的 tool_result 不含 output，若无条件覆盖会把 stdout 清空（详情面板变空）。
+        const hasOutput = r.output !== undefined && r.output !== null;
         if (idx >= 0) {
           const seg = segmentsRef.current[idx];
           if (seg.type === 'tool') {
             segmentsRef.current[idx] = {
               type: 'tool',
-              call: { ...seg.call, status: r.status, output: r.output as ToolCallView['output'] },
+              call: {
+                ...seg.call,
+                status: r.status,
+                ...(hasOutput ? { output: r.output as ToolCallView['output'] } : {}),
+              },
             };
           }
         } else {
@@ -146,7 +153,7 @@ export function useSSE() {
               id: r.id,
               name: r.name,
               status: r.status,
-              output: r.output as ToolCallView['output'],
+              ...(hasOutput ? { output: r.output as ToolCallView['output'] } : {}),
             },
           });
         }
