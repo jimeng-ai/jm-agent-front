@@ -590,8 +590,9 @@ function renderSegments(
       ))}
     </ToolProcessGroup>,
   ];
-  if (genUrls.length) out.push(<GeneratedImages key="genimg" urls={genUrls} />);
   out.push(...renderLinear(answerSegs, status, lastToolIdx + 1));
+  // 大图放在模型最终文字「下面」(用户要求：文字在上、图在下)。
+  if (genUrls.length) out.push(<GeneratedImages key="genimg" urls={genUrls} />);
   return out;
 }
 
