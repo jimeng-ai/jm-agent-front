@@ -1630,6 +1630,15 @@ img.chat-agent-glyph {
 .md-body p {
   margin: 0.5em 0;
 }
+/* 回复正文里的图片（如模型把生成图片以 Markdown 内联）约束尺寸，避免原图(可达 2048px)撑爆对话宽度 */
+.md-body img {
+  max-width: 100%;
+  max-height: 360px;
+  height: auto;
+  border-radius: 8px;
+  display: block;
+  margin: 0.5em 0;
+}
 .md-body pre {
   background: #f6f8fa;
   border-radius: 6px;

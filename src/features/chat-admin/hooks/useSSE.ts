@@ -4,7 +4,8 @@ import { streamAgentExec, type FileStatusEvent } from '@/features/chat-admin/age
 import { consumeRun, type RunStreamHandlers } from '@/features/chat-admin/runApi';
 import { conversationApi, type TurnStartPayload } from '@/features/chat-admin/conversationApi';
 import type { ChatCitation } from '@/api/types';
-import type { ArtifactRef, MessageSegment } from '@/features/chat-admin/types';
+import type { ArtifactRef, MessageSegment, ToolCallView } from '@/features/chat-admin/types';
+import type { ToolResultItem } from '@/features/chat-admin/api';
 
 interface State {
   status: 'idle' | 'streaming' | 'done' | 'error';
@@ -52,6 +53,9 @@ export function useSSE() {
   const citationsRef = useRef<ChatCitation[]>([]);
   const rafRef = useRef<number | null>(null);
   const startedAtRef = useRef(0);
+  // 后端 summary 事件给出的权威耗时（毫秒）。优先用它，避免前端 begin→done 墙钟在续播/重连/
+  // 双消费时被重置成几十毫秒（落库的耗时正确、实时显示却偏小的根因）。
+  const backendElapsedMsRef = useRef<number | null>(null);
   /** 当前在跑的 runId（服务端生成路径），停止据此取消。 */
   const runIdRef = useRef<string | null>(null);
 
@@ -127,18 +131,33 @@ export function useSSE() {
   );
 
   const onToolResult = useCallback(
-    (results: { id: string; name: string; status: 'success' | 'error' }[]) => {
+    (results: ToolResultItem[]) => {
       for (const r of results) {
         const idx = segmentsRef.current.findIndex((s) => s.type === 'tool' && s.call.id === r.id);
+        // 仅当 tool_result 带 output 时才写入：代码执行 Agent 的 stdout 由先到的 code_output 事件填入
+        // call.output，随后的 tool_result 不含 output，若无条件覆盖会把 stdout 清空（详情面板变空）。
+        const hasOutput = r.output !== undefined && r.output !== null;
         if (idx >= 0) {
           const seg = segmentsRef.current[idx];
           if (seg.type === 'tool') {
-            segmentsRef.current[idx] = { type: 'tool', call: { ...seg.call, status: r.status } };
+            segmentsRef.current[idx] = {
+              type: 'tool',
+              call: {
+                ...seg.call,
+                status: r.status,
+                ...(hasOutput ? { output: r.output as ToolCallView['output'] } : {}),
+              },
+            };
           }
         } else {
           segmentsRef.current.push({
             type: 'tool',
-            call: { id: r.id, name: r.name, status: r.status },
+            call: {
+              id: r.id,
+              name: r.name,
+              status: r.status,
+              ...(hasOutput ? { output: r.output as ToolCallView['output'] } : {}),
+            },
           });
         }
       }
@@ -165,6 +184,12 @@ export function useSSE() {
     },
     [commit],
   );
+
+  const onSummary = useCallback((s: { elapsedSeconds?: number }) => {
+    if (typeof s.elapsedSeconds === 'number' && s.elapsedSeconds >= 0) {
+      backendElapsedMsRef.current = Math.round(s.elapsedSeconds * 1000);
+    }
+  }, []);
 
   const onArtifact = useCallback(
     (a: ArtifactRef) => {
@@ -199,6 +224,7 @@ export function useSSE() {
     artifactsRef.current = [];
     citationsRef.current = [];
     startedAtRef.current = performance.now();
+    backendElapsedMsRef.current = null;
     setState({
       status: 'streaming',
       text: '',
@@ -224,7 +250,9 @@ export function useSSE() {
       );
       const citations = citationsRef.current;
       const artifacts = [...artifactsRef.current];
-      const elapsedMs = Math.round(performance.now() - startedAtRef.current);
+      // 优先用后端 summary 的权威耗时；缺失时回退到前端墙钟。
+      const elapsedMs =
+        backendElapsedMsRef.current ?? Math.round(performance.now() - startedAtRef.current);
       // 若收尾前已收到 error 事件（如「模型已下线」这类早失败：先发 error 帧、再发终止帧），
       // 保留 error 状态与原因，别被无条件的 'done' 覆盖——否则错误只闪一下就变空气泡。
       setState((s) => {
@@ -260,6 +288,7 @@ export function useSSE() {
       onCodeOutput,
       onArtifact,
       onFileStatus,
+      onSummary,
       onError: onStreamError,
       onDone: finalize,
     }),
@@ -271,6 +300,7 @@ export function useSSE() {
       onCodeOutput,
       onArtifact,
       onFileStatus,
+      onSummary,
       onStreamError,
     ],
   );

@@ -87,27 +87,153 @@ function statusIcon(status: ToolCallView['status']) {
   return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
 }
 
+/** 下载图片 URL：优先 fetch blob 触发下载；跨域被 CORS 拦时退化为新标签打开供右键保存。 */
+async function downloadImageUrl(url: string) {
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(String(resp.status));
+    const blob = await resp.blob();
+    const obj = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = obj;
+    a.download = `generated-${Date.now()}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(obj);
+  } catch {
+    window.open(url, '_blank', 'noopener');
+  }
+}
+
+/** generate_image 的图片结果(带 urls)。处理过程里渲染为紧凑步骤卡，大图由 GeneratedImages 在过程下方常显。 */
+function isGeneratedImageSeg(seg: MessageSegment): boolean {
+  if (seg.type !== 'tool' || seg.call.name !== 'generate_image') return false;
+  const out = seg.call.output;
+  return (
+    !!out &&
+    typeof out === 'object' &&
+    Array.isArray((out as { urls?: string[] }).urls) &&
+    (out as { urls?: string[] }).urls!.length > 0
+  );
+}
+
+/** 收集若干片段里 generate_image 的全部图片 url（按出现顺序去重）。 */
+function collectGeneratedUrls(segs: MessageSegment[]): string[] {
+  const urls: string[] = [];
+  for (const s of segs) {
+    if (!isGeneratedImageSeg(s) || s.type !== 'tool') continue;
+    for (const u of (s.call.output as { urls?: string[] }).urls ?? []) {
+      if (!urls.includes(u)) urls.push(u);
+    }
+  }
+  return urls;
+}
+
+/** 显眼大图：放在「处理过程」下方常显，点击放大预览 + 每张带下载按钮。 */
+function GeneratedImages({ urls }: { urls: string[] }) {
+  if (!urls.length) return null;
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <Image.PreviewGroup>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {urls.map((url) => (
+            <div key={url} style={{ position: 'relative', display: 'inline-block' }}>
+              {/* antd Image 点击即放大预览；下载按钮 stopPropagation 不触发预览 */}
+              <Image
+                src={url}
+                style={{ maxWidth: 320, maxHeight: 320, borderRadius: 8, display: 'block' }}
+              />
+              <Button
+                size="small"
+                icon={<DownloadOutlined />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void downloadImageUrl(url);
+                }}
+                style={{ position: 'absolute', right: 6, bottom: 6, opacity: 0.92 }}
+              >
+                下载
+              </Button>
+            </div>
+          ))}
+        </div>
+      </Image.PreviewGroup>
+    </div>
+  );
+}
+
 /**
  * 单个工具调用卡片：左侧彩色图标块 + 标题(+分类标签) + 入参副标题 + 右侧结果摘要/状态。
  * 原始入参/输出不丢，折进「查看详情」，展开仍是深色 pre。分类由前端启发式推断，推不准回退通用「工具」。
  */
 function ToolStepCard({ tc }: { tc: ToolCallView }) {
   const [showDetail, setShowDetail] = useState(false);
+
+  // generate_image 工具：在「处理过程」里渲染为紧凑步骤卡(与「激活技能」对称)；大图由 GeneratedImages 在过程下方常显。
+  if (tc.name === 'generate_image') {
+    const urls =
+      tc.output && typeof tc.output === 'object'
+        ? ((tc.output as { urls?: string[] }).urls ?? [])
+        : [];
+    return (
+      <div className="chat-step chat-step--tool">
+        <div className="chat-step__icon">{kindIcon('tool')}</div>
+        <div className="chat-step__body">
+          <div className="chat-step__title">
+            <span>生成图片{urls.length ? `（${urls.length}）` : ''}</span>
+            <span className="chat-step__tag">工具</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // activate_skills：把「激活技能」渲染成简洁一行并列出激活的技能名（后端在发现阶段发的步骤事件）。
+  if (tc.name === 'activate_skills') {
+    const activated =
+      tc.output && typeof tc.output === 'object'
+        ? ((tc.output as { activated?: string[] }).activated ?? [])
+        : [];
+    // 历史回看若 output 缺失，从入参 skill_names 兜底取技能名，避免显示成 "skill_names: [...]"。
+    const fromInput =
+      tc.input && typeof tc.input === 'object'
+        ? (tc.input as { skill_names?: string[] }).skill_names
+        : undefined;
+    const names = activated.length
+      ? activated.join('、')
+      : Array.isArray(fromInput)
+        ? fromInput.join('、')
+        : formatStepInput(tc.input);
+    return (
+      <div className="chat-step chat-step--skill">
+        <div className="chat-step__icon">{kindIcon('skill')}</div>
+        <div className="chat-step__body">
+          <div className="chat-step__title">
+            <span>激活技能{names ? `：${names}` : ''}</span>
+            <span className="chat-step__tag">Skill</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const kind = inferStepKind(tc);
   const title = stepTitle(tc);
   const sub = formatStepInput(tc.input);
   const summary = summarizeResult(tc, kind);
-  const hasDetail = tc.input != null || !!tc.output;
+  const outputString = typeof tc.output === 'string' ? tc.output : undefined;
+  const hasDetail = tc.input != null || !!outputString;
   const inputPretty =
     tc.input == null
       ? ''
       : typeof tc.input === 'string'
         ? tc.input
         : JSON.stringify(tc.input, null, 2);
-  const outputText = tc.output
-    ? tc.output.length > 4000
-      ? `${tc.output.slice(0, 4000)}\n…（已截断）`
-      : tc.output
+  const outputText = outputString
+    ? outputString.length > 4000
+      ? `${outputString.slice(0, 4000)}\n…（已截断）`
+      : outputString
     : '';
 
   return (
@@ -437,6 +563,7 @@ function renderSegments(
   status?: ChatStatus,
   elapsedMs?: number,
 ): ReactNode[] {
+  // 边界=最后一次工具调用：之前(含)的叙述/技能/提示词/生图步骤全进「处理过程」；之后的只有模型最终文字。
   let lastToolIdx = -1;
   segments.forEach((s, i) => {
     if (s.type === 'tool') lastToolIdx = i;
@@ -447,6 +574,8 @@ function renderSegments(
   const answerSegs = segments.slice(lastToolIdx + 1);
   const stepCount = procSegs.filter((s) => s.type === 'tool').length;
   const running = procSegs.some((s) => s.type === 'tool' && s.call.status === 'running');
+  // 生成的大图单独提到「处理过程」下方常显(可放大+下载)；处理过程里 generate_image 仅是紧凑步骤卡。
+  const genUrls = collectGeneratedUrls(procSegs);
 
   const out: ReactNode[] = [
     <ToolProcessGroup
@@ -462,6 +591,8 @@ function renderSegments(
     </ToolProcessGroup>,
   ];
   out.push(...renderLinear(answerSegs, status, lastToolIdx + 1));
+  // 大图放在模型最终文字「下面」(用户要求：文字在上、图在下)。
+  if (genUrls.length) out.push(<GeneratedImages key="genimg" urls={genUrls} />);
   return out;
 }
 

@@ -17,6 +17,8 @@ export interface RunStreamHandlers {
   onCodeOutput?: (c: CodeOutputEvent) => void;
   onFileStatus?: (f: FileStatusEvent) => void;
   onArtifact?: (a: ArtifactRef) => void;
+  /** 生成汇总帧，携带后端权威耗时（秒）；用于显示真实端到端耗时。 */
+  onSummary?: (s: { elapsedSeconds?: number }) => void;
   onError?: (err: Error) => void;
   /** 生成终止（服务端写入终止帧、流正常结束）；网络抖动不会触发它（会自动重连）。 */
   onDone?: () => void;
@@ -61,6 +63,11 @@ function dispatch(event: string, data: string, h: RunStreamHandlers) {
       case 'artifact':
         h.onArtifact?.(JSON.parse(data) as ArtifactRef);
         break;
+      case 'summary': {
+        const p = JSON.parse(data) as { elapsed_seconds?: number };
+        h.onSummary?.({ elapsedSeconds: p.elapsed_seconds });
+        break;
+      }
       case 'error': {
         const p = JSON.parse(data) as { message?: string };
         h.onError?.(new Error(p.message ?? 'SSE 错误'));
