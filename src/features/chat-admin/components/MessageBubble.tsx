@@ -113,8 +113,8 @@ function ToolStepCard({ tc }: { tc: ToolCallView }) {
                 marginTop: 8,
               }}
             >
-              {imgOut.urls.map((url, i) => (
-                <Image key={i} src={url} width="100%" style={{ borderRadius: 8 }} />
+              {imgOut.urls.map((url) => (
+                <Image key={url} src={url} width="100%" style={{ borderRadius: 8 }} />
               ))}
             </div>
           </Image.PreviewGroup>
