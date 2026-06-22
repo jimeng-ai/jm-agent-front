@@ -22,7 +22,7 @@ import dayjs from 'dayjs';
 import Markdown from '@/components/Markdown';
 import CitationReferences from './CitationReferences';
 import AttachmentThumb from './AttachmentThumb';
-import { downloadArtifact, fetchArtifactBlob } from '@/api/agentFiles';
+import { downloadArtifact, fetchArtifactBlob, fetchGenImageBlob } from '@/api/agentFiles';
 import { glyphColor } from '@/utils/glyph';
 import {
   inferStepKind,
@@ -87,12 +87,22 @@ function statusIcon(status: ToolCallView['status']) {
   return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
 }
 
-/** 下载图片 URL：优先 fetch blob 触发下载；跨域被 CORS 拦时退化为新标签打开供右键保存。 */
+/** 生成图片 URL 是否为后端鉴权回传路径(/data/...)：需带鉴权头 fetch；老历史里可能是已失效的 presigned http URL。 */
+function isBackendImageUrl(url: string): boolean {
+  return url.startsWith('/data/');
+}
+
+/** 下载图片 URL：后端路径带鉴权头取 blob；老 http presigned 直接 fetch。失败时退化为新标签打开(仅老 URL 有意义)。 */
 async function downloadImageUrl(url: string) {
   try {
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(String(resp.status));
-    const blob = await resp.blob();
+    let blob: Blob;
+    if (isBackendImageUrl(url)) {
+      blob = await fetchGenImageBlob(url);
+    } else {
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(String(resp.status));
+      blob = await resp.blob();
+    }
     const obj = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = obj;
@@ -102,7 +112,7 @@ async function downloadImageUrl(url: string) {
     a.remove();
     URL.revokeObjectURL(obj);
   } catch {
-    window.open(url, '_blank', 'noopener');
+    if (!isBackendImageUrl(url)) window.open(url, '_blank', 'noopener');
   }
 }
 
@@ -130,6 +140,80 @@ function collectGeneratedUrls(segs: MessageSegment[]): string[] {
   return urls;
 }
 
+/**
+ * 取生成图片的可渲染 src：后端鉴权路径(/data/...)走 fetch-blob→objectURL（裸 <img src> 取不到，
+ * 端点经网关需鉴权头）；老历史里的 http presigned URL 直接用(尽力而为，可能已失效/内网不可达)。
+ * 组件卸载时回收 objectURL。
+ */
+function useGenImageSrc(url: string): { src?: string; err: boolean } {
+  const backend = isBackendImageUrl(url);
+  const [src, setSrc] = useState<string | undefined>(backend ? undefined : url);
+  const [err, setErr] = useState(false);
+  useEffect(() => {
+    if (!backend) {
+      setSrc(url);
+      return;
+    }
+    let cancelled = false;
+    let obj: string | undefined;
+    fetchGenImageBlob(url)
+      .then((blob) => {
+        if (cancelled) return;
+        obj = URL.createObjectURL(blob);
+        setSrc(obj);
+      })
+      .catch(() => !cancelled && setErr(true));
+    return () => {
+      cancelled = true;
+      if (obj) URL.revokeObjectURL(obj);
+    };
+  }, [url, backend]);
+  return { src, err };
+}
+
+/** 单张生成大图：鉴权 blob 渲染 + 点击放大 + 右下角下载按钮；加载中转圈、失败占位。 */
+function GenImage({ url }: { url: string }) {
+  const { src, err } = useGenImageSrc(url);
+  return (
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      {src ? (
+        // antd Image 点击即放大预览；下载按钮 stopPropagation 不触发预览
+        <Image
+          src={src}
+          style={{ maxWidth: 320, maxHeight: 320, borderRadius: 8, display: 'block' }}
+        />
+      ) : (
+        <div
+          style={{
+            width: 320,
+            height: 200,
+            borderRadius: 8,
+            background: '#f5f5f5',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--text-3)',
+            fontSize: 13,
+          }}
+        >
+          {err ? '图片加载失败' : <Spin />}
+        </div>
+      )}
+      <Button
+        size="small"
+        icon={<DownloadOutlined />}
+        onClick={(e) => {
+          e.stopPropagation();
+          void downloadImageUrl(url);
+        }}
+        style={{ position: 'absolute', right: 6, bottom: 6, opacity: 0.92 }}
+      >
+        下载
+      </Button>
+    </div>
+  );
+}
+
 /** 显眼大图：放在「处理过程」下方常显，点击放大预览 + 每张带下载按钮。 */
 function GeneratedImages({ urls }: { urls: string[] }) {
   if (!urls.length) return null;
@@ -138,24 +222,7 @@ function GeneratedImages({ urls }: { urls: string[] }) {
       <Image.PreviewGroup>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {urls.map((url) => (
-            <div key={url} style={{ position: 'relative', display: 'inline-block' }}>
-              {/* antd Image 点击即放大预览；下载按钮 stopPropagation 不触发预览 */}
-              <Image
-                src={url}
-                style={{ maxWidth: 320, maxHeight: 320, borderRadius: 8, display: 'block' }}
-              />
-              <Button
-                size="small"
-                icon={<DownloadOutlined />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void downloadImageUrl(url);
-                }}
-                style={{ position: 'absolute', right: 6, bottom: 6, opacity: 0.92 }}
-              >
-                下载
-              </Button>
-            </div>
+            <GenImage key={url} url={url} />
           ))}
         </div>
       </Image.PreviewGroup>
