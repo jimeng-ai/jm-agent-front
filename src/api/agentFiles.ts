@@ -39,6 +39,22 @@ export async function resolveAttachmentUrl(att: {
   return URL.createObjectURL(blob);
 }
 
+/**
+ * 取 generate_image 生成图片的内容 → Blob。
+ * 入参是后端鉴权流式端点的相对路径（形如 `/data/ai/image/genimg-<uuid>.png`，已含 /data 前缀），
+ * 该端点经网关需要 Authorization / X-Tenant-Id 头，所以不能用裸 <img src>，必须 fetch 取 blob 再渲染。
+ */
+export async function fetchGenImageBlob(path: string): Promise<Blob> {
+  const { token, tenantId } = useAuthStore.getState();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = token;
+  if (tenantId) headers['X-Tenant-Id'] = tenantId;
+  // path 已含 /data 前缀，直接 fetch；不要再拼 baseURL（会重复成 /data/data/...）。
+  const resp = await fetch(path, { headers });
+  if (!resp.ok) throw new Error(`图片加载失败 HTTP ${resp.status}`);
+  return resp.blob();
+}
+
 /** 取产物内容 → Blob（与下载同端点同鉴权）。用于图片类产物的内联预览/放大，不能用裸 <img src>。 */
 export async function fetchArtifactBlob(artifactId: string | number): Promise<Blob> {
   const { token, tenantId } = useAuthStore.getState();
