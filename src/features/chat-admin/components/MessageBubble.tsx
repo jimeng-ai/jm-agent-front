@@ -709,7 +709,7 @@ export default function MessageBubble({ message, agentName, agentAvatar }: Props
                 }}
               >
                 {message.attachments.map((a, i) => (
-                  <AttachmentThumb key={`${a.fileId}-${i}`} item={a} />
+                  <AttachmentThumb key={`${a.fileId}-${i}`} item={a} downloadable />
                 ))}
               </div>
             )}

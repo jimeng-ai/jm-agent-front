@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Modal, Spin, Empty, Button, Tabs } from 'antd';
-import { resolveAttachmentUrl, fetchAgentFileBlob } from '@/api/agentFiles';
+import { Modal, Spin, Empty, Button, Tabs, message } from 'antd';
+import { DownloadOutlined } from '@ant-design/icons';
+import {
+  resolveAttachmentUrl,
+  fetchAgentFileBlob,
+  downloadAgentFile,
+  triggerBlobDownload,
+} from '@/api/agentFiles';
 import { decodeText } from '@/utils/textDecode';
 import type { ChatAttachment } from '@/features/chat-admin/types';
 
@@ -81,11 +87,31 @@ export default function FilePreviewModal({
     };
   }, [item, kind]);
 
+  // 下载：会话内本地上传的文件已有 blob URL，直接取免再走网络；否则按 fileId 经鉴权端点取流下载。
+  const handleDownload = async () => {
+    try {
+      if (item.url) {
+        triggerBlobDownload(await (await fetch(item.url)).blob(), item.filename);
+      } else {
+        await downloadAgentFile(item.fileId, item.filename);
+      }
+    } catch {
+      message.error('下载失败');
+    }
+  };
+
   return (
     <Modal
       open
       title={item.filename}
-      footer={null}
+      footer={[
+        <Button key="download" icon={<DownloadOutlined />} onClick={handleDownload}>
+          下载
+        </Button>,
+        <Button key="close" type="primary" onClick={onClose}>
+          关闭
+        </Button>,
+      ]}
       onCancel={onClose}
       width={kind === 'sheet' || kind === 'pdf' ? '90%' : 860}
       style={{ top: 24 }}
