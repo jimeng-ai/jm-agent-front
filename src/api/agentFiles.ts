@@ -66,6 +66,18 @@ export async function fetchArtifactBlob(artifactId: string | number): Promise<Bl
   return resp.blob();
 }
 
+/** blob → 触发浏览器下载（objectURL + <a download> + 清理）。供经网关鉴权取流后强制下载复用。 */
+export function triggerBlobDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 /**
  * 下载产物。产物下载端点经网关，需要带 Authorization / X-Tenant-Id 头，
  * 所以不能用裸 <a href>，这里用 fetch 取 blob 再触发下载（与 sse.ts 同套鉴权）。
@@ -80,13 +92,15 @@ export async function downloadArtifact(
   if (tenantId) headers['X-Tenant-Id'] = tenantId;
   const resp = await fetch(`${baseURL}/agent/artifacts/${artifactId}/download`, { headers });
   if (!resp.ok) throw new Error(`下载失败 HTTP ${resp.status}`);
-  const blob = await resp.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename || `artifact-${artifactId}`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  triggerBlobDownload(await resp.blob(), filename || `artifact-${artifactId}`);
+}
+
+/**
+ * 下载对话中上传的输入文件。下载端点（/data/agent/files/{fileId}）经网关需带
+ * Authorization / X-Tenant-Id 头，不能用裸 <a href>；复用 fetchAgentFileBlob 取 blob，
+ * 再用 triggerBlobDownload 强制存盘（端点是 inline disposition，靠 <a download> 强制下载）。
+ */
+export async function downloadAgentFile(fileId: string | number, filename?: string): Promise<void> {
+  const blob = await fetchAgentFileBlob(fileId);
+  triggerBlobDownload(blob, filename || `file-${fileId}`);
 }
