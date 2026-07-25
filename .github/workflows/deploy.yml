@@ -40,9 +40,17 @@ jobs:
           printf '{}' > "$DC/config.json"
           echo "DOCKER_CONFIG=$DC" >> "$GITHUB_ENV"
 
+      # --memory 是安全围栏，不是优化：这台机器就是 prod，Docker VM 只有 7.75G 且常驻容器
+      # （ds-data-server 1.2G、ds-elasticsearch 1G、ds-nacos 850M…）已吃掉大半。构建一旦把内存
+      # 打爆，Linux OOM killer 按 RSS 挑人杀——目前构建进程最大所以死的是它自己，但那是概率不是
+      # 保证，哪次后端容器正好涨上去，被杀的就是 prod。加了 cgroup 上限后超限只会杀构建自己。
+      # memory-swap 设成与 memory 相同 = 不给构建 swap（VM 的 1G swap 长期用满，再挤会全局 thrash）。
+      # 注意：本 step 的 DOCKER_CONFIG 是干净目录，buildx 插件不会被发现，走的是 legacy builder，
+      # --memory 才生效；BuildKit/buildx 会忽略该 flag。
       - name: Build image
         run: |
           docker build \
+            --memory=2048m --memory-swap=2048m \
             -t "$IMAGE:latest" \
             -t "$IMAGE:${{ github.sha }}" \
             .
