@@ -2,7 +2,10 @@
 # 否则 Dockerfile 的 `COPY . .` 会用宿主(darwin-arm64)的 node_modules 覆盖容器内
 # `npm install` 装好的 linux 原生包(esbuild/rollup),导致构建非确定性失败。
 node_modules
-dist
+# 注意：dist 是【故意】不忽略的。CI 在宿主机构建出 dist，再用 Dockerfile.dist 把它装进
+# nginx（Docker VM 内存跑不动 vite build，原因见 Dockerfile.dist 顶部注释）。
+# 对根目录那个多阶段 Dockerfile 无影响：它的 builder 阶段会自己 npm run build，
+# 且 vite 默认 emptyOutDir 会先清空 dist，不会留下宿主机带进去的旧产物。
 dist-ssr
 .git
 *.log

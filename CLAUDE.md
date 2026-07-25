@@ -61,7 +61,11 @@ The chat-admin SSE event protocol (`src/features/chat-admin/api.ts` `streamAnswe
 `/login` · `/console/{dashboard,agents,agents/:id,plugins,plugins/:id,knowledge,knowledge/:kbId,playground/:agentId?}` (admin console) · `/chat`, `/chat/agent/:agentId`, `/chat/c/:conversationId` (end-user). All non-login routes wrapped in `ProtectedRoute`; console + chat modules also wrapped in `ModuleRoute`. Pages are `lazy()`-loaded.
 
 ## Deploy / SSE-sensitive serving
-Built into an nginx image (`Dockerfile`). Two nginx configs, selected by `ARG NGINX_CONF`:
+Served from an nginx image. **Two build paths, and CI uses the second one:**
+- `Dockerfile` — self-contained multi-stage (npm install + vite build inside the image). For machines with spare memory / deploying elsewhere. **Do not add a `NODE_OPTIONS` heap cap here** — it only papers over one host's shortage and turns otherwise-fine builds into `JavaScript heap out of memory`.
+- `Dockerfile.dist` — **what CI actually uses.** Assembly only: copies a `dist/` that the workflow already built natively on the runner host. The prod Mac's Docker VM (7.75G, mostly consumed by `ds-*` containers, ~1.6G available) cannot fit `vite build`'s ≥1.5G peak; there is no heap-cap/`--memory` combination that both succeeds and stays under the VM's headroom. Building on the host sidesteps it — macOS compresses memory instead of OOM-killing, so a build can never take down a prod container. `dist` is deliberately **not** in `.dockerignore` because of this.
+
+Both paths pick an nginx config via `ARG NGINX_CONF`:
 - `nginx.deploy.conf` (default) — backend at the **production** gateway `host.docker.internal:20011` (single-host / local Mac; published 20011→container 10011, host 10011 left for the local IDE so the deployed front-end never hits your dev backend)
 - `nginx.conf` — backend at `data-service-gateway:8080` (docker-compose network)
 

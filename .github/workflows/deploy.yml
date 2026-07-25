@@ -28,6 +28,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ---- 前端构建跑在宿主机原生环境，【不】进 Docker ----
+      # 这台机器就是 prod：Docker VM 只有 7.75G，ds-data-server(1.2G)/ds-elasticsearch(1G)/
+      # ds-nacos(850M) 等常驻容器占掉大半，available 长期只剩 ~1.6G；而引入 mermaid 后
+      # vite build 峰值需要 ≥1.5G。实测四组参数都过不去：
+      #   堆1536+围栏2048m → 全局 OOM(围栏比余量还高，压根没触发)，node 在 1.40G 被杀
+      #   堆1024+围栏1280m → V8 干净报 heap out of memory，1024 确实不够
+      #   堆1280+围栏1500m → cgroup 在 1.30G 杀掉，仍不够
+      #   堆1536(临时停 kibana 腾到 2.1G) → 唯一成功的一次
+      # 即"构建能成功"和"围栏低于余量、不连累 prod"这两个区间没有交集。而宿主机有 16G，
+      # 且 macOS 是内存压缩而不是 OOM killer 挑进程杀，不会误伤 prod 容器。
+      # 于是 Docker 这边只剩把 dist 装进 nginx(Dockerfile.dist)，内存开销可忽略。
+      # 不加 cache: npm —— 依赖走 .npmrc 里的 npmmirror，装一次只要几秒，
+      # 而 Actions 缓存要跟 GitHub 传输，在这里反而更慢。
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Build front (on host)
+        run: |
+          npm ci
+          npm run build
+
       # macOS 自托管 Runner 跑在 launchd 后台会话里，默认 ~/.docker/config.json 的
       # credsStore=desktop 会去访问登录钥匙串；无人交互时报 "keychain cannot be accessed"，
       # 连 docker build 拉公共基础镜像（node/nginx）都会失败。这里指向一个干净的 DOCKER_CONFIG
@@ -40,17 +63,11 @@ jobs:
           printf '{}' > "$DC/config.json"
           echo "DOCKER_CONFIG=$DC" >> "$GITHUB_ENV"
 
-      # --memory 是安全围栏，不是优化：这台机器就是 prod，Docker VM 只有 7.75G 且常驻容器
-      # （ds-data-server 1.2G、ds-elasticsearch 1G、ds-nacos 850M…）已吃掉大半。构建一旦把内存
-      # 打爆，Linux OOM killer 按 RSS 挑人杀——目前构建进程最大所以死的是它自己，但那是概率不是
-      # 保证，哪次后端容器正好涨上去，被杀的就是 prod。加了 cgroup 上限后超限只会杀构建自己。
-      # memory-swap 设成与 memory 相同 = 不给构建 swap（VM 的 1G swap 长期用满，再挤会全局 thrash）。
-      # 注意：本 step 的 DOCKER_CONFIG 是干净目录，buildx 插件不会被发现，走的是 legacy builder，
-      # --memory 才生效；BuildKit/buildx 会忽略该 flag。
+      # 只做镜像组装：把上一步在宿主机产出的 dist 复制进 nginx。没有 vite、没有 node，
+      # 内存开销可忽略，因此不再需要 --memory 围栏（围栏是给会吃内存的构建准备的）。
       - name: Build image
         run: |
-          docker build \
-            --memory=2048m --memory-swap=2048m \
+          docker build -f Dockerfile.dist \
             -t "$IMAGE:latest" \
             -t "$IMAGE:${{ github.sha }}" \
             .

@@ -3,10 +3,12 @@ WORKDIR /app
 COPY package*.json .npmrc ./
 RUN npm install
 COPY . .
-# 压低 V8 堆上限。Node 默认按 VM 总内存(7.9G)推出 ~4G 堆，于是 vite build 一路涨到
-# 超过实际可用内存(~1.5G)才被 OOM killer 杀，而不是提前 GC。显式设上限让它主动回收。
-# 与 vite.config.ts 里关掉的 sourcemap 是同一件事的两半，改一个之前先看另一个的注释。
-ENV NODE_OPTIONS=--max-old-space-size=1536
+# 注意：CI 已【不再】走这个多阶段 Dockerfile —— 在本机 prod 的 Docker VM 里跑 vite build
+# 会被 OOM killer 打死（VM 7.75G，常驻容器占掉大半，可用 ~1.6G，构建峰值需 ≥1.5G）。
+# 线上部署用 Dockerfile.dist：宿主机原生构建出 dist，Docker 只负责装进 nginx。
+# 本文件保留给内存充足的机器 / 别处部署的「自洽构建」场景，产出的镜像与 Dockerfile.dist 等价。
+# 这里【不要】加 NODE_OPTIONS 堆上限：那是给内存不足的机器打的补丁，在正常机器上反而会
+# 让本可成功的构建报 "JavaScript heap out of memory"。
 RUN npm run build
 
 FROM nginx:1.27-alpine
