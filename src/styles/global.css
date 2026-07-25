@@ -1674,19 +1674,77 @@ img.chat-agent-glyph {
 /* --------------------------------------------------------------------------
    Mermaid 流程图（```mermaid 代码块由 components/Mermaid.tsx 渲染成 SVG）
    -------------------------------------------------------------------------- */
-.md-mermaid {
+.md-mermaid-wrap {
+  position: relative;
   margin: 0.6em 0;
-  padding: 12px;
   background: #fff;
   border: 1px solid #eceff3;
   border-radius: 8px;
+}
+.md-mermaid {
+  padding: 12px;
   /* 流程图常常比对话气泡宽：让它自己横向滚动，绝不能把气泡撑破 */
   overflow-x: auto;
+  /* 纵向用截断 + "展开全部"，不用滚动条：气泡内嵌套纵向滚动会把会话的滚动吃掉，
+     鼠标停在图上滚不动页面。max-height 与 Mermaid.tsx 的 COLLAPSED_MAX_H 必须一致。 */
+  overflow-y: hidden;
+  max-height: 480px;
   text-align: center;
+}
+.md-mermaid-wrap.is-expanded .md-mermaid {
+  max-height: none;
 }
 .md-mermaid svg {
   max-width: 100%;
   height: auto;
+}
+/* 工具条常驻但压低存在感，hover 时提亮：藏在 hover 里会让人根本不知道能复制 */
+.md-mermaid-bar {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 1;
+  display: flex;
+  gap: 2px;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+.md-mermaid-wrap:hover .md-mermaid-bar {
+  opacity: 1;
+}
+.md-mermaid-more {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 6px 0;
+  border: 0;
+  border-top: 1px solid #f0f0f0;
+  border-radius: 0 0 8px 8px;
+  background: #fff;
+  color: #1677ff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.md-mermaid-more:hover {
+  background: #fafafa;
+}
+/* 折叠时在按钮上方压一层白色渐变，暗示"下面还有"；展开后不需要 */
+.md-mermaid-more::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 48px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), #fff);
+  pointer-events: none;
+}
+.md-mermaid-wrap.is-expanded .md-mermaid-more::before {
+  display: none;
+}
+.md-mermaid-src {
+  margin: 0;
+  border-radius: 8px;
 }
 .md-mermaid-loading {
   margin: 0.6em 0;
@@ -1698,17 +1756,17 @@ img.chat-agent-glyph {
   text-align: center;
 }
 /* 流式输出中：图还没完整，先按源码展示并标明状态，避免"卡住了"的错觉 */
-.md-mermaid-streaming-tip,
-.md-mermaid-error-tip {
+.md-mermaid-streaming-tip {
   font-size: 12px;
   color: #8c8c8c;
   margin-bottom: 4px;
 }
 .md-mermaid-error-tip {
+  font-size: 12px;
   color: #d4380d;
+  padding: 8px 12px 0;
 }
-.md-mermaid-streaming pre,
-.md-mermaid-error pre {
+.md-mermaid-streaming pre {
   margin-top: 0;
 }
 
