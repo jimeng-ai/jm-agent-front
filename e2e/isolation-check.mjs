@@ -5,7 +5,14 @@ import crypto from 'node:crypto';
 import { chromium } from 'playwright';
 import { CONFIG, sel, shot } from './lib.mjs';
 
-const SECRET = 'tMCW+1T2rPPuxXpWoTaKV9x9R5qahBDz6lHHnx6nQG4=';
+// 密钥从环境变量读，绝不写进仓库：它能签发任意租户/任意用户的令牌，
+// 硬编码等于把后端鉴权的钥匙公开（后端已改为由配置提供，见 JwtSecretProvider）。
+// 用法：JWT_SECRET="$(取自 Nacos data-server.yml 的 jwt.secret)" node e2e/isolation-check.mjs
+const SECRET = process.env.JWT_SECRET;
+if (!SECRET) {
+  console.error('缺少环境变量 JWT_SECRET：该脚本要自签 JWT 免密码登录，需与后端 jwt.secret 同值。');
+  process.exit(1);
+}
 const b64url = (b) => Buffer.from(b).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 
 function mint(id, username, userType) {
