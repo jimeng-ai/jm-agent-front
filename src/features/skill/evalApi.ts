@@ -42,9 +42,19 @@ export interface SkillEvalCase {
   artifacts?: string[];
 }
 
+/** 评测目标：草稿会话 conversationId 与已发布 skillId 二选一（body 里只放非空的那个）。 */
+export interface SkillEvalTarget {
+  conversationId?: string;
+  skillId?: string;
+}
+
 export const skillEvalApi = {
-  // 只支持草稿评测：传当前构建器会话 id，不传 skillId。
-  start: (conversationId: string, mode: SkillEvalMode) =>
-    post<SkillEvalRun>('/skills/eval/runs', { conversationId, mode }),
+  // 两种来源二选一：构建器草稿传 conversationId，已发布 skill 传 skillId；只发非空那个。
+  start: (target: SkillEvalTarget, mode: SkillEvalMode) => {
+    const body: SkillEvalTarget & { mode: SkillEvalMode } = { mode };
+    if (target.conversationId) body.conversationId = target.conversationId;
+    if (target.skillId) body.skillId = target.skillId;
+    return post<SkillEvalRun>('/skills/eval/runs', body);
+  },
   get: (runId: string) => get<SkillEvalRun>(`/skills/eval/runs/${runId}`),
 };

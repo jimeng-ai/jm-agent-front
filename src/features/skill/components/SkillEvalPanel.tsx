@@ -118,13 +118,22 @@ function CaseList({ cases }: { cases: SkillEvalCase[] }) {
   );
 }
 
-export default function SkillEvalPanel({ conversationId }: { conversationId?: string }) {
+export default function SkillEvalPanel({
+  conversationId,
+  skillId,
+}: {
+  conversationId?: string;
+  skillId?: string;
+}) {
   const { message } = App.useApp();
   const [mode, setMode] = useState<SkillEvalMode>('RECALL');
   const [runId, setRunId] = useState<string>();
 
+  // 两种来源恰好给一个：跑评测时把非空的那个传给后端（二选一）。
+  const canRun = !!conversationId || !!skillId;
+
   const startMut = useMutation({
-    mutationFn: () => skillEvalApi.start(conversationId!, mode),
+    mutationFn: () => skillEvalApi.start({ conversationId, skillId }, mode),
     onSuccess: (run) => setRunId(String(run.id)),
     onError: (e: Error) => message.error(e.message),
   });
@@ -166,7 +175,7 @@ export default function SkillEvalPanel({ conversationId }: { conversationId?: st
             type="primary"
             icon={<ExperimentOutlined />}
             loading={startMut.isPending}
-            disabled={!conversationId}
+            disabled={!canRun}
             onClick={() => startMut.mutate()}
           >
             跑评测
@@ -174,7 +183,7 @@ export default function SkillEvalPanel({ conversationId }: { conversationId?: st
         </Space>
       </div>
 
-      {!conversationId && (
+      {!canRun && (
         <Text type="secondary" style={{ fontSize: 13 }}>
           开始构建后可对草稿跑评测。
         </Text>

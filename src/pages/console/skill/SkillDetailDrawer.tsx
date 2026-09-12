@@ -6,6 +6,7 @@ import { skillApi } from '@/features/skill/api';
 import SkillTheme from '@/features/skill/SkillTheme';
 import { SOURCE_LABEL } from '@/features/skill/skillMeta';
 import Markdown from '@/components/Markdown';
+import SkillEvalPanel from '@/features/skill/components/SkillEvalPanel';
 import SkillDetailHeader from './components/SkillDetailHeader';
 import FileTabsViewer from './components/FileTabsViewer';
 import './skill.css';
@@ -162,6 +163,10 @@ export default function SkillDetailDrawer({ id, onClose }: Props) {
                 <FileTabsViewer files={files} />
               </div>
             )}
+
+            {/* 评测:对已发布 skill 跑评测(skillId 二选一分支)。
+                该 skill 无 evals/evals.json 时后端回业务错误,由面板 onError 直接 message.error 展示。 */}
+            <SkillEvalPanel skillId={data.id} />
           </>
         ) : null}
       </SkillTheme>
