@@ -31,7 +31,6 @@ import {
   DEFAULT_MAX_TEMP,
   DEFAULT_SYSTEM_PROMPT,
 } from '@/features/agent/constants';
-import PluginBindPanel from '@/features/agent/components/PluginBindPanel';
 import KnowledgeBindPanel from '@/features/agent/components/KnowledgeBindPanel';
 import PromptSplitEditor from '@/features/agent/components/PromptSplitEditor';
 import AvatarUpload from '@/features/agent/components/AvatarUpload';
@@ -303,15 +302,6 @@ export default function AgentEditorPage() {
                   <Form.Item label="Max Tokens" name={['modelParams', 'maxTokens']}>
                     <InputNumber min={256} max={32768} step={256} style={{ width: 200 }} />
                   </Form.Item>
-                </Card>
-              ),
-            },
-            {
-              key: 'plugins',
-              label: '插件绑定',
-              children: (
-                <Card>
-                  <PluginBindPanel agentId={id} />
                 </Card>
               ),
             },

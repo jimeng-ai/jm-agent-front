@@ -3,7 +3,6 @@ import { DatePicker, Modal } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useQuery } from '@tanstack/react-query';
 import { agentApi } from '@/features/agent/api';
-import { pluginApi } from '@/features/plugin/api';
 import { kbApi } from '@/features/knowledge/api';
 import { dashboardApi } from '@/features/dashboard/api';
 import { AreaChart, BarChart, PieChart, Sparkline } from '@/components/atlas/Charts';
@@ -107,7 +106,6 @@ export default function DashboardPage() {
     queryFn: () => dashboardApi.overview({ start, end }),
   });
   const agentQ = useQuery({ queryKey: ['dashboard', 'agents'], queryFn: () => agentApi.list() });
-  const pluginQ = useQuery({ queryKey: ['dashboard', 'plugins'], queryFn: () => pluginApi.list() });
   const kbQ = useQuery({ queryKey: ['dashboard', 'kbs'], queryFn: () => kbApi.list() });
 
   const data = overviewQ.data;
@@ -115,7 +113,6 @@ export default function DashboardPage() {
   const prev = data?.previous;
 
   const agentCount = agentQ.data?.length ?? 0;
-  const pluginCount = pluginQ.data?.length ?? 0;
   const kbCount = kbQ.data?.length ?? 0;
 
   const { labels, tokenChart, callChart, tokenSpark, callSpark } = useMemo(() => {
@@ -243,9 +240,7 @@ export default function DashboardPage() {
             <span className="unit">个</span>
           </div>
           <div className="foot">
-            <span style={{ color: 'var(--text-2)' }}>
-              知识库 {kbCount} · 插件 {pluginCount}
-            </span>
+            <span style={{ color: 'var(--text-2)' }}>知识库 {kbCount}</span>
           </div>
         </div>
 

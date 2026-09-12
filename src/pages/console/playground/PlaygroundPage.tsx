@@ -15,22 +15,17 @@ export default function PlaygroundPage() {
     queryFn: () => agentApi.list(),
   });
 
-  // 选中 Agent 后拉详情 + 绑定插件：用于把空状态对齐到对话页的 hero（头像/自我介绍/能力胶囊/预设问题）。
+  // 选中 Agent 后拉详情：用于把空状态对齐到对话页的 hero（头像/自我介绍/能力胶囊/预设问题）。
   // 调试台用实时草稿配置（preview），detail 返回的就是草稿态，正好。
   const agentQuery = useQuery({
     queryKey: ['agent', 'detail', agentId],
     queryFn: () => agentApi.detail(agentId as string),
     enabled: !!agentId,
   });
-  const pluginsQuery = useQuery({
-    queryKey: ['agent', 'plugins', agentId],
-    queryFn: () => agentApi.listPlugins(agentId as string),
-    enabled: !!agentId,
-  });
 
   const agent = agentQuery.data;
   const kbCount = parseKbCount(agent?.kbConfig);
-  const toolCount = pluginsQuery.data?.length ?? 0;
+  const toolCount = 0;
 
   // 知识库不再手动挂载：Agent 已绑定的知识库由后端按 agentId 自动启用（RagSkillToolExecutor
   // 在无显式 kb_id 时回退 agent.getKbIds()）。调试台保持与对话端一致。

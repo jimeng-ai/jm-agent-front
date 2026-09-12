@@ -10,7 +10,6 @@ export interface BuilderDraft {
   systemPrompt?: string;
   model?: string;
   modelParams?: Record<string, unknown>;
-  recommendedPluginIds?: Array<number | string>;
   recommendedKbIds?: Array<number | string>;
 }
 
@@ -42,7 +41,6 @@ export const builderApi = {
     conversationId: string,
     payload: {
       draft: BuilderDraft;
-      pluginIds?: number[];
       kbIds?: number[];
       topK?: number;
       scoreThreshold?: number;

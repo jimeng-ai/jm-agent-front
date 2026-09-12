@@ -6,7 +6,6 @@ import type { GlobalSearchResult, SearchItem } from '../types';
 const EMPTY: GlobalSearchResult = {
   agents: [],
   documents: [],
-  plugins: [],
   skills: [],
   traces: [],
 };
@@ -32,12 +31,11 @@ export function useGlobalSearch(input: string, enabled: boolean) {
 
   const data = active ? (query.data ?? EMPTY) : EMPTY;
 
-  // 拍平成有序列表：Agent → 文档 → 插件 → 技能 → Trace，键盘上下在其间移动。
+  // 拍平成有序列表：Agent → 文档 → 技能 → Trace，键盘上下在其间移动。
   const items = useMemo<SearchItem[]>(() => {
     const list: SearchItem[] = [];
     data.agents.forEach((hit) => list.push({ kind: 'agent', hit }));
     data.documents.forEach((hit) => list.push({ kind: 'document', hit }));
-    data.plugins.forEach((hit) => list.push({ kind: 'plugin', hit }));
     data.skills.forEach((hit) => list.push({ kind: 'skill', hit }));
     data.traces.forEach((hit) => list.push({ kind: 'trace', hit }));
     return list;

@@ -3,14 +3,7 @@ import { Modal, Input, Spin, Tag } from 'antd';
 import type { InputRef } from 'antd';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
-import {
-  AgentIcon,
-  BookIcon,
-  ListIcon,
-  PlugIcon,
-  SearchIcon,
-  SkillIcon,
-} from '@/components/icons/AtlasIcons';
+import { AgentIcon, BookIcon, ListIcon, SearchIcon, SkillIcon } from '@/components/icons/AtlasIcons';
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import type { SearchItem } from '../types';
 
@@ -62,7 +55,6 @@ export default function CommandPalette({ open, onClose }: Props) {
   const go = (item: SearchItem) => {
     if (item.kind === 'agent') navigate(`/console/agents/${item.hit.id}`);
     else if (item.kind === 'document') navigate(`/console/knowledge/${item.hit.kbId}`);
-    else if (item.kind === 'plugin') navigate(`/console/plugins/${item.hit.id}`);
     else if (item.kind === 'skill')
       navigate(`/console/skills?skillId=${encodeURIComponent(item.hit.id)}`);
     else navigate(`/console/traces?traceId=${encodeURIComponent(item.hit.traceId)}`);
@@ -93,11 +85,9 @@ export default function CommandPalette({ open, onClose }: Props) {
           ? `a:${it.hit.id}`
           : it.kind === 'document'
             ? `d:${it.hit.id}`
-            : it.kind === 'plugin'
-              ? `p:${it.hit.id}`
-              : it.kind === 'skill'
-                ? `s:${it.hit.id}`
-                : `t:${it.hit.traceId}`;
+            : it.kind === 'skill'
+              ? `s:${it.hit.id}`
+              : `t:${it.hit.traceId}`;
       map.set(key, i);
     });
     return map;
@@ -143,7 +133,7 @@ export default function CommandPalette({ open, onClose }: Props) {
         <Input
           ref={inputRef}
           variant="borderless"
-          placeholder="搜索 Agent、文档、插件、技能、Trace…"
+          placeholder="搜索 Agent、文档、技能、Trace…"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={onKeyDown}
@@ -153,7 +143,7 @@ export default function CommandPalette({ open, onClose }: Props) {
 
       <div className="cmd-body">
         {idle ? (
-          <div className="cmd-hint">输入关键词搜索 Agent、文档、插件、技能或调用日志</div>
+          <div className="cmd-hint">输入关键词搜索 Agent、文档、技能或调用日志</div>
         ) : loading ? (
           <div className="cmd-hint">
             <Spin size="small" /> <span style={{ marginLeft: 8 }}>搜索中…</span>
@@ -192,26 +182,6 @@ export default function CommandPalette({ open, onClose }: Props) {
                       {d.kbName ? <span className="cmd-row__sub">{d.kbName}</span> : null}
                     </>,
                     d.sourceType ? <Tag>{d.sourceType.toUpperCase()}</Tag> : null,
-                  ),
-                )}
-              </div>
-            )}
-
-            {data.plugins.length > 0 && (
-              <div className="cmd-group">
-                <div className="cmd-group__title">插件</div>
-                {data.plugins.map((p) =>
-                  renderRow(
-                    `p:${p.id}`,
-                    indexOf.get(`p:${p.id}`) ?? 0,
-                    <PlugIcon size={16} />,
-                    <>
-                      <span className="cmd-row__title">{p.name}</span>
-                      {p.description ? <span className="cmd-row__sub">{p.description}</span> : null}
-                    </>,
-                    <Tag color={p.status === 'PUBLISHED' ? 'green' : 'default'}>
-                      {p.status === 'PUBLISHED' ? '已发布' : '草稿'}
-                    </Tag>,
                   ),
                 )}
               </div>

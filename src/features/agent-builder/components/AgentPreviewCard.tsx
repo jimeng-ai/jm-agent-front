@@ -1,7 +1,6 @@
 import { Button, Card, Checkbox, Form, Input, Select, Space, Tag, Typography } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { getModelCatalog } from '@/features/agent/api';
-import { pluginApi } from '@/features/plugin/api';
 import { kbApi } from '@/features/knowledge/api';
 import type { BuilderDraft } from '../api';
 
@@ -11,31 +10,16 @@ interface Props {
   draft: BuilderDraft;
   /** 用户在预览里手改字段（受控）。 */
   onChange: (patch: Partial<BuilderDraft>) => void;
-  selectedPluginIds: number[];
   selectedKbIds: number[];
-  onPluginToggle: (ids: number[]) => void;
   onKbToggle: (ids: number[]) => void;
   onCreate: () => void;
   creating: boolean;
 }
 
 export default function AgentPreviewCard(props: Props) {
-  const {
-    draft,
-    onChange,
-    selectedPluginIds,
-    selectedKbIds,
-    onPluginToggle,
-    onKbToggle,
-    onCreate,
-    creating,
-  } = props;
+  const { draft, onChange, selectedKbIds, onKbToggle, onCreate, creating } = props;
 
   const modelsQuery = useQuery({ queryKey: ['models', 'catalog'], queryFn: getModelCatalog });
-  const pluginsQuery = useQuery({
-    queryKey: ['plugin', 'list', 'PUBLISHED'],
-    queryFn: () => pluginApi.list('PUBLISHED'),
-  });
   const kbsQuery = useQuery({ queryKey: ['kb', 'list'], queryFn: () => kbApi.list() });
 
   const canCreate = !!draft.name?.trim() && !!draft.systemPrompt?.trim();
@@ -90,13 +74,6 @@ export default function AgentPreviewCard(props: Props) {
           </Form.Item>
         )}
 
-        <Form.Item label="推荐插件（勾选后将绑定）">
-          <Checkbox.Group
-            value={selectedPluginIds}
-            onChange={(v) => onPluginToggle(v as number[])}
-            options={(pluginsQuery.data ?? []).map((p) => ({ label: p.name, value: Number(p.id) }))}
-          />
-        </Form.Item>
         <Form.Item label="推荐知识库（勾选后将绑定）">
           <Checkbox.Group
             value={selectedKbIds}

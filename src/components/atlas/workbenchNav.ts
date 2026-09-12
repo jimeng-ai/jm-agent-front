@@ -2,7 +2,6 @@ import {
   DashboardIcon,
   AgentIcon,
   BookIcon,
-  PlugIcon,
   PlayIcon,
   SparklesIcon,
   ListIcon,
@@ -36,13 +35,6 @@ export const WORKBENCH_NAV: NavItem[] = [
     path: '/console/knowledge',
     Icon: BookIcon,
     module: 'KB_MODULE',
-  },
-  {
-    key: 'plugins',
-    label: '插件',
-    path: '/console/plugins',
-    Icon: PlugIcon,
-    module: 'PLUGIN_MODULE',
   },
   {
     key: 'skills',

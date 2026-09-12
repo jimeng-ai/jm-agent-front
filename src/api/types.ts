@@ -66,7 +66,6 @@ export interface MePermissions {
   modules: string[];
   agentIds: string[];
   knowledgeBaseIds: string[];
-  pluginIds: string[];
 }
 
 export interface Agent extends BaseEntity {
@@ -96,69 +95,7 @@ export interface Agent extends BaseEntity {
   hasUnpublishedChanges?: boolean;
 }
 
-export type PluginAuthType =
-  | 'NONE'
-  | 'BEARER'
-  | 'BASIC'
-  | 'API_KEY'
-  | 'HMAC'
-  | 'OAUTH2'
-  | 'TOKEN_FETCH';
-
-export interface Plugin extends BaseEntity {
-  code: string;
-  name: string;
-  description?: string;
-  icon?: string;
-  /** 插件版本（自由文本，无自动 bump）；编辑页头部展示。 */
-  version?: string;
-  baseUrl?: string;
-  authType?: PluginAuthType;
-  authConfig?: string;
-  status: EntityStatus;
-  /** 动作（工具）数量；非持久化，列表接口回填。 */
-  toolCount?: number;
-  /** 被多少个 Agent 引用；非持久化，列表接口回填。 */
-  refAgentCount?: number;
-}
-
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
-
-export interface PluginHttpMapping {
-  id?: string;
-  pluginToolId?: string;
-  method: HttpMethod;
-  urlTemplate: string;
-  headersTemplate?: Record<string, string>;
-  /** Query 参数模板 {name: '{{input.name}}'} */
-  queryTemplate?: Record<string, string>;
-  bodyTemplate?: string;
-  /** 真实 Content-Type，如 application/json；为空表示不带 body */
-  bodyContentType?: string;
-  /** 响应抽取：多字段映射 JSON 数组字符串，或旧版单条 JSONPath */
-  responseExtract?: string;
-  responseMaxItems?: number;
-}
-
-export interface PluginTool {
-  id: string;
-  pluginId: string;
-  name: string;
-  /** 中文展示名（给人看；为空回退 name）。name 仍是英文函数名，供 LLM 调用/路由。 */
-  title?: string;
-  description?: string;
-  inputSchema?: Record<string, unknown>;
-  enabled: boolean;
-  mapping?: PluginHttpMapping;
-  /** HTTP 方法（列表接口回填，来自 http 映射）；GET→READ，其余→WRITE。 */
-  method?: string;
-}
-
-export interface PluginCredential {
-  id: string;
-  pluginId: string;
-  credentialJson?: Record<string, unknown>;
-}
 
 /** 知识库索引状态汇总（由后端按文档状态聚合）。 */
 export type KbIndexStatus = 'READY' | 'INDEXING' | 'ERROR';

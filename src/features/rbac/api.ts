@@ -1,7 +1,7 @@
 import { get, put } from '@/api/client';
 
 /** 可分享的资源类型，对应后端 ResourceType 实例类型。 */
-export type ShareResourceType = 'AGENT' | 'PLUGIN' | 'KNOWLEDGE_BASE';
+export type ShareResourceType = 'AGENT' | 'KNOWLEDGE_BASE';
 
 /** 角色 = 部门。 */
 export interface RbacRole {

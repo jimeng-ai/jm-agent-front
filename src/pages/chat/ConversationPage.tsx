@@ -57,13 +57,6 @@ export default function ConversationPage() {
     enabled: !!agentId,
   });
 
-  // 空状态能力胶囊「N 个工具」：拉绑定的插件数量（react-query 缓存，切会话不重复请求）。
-  const pluginsQ = useQuery({
-    queryKey: ['agent', 'plugins', agentId],
-    queryFn: () => agentApi.listPlugins(agentId as string),
-    enabled: !!agentId,
-  });
-
   // 持久化所需的会话 id：已有会话直接用 URL；新会话首条消息时懒创建。
   const convIdRef = useRef<string | null>(conversationId);
   const createPromiseRef = useRef<Promise<string> | null>(null);
@@ -116,7 +109,7 @@ export default function ConversationPage() {
 
   const agent = agentQ.data;
   const kbCount = parseKbCount(agent.kbConfig);
-  const toolCount = pluginsQ.data?.length ?? 0;
+  const toolCount = 0;
   const rawMessages = detailQ.data?.messages ?? [];
   const initialMessages = rawMessages.map(toChatMessage);
   // 进入会话时若最后一条助手消息仍在生成 → 把它的 runId 交给 ChatPanel 重连续播。

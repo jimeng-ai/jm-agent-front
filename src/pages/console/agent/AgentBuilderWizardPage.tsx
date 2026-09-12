@@ -101,7 +101,6 @@ export default function AgentBuilderWizardPage() {
   const [conversationId, setConversationId] = useState<string>();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState<BuilderDraft>({});
-  const [selectedPluginIds, setSelectedPluginIds] = useState<number[]>([]);
   const [selectedKbIds, setSelectedKbIds] = useState<number[]>([]);
   const [input, setInput] = useState('');
   const att = useAttachments();
@@ -163,7 +162,6 @@ export default function AgentBuilderWizardPage() {
 
   const applyDraft = (d: BuilderDraft) => {
     setDraft(d);
-    if (d.recommendedPluginIds) setSelectedPluginIds(d.recommendedPluginIds.map(Number));
     if (d.recommendedKbIds) setSelectedKbIds(d.recommendedKbIds.map(Number));
   };
 
@@ -270,7 +268,6 @@ export default function AgentBuilderWizardPage() {
     mutationFn: () =>
       builderApi.finalize(conversationId!, {
         draft,
-        pluginIds: selectedPluginIds,
         kbIds: selectedKbIds,
       }),
     onSuccess: (r) => {
@@ -461,9 +458,7 @@ export default function AgentBuilderWizardPage() {
           <AgentPreviewCard
             draft={draft}
             onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))}
-            selectedPluginIds={selectedPluginIds}
             selectedKbIds={selectedKbIds}
-            onPluginToggle={setSelectedPluginIds}
             onKbToggle={setSelectedKbIds}
             onCreate={() => createMut.mutate()}
             creating={createMut.isPending}

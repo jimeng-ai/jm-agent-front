@@ -46,15 +46,6 @@ export const BookIcon = makeIcon(
   </>,
 );
 
-export const PlugIcon = makeIcon(
-  <>
-    <path d="M9 2v4" />
-    <path d="M15 2v4" />
-    <path d="M7 6h10v6a5 5 0 0 1-10 0Z" />
-    <path d="M12 17v5" />
-  </>,
-);
-
 export const PlayIcon = makeIcon(<path d="M6 4l13 8-13 8Z" />);
 
 export const SparklesIcon = makeIcon(

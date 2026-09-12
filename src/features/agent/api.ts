@@ -1,16 +1,9 @@
 import { del, get, post, put } from '@/api/client';
 import type { Agent, EntityStatus } from '@/api/types';
 
-/** GET /agents/{id}/plugins 返回的是「绑定关系行」(AgentPlugin)，不是 Plugin 本身 */
-export interface AgentPluginBinding {
-  id: string;
-  agentId: string;
-  pluginId: string;
-}
-
 /**
  * 后端 presetQuestions 列是 json，实体字段为 String，故 wire 上是 JSON 数组字符串。
- * 在 API 边界双向转换（同 plugin/api.ts 的做法）：读时 string → string[]，写时 string[] → string。
+ * 在 API 边界双向转换：读时 string → string[]，写时 string[] → string。
  */
 type AgentWire = Omit<Agent, 'presetQuestions'> & { presetQuestions?: string | string[] };
 
@@ -62,12 +55,6 @@ export const agentApi = {
   delete: (id: string) => del<void>(`/admin/agent/agents/${id}`),
   publish: (id: string) => post<AgentWire>(`/admin/agent/agents/${id}/publish`).then(fromWire),
   unpublish: (id: string) => post<AgentWire>(`/admin/agent/agents/${id}/unpublish`).then(fromWire),
-
-  listPlugins: (id: string) => get<AgentPluginBinding[]>(`/admin/agent/agents/${id}/plugins`),
-  bindPlugin: (id: string, pluginId: string) =>
-    post<void>(`/admin/agent/agents/${id}/plugins`, { pluginId }),
-  unbindPlugin: (id: string, pluginId: string) =>
-    del<void>(`/admin/agent/agents/${id}/plugins/${pluginId}`),
 };
 
 /** GET /data/admin/models 返回项；与调试台模型下拉 option 结构一致（value/label + maxTemp）。 */
