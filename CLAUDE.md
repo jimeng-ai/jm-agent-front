@@ -23,7 +23,7 @@ No test runner is configured. `npm run dev` already points at the backend gatewa
 
 ### Layering
 - `src/api/` — transport: axios client, raw-fetch SSE, shared types. **All other code calls features' `api.ts`, never axios/fetch directly.**
-- `src/features/<domain>/` — business logic per domain (`auth`, `agent`, `plugin`, `knowledge`, `chat-admin`, `dashboard`). Each owns its `api.ts`, `types.ts`, `components/`, `hooks/`, `utils/`. This is where real work happens.
+- `src/features/<domain>/` — business logic per domain (`auth`, `agent`, `skill`, `connection`, `knowledge`, `chat-admin`, `search`, `rbac`, `dashboard`). Each owns its `api.ts`, `types.ts`, `components/`, `hooks/`, `utils/`. This is where real work happens.
 - `src/pages/` — thin route shells that compose feature components.
 - `src/layouts/`, `src/router/`, `src/stores/` — chrome, routing, global auth state.
 - Path alias `@` → `src` (configured in both `vite.config.ts` and `tsconfig.json`).
@@ -52,13 +52,16 @@ The chat-admin SSE event protocol (`src/features/chat-admin/api.ts` `streamAnswe
 `useSSE` (`src/features/chat-admin/hooks/`) assembles these into **ordered `MessageSegment[]`** (`text` | `tool`) so the UI renders narration → tool call → answer in true interleaved order. Segments are persisted on the message so a page refresh restores the tool-call process (falls back to plain `content` when absent). Text deltas are batched via `requestAnimationFrame`.
 
 ### Module-level permissions
-`MePermissions` (`GET /admin/me/permissions`) drives access. `ModuleRoute` (`src/router/ModuleRoute.tsx`) gates each console route by module key (`AGENT_MODULE`, `PLUGIN_MODULE`, `KB_MODULE`, `CHAT_MODULE`); super-admins bypass. It shares the `['me','permissions']` react-query cache with the sidebar and is **fail-open** (allows on fetch error — backend is the real gate). This is defense-in-depth, not the security boundary.
+`MePermissions` (`GET /admin/me/permissions`) drives access. `ModuleRoute` (`src/router/ModuleRoute.tsx`) gates each console route by module key (`AGENT_MODULE`, `KB_MODULE`, `CHAT_MODULE` — that is the full list; `PLUGIN_MODULE` went away with the plugin subsystem); super-admins bypass. Routes that aren't module-gated (`skills`, `connections`, `traces`) either need only a session or do their own check — `/console/connections` is super-admin-only and gates itself on `perm.superAdmin` rather than a module key. It shares the `['me','permissions']` react-query cache with the sidebar and is **fail-open** (allows on fetch error — backend is the real gate). This is defense-in-depth, not the security boundary.
 
-### Plugin wire ⇄ model conversion
-`src/features/plugin/api.ts` does **bidirectional transformation at the API edge.** Backend `ToolWithMapping` DTO sends `inputSchema`/`headersTemplate`/`queryTemplate` as **JSON-encoded strings**; the front-end works with objects + enums. Sending objects directly makes Jackson throw `HttpMessageNotReadableException`. Keep new plugin fields flowing through these converters.
+### The plugin subsystem is gone
+`src/features/plugin/`, the plugin pages/routes/nav, `MePermissions.pluginIds`, the global-search `PluginHit` and the agent↔plugin binding were all removed when the backend dropped plugins. Skills replaced them: bind via **`/console/agents/:id` → 技能绑定** (`SkillBindPanel`, backed by `/admin/agent/agents/{id}/skills`). Anything still mentioning plugins is stale — the trace views keep `PLUGIN_TRIGGER` labels **on purpose**, only to render historical trace rows.
+
+### Wire ⇄ model conversion at the API edge
+Several backend DTOs send structured fields as **JSON-encoded strings** (e.g. `Connection.allowPaths` is a JSON array *string*, `allowMethods` is comma-separated). Each `features/<domain>/api.ts` converts at the edge so components work with real arrays/objects. Sending objects where the backend expects a string (or vice-versa) makes Jackson throw `HttpMessageNotReadableException`. Keep new fields flowing through these converters.
 
 ## Routing map (`src/router/index.tsx`)
-`/login` · `/console/{dashboard,agents,agents/:id,plugins,plugins/:id,knowledge,knowledge/:kbId,playground/:agentId?}` (admin console) · `/chat`, `/chat/agent/:agentId`, `/chat/c/:conversationId` (end-user). All non-login routes wrapped in `ProtectedRoute`; console + chat modules also wrapped in `ModuleRoute`. Pages are `lazy()`-loaded.
+`/login` · `/console/{dashboard,agents,agents/new,agents/:id,knowledge,knowledge/:kbId,playground/:agentId?,skills,skill/builder,connections,traces,feedback}` (admin console) · `/chat`, `/chat/agent/:agentId`, `/chat/c/:conversationId` (end-user). All non-login routes wrapped in `ProtectedRoute`; only the module-gated ones (agents / knowledge / chat) are additionally wrapped in `ModuleRoute`. Pages are `lazy()`-loaded.
 
 ## Deploy / SSE-sensitive serving
 Served from an nginx image. **Two build paths, and CI uses the second one:**
@@ -73,4 +76,5 @@ Both paths pick an nginx config via `ARG NGINX_CONF`:
 
 ## Conventions
 - ESLint is strict (`--max-warnings 0`); `@typescript-eslint/no-explicit-any` is intentionally off. Run `npm run lint` before considering work done.
-- Comments in this codebase are in Chinese and frequently explain backend contracts/gotchas — read them before changing interceptors, auth, or plugin conversion.
+- Comments in this codebase are in Chinese and frequently explain backend contracts/gotchas — read them before changing interceptors, auth, or the wire⇄model converters.
+- `e2e/isolation-check.mjs` mints JWTs itself to switch identity without passwords; it reads the signing key from **`JWT_SECRET`** (must match the backend's `jwt.secret` in Nacos) and refuses to run without it. Never hardcode that key — it can sign a token for any tenant and any user.
