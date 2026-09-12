@@ -18,6 +18,7 @@ const TraceListPage = lazy(() => import('@/pages/console/trace/TraceListPage'));
 const FeedbackPage = lazy(() => import('@/pages/console/feedback/FeedbackPage'));
 const SkillListPage = lazy(() => import('@/pages/console/skill/SkillListPage'));
 const SkillBuilderPage = lazy(() => import('@/pages/console/skill/SkillBuilderPage'));
+const ConnectionListPage = lazy(() => import('@/pages/console/connection/ConnectionListPage'));
 const ChatHomePage = lazy(() => import('@/pages/chat/ChatHomePage'));
 const ChatConversationPage = lazy(() => import('@/pages/chat/ConversationPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
@@ -102,6 +103,8 @@ export default function AppRouter() {
           {/* 技能管理：登录态即可访问，不受模块限制 */}
           <Route path="skills" element={<SkillListPage />} />
           <Route path="skill/builder" element={<SkillBuilderPage />} />
+          {/* 外部连接：不套 ModuleRoute，页面内部已做超管门控 */}
+          <Route path="connections" element={<ConnectionListPage />} />
         </Route>
 
         <Route

@@ -1,6 +1,13 @@
 import { del, get, post, put } from '@/api/client';
 import type { Agent, EntityStatus } from '@/api/types';
 
+/** GET /agents/{id}/skills 返回的是「绑定关系行」(AgentSkill)，不是 Skill 本身。id 均为字符串。 */
+export interface AgentSkillBinding {
+  id: string;
+  agentId: string;
+  skillId: string;
+}
+
 /**
  * 后端 presetQuestions 列是 json，实体字段为 String，故 wire 上是 JSON 数组字符串。
  * 在 API 边界双向转换：读时 string → string[]，写时 string[] → string。
@@ -55,6 +62,13 @@ export const agentApi = {
   delete: (id: string) => del<void>(`/admin/agent/agents/${id}`),
   publish: (id: string) => post<AgentWire>(`/admin/agent/agents/${id}/publish`).then(fromWire),
   unpublish: (id: string) => post<AgentWire>(`/admin/agent/agents/${id}/unpublish`).then(fromWire),
+
+  // 技能绑定：后端返回绑定关系行(AgentSkill)，绑定/解绑均幂等，skillId 为字符串。
+  listSkills: (id: string) => get<AgentSkillBinding[]>(`/admin/agent/agents/${id}/skills`),
+  bindSkill: (id: string, skillId: string) =>
+    post<void>(`/admin/agent/agents/${id}/skills`, { skillId }),
+  unbindSkill: (id: string, skillId: string) =>
+    del<void>(`/admin/agent/agents/${id}/skills/${skillId}`),
 };
 
 /** GET /data/admin/models 返回项；与调试台模型下拉 option 结构一致（value/label + maxTemp）。 */

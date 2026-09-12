@@ -32,6 +32,7 @@ import {
   DEFAULT_SYSTEM_PROMPT,
 } from '@/features/agent/constants';
 import KnowledgeBindPanel from '@/features/agent/components/KnowledgeBindPanel';
+import SkillBindPanel from '@/features/agent/components/SkillBindPanel';
 import PromptSplitEditor from '@/features/agent/components/PromptSplitEditor';
 import AvatarUpload from '@/features/agent/components/AvatarUpload';
 
@@ -315,6 +316,15 @@ export default function AgentEditorPage() {
                     绑定后，与该 Agent
                     对话时会自动在所选知识库中检索并基于命中内容作答（带引用）；不绑定则为纯人设对话。保存后生效。
                   </Typography.Text>
+                </Card>
+              ),
+            },
+            {
+              key: 'skills',
+              label: '技能绑定',
+              children: (
+                <Card>
+                  <SkillBindPanel agentId={id} />
                 </Card>
               ),
             },

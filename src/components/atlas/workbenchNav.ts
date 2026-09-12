@@ -7,6 +7,7 @@ import {
   ListIcon,
   MessageIcon,
   SkillIcon,
+  PlugIcon,
 } from '@/components/icons/AtlasIcons';
 
 export type NavItem = {
@@ -41,6 +42,13 @@ export const WORKBENCH_NAV: NavItem[] = [
     label: '技能',
     path: '/console/skills',
     Icon: SkillIcon,
+  },
+  // 外部连接：不设 module，侧栏对超管本就可见；非超管点进去是空状态（可接受）。
+  {
+    key: 'connections',
+    label: '外部连接',
+    path: '/console/connections',
+    Icon: PlugIcon,
   },
 ];
 

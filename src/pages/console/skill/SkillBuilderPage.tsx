@@ -17,6 +17,7 @@ import {
   consumeSkillBuilderRun,
   type SkillDraft,
 } from '@/features/skill/builderApi';
+import SkillEvalPanel from '@/features/skill/components/SkillEvalPanel';
 import AttachmentThumb from '@/features/chat-admin/components/AttachmentThumb';
 import MessageBubble from '@/features/chat-admin/components/MessageBubble';
 import MessageComposer from '@/features/chat-admin/components/MessageComposer';
@@ -504,6 +505,7 @@ export default function SkillBuilderPage() {
           {/* 右侧内容 */}
           <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
             <SkillDraftPreview draft={draft} />
+            <SkillEvalPanel conversationId={conversationId} />
           </div>
         </div>
       </div>
