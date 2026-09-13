@@ -8,6 +8,7 @@ import type {
   ConnectorSchemaObject,
   ConnectorUpsert,
   ConnectorView,
+  ProbeOutcome,
   SchemaSnapshotResult,
 } from './types';
 
@@ -17,6 +18,15 @@ export const connectorApi = {
   list: () => get<ConnectorView[]>('/admin/connectors'),
   get: (id: string) => get<ConnectorView>(`/admin/connectors/${id}`),
   create: (payload: ConnectorUpsert) => post<ConnectorView>('/admin/connectors', payload),
+
+  /**
+   * 试连：按表单参数实际连一次，**不落库**。
+   *
+   * 跑的是和「创建并验证」同一套三步探测，所以这里过了创建就一定过。
+   * 编辑态要传 id，否则后端不知道「敏感参数留空 = 沿用原值」里的「原值」是谁的。
+   */
+  probe: (payload: ConnectorUpsert, id?: string) =>
+    post<ProbeOutcome>('/admin/connectors/probe', payload, id ? { params: { id } } : undefined),
   update: (id: string, payload: ConnectorUpsert) =>
     put<ConnectorView>(`/admin/connectors/${id}`, payload),
   /**

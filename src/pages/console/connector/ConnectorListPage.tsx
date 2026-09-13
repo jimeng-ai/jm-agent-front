@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  Alert,
   App,
   Badge,
   Button,
@@ -23,7 +24,12 @@ import { connectorApi } from '@/features/connector/api';
 import SchemaForm from '@/features/connector/components/SchemaForm';
 import ConnectorAuditDrawer from '@/features/connector/components/ConnectorAuditDrawer';
 import ConnectorSchemaDrawer from '@/features/connector/components/ConnectorSchemaDrawer';
-import type { ConnectorKind, ConnectorUpsert, ConnectorView } from '@/features/connector/types';
+import type {
+  ConnectorKind,
+  ConnectorUpsert,
+  ConnectorView,
+  ProbeOutcome,
+} from '@/features/connector/types';
 
 /**
  * 数据连接（连接器实例）管理。
@@ -67,6 +73,7 @@ export default function ConnectorListPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ConnectorView | null>(null);
   const [selectedKind, setSelectedKind] = useState<string | undefined>();
+  const [probeResult, setProbeResult] = useState<ProbeOutcome | null>(null);
   const [auditOf, setAuditOf] = useState<ConnectorView | null>(null);
   const [schemaOf, setSchemaOf] = useState<ConnectorView | null>(null);
 
@@ -95,6 +102,20 @@ export default function ConnectorListPage() {
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['connector', 'list'] });
+
+  /**
+   * 试连。不落库——跑的是和「创建并验证」同一套三步探测，所以这里过了创建就一定过。
+   *
+   * 结果就地渲染成 Alert 而不是 toast：配错时要边看原因边改表单，
+   * 一闪而过的 toast 等于让人凭记忆改。
+   */
+  const probeMut = useMutation({
+    mutationFn: (payload: ConnectorUpsert) => connectorApi.probe(payload, editing?.id),
+    onSuccess: (r) => setProbeResult(r),
+    // 接口层面的失败（参数没填全、没权限）也要让人看见，不能静默。
+    onError: (e: Error) =>
+      setProbeResult({ ok: false, failureReason: e.message, capabilities: [], readonlyVerified: false, readonlyUndetermined: false }),
+  });
 
   const createMut = useMutation({
     mutationFn: (payload: ConnectorUpsert) => connectorApi.create(payload),
@@ -156,11 +177,13 @@ export default function ConnectorListPage() {
     setOpen(false);
     setEditing(null);
     setSelectedKind(undefined);
+    setProbeResult(null);
     form.resetFields();
   };
 
   const openCreate = () => {
     setEditing(null);
+    setProbeResult(null);
     form.resetFields();
     const first = kinds[0]?.kind;
     setSelectedKind(first);
@@ -170,6 +193,7 @@ export default function ConnectorListPage() {
 
   const openEdit = (row: ConnectorView) => {
     setEditing(row);
+    setProbeResult(null);
     setSelectedKind(row.kind);
     form.setFieldsValue({
       name: row.name,
@@ -390,10 +414,44 @@ export default function ConnectorListPage() {
         open={open}
         width={640}
         onCancel={closeModal}
-        onOk={() => form.submit()}
-        confirmLoading={createMut.isPending || updateMut.isPending}
-        okText={editing ? '保存' : '创建并验证'}
         destroyOnClose
+        // 自定义 footer 只为把「测试连接」放进来：直接提交才知道对不对，
+        // 改一版就得再提交一版——验证该能从提交里拆出来单独跑。
+        footer={[
+          <Button
+            key="probe"
+            style={{ float: 'left' }}
+            loading={probeMut.isPending}
+            onClick={async () => {
+              try {
+                // 先过一遍前端校验：必填没填就去连，只会拿到一个含糊的后端报错。
+                const v = await form.validateFields();
+                setProbeResult(null);
+                probeMut.mutate({
+                  name: v.name,
+                  displayName: v.displayName,
+                  kind: v.kind,
+                  params: stripBlankSecrets(v.params ?? {}, activeKind),
+                });
+              } catch {
+                // validateFields 自己会把错误标在字段上，这里不用再提示一遍。
+              }
+            }}
+          >
+            测试连接
+          </Button>,
+          <Button key="cancel" onClick={closeModal}>
+            取消
+          </Button>,
+          <Button
+            key="ok"
+            type="primary"
+            loading={createMut.isPending || updateMut.isPending}
+            onClick={() => form.submit()}
+          >
+            {editing ? '保存' : '创建并验证'}
+          </Button>,
+        ]}
       >
         <Form form={form} layout="vertical" onFinish={onFinish} preserve={false}>
           <Form.Item
@@ -408,6 +466,8 @@ export default function ConnectorListPage() {
               options={kinds.map((k) => ({ label: k.displayName, value: k.kind }))}
               onChange={(v: string) => {
                 setSelectedKind(v);
+                // 换了类型，上一次的试连结果就不是在说这套参数了，留着会误导。
+                setProbeResult(null);
                 // 换类型时旧类型的参数全部作废——留着会被后端的「未知参数」校验拒掉。
                 form.setFieldsValue({ params: defaultsOf(kinds.find((k) => k.kind === v)) });
               }}
@@ -434,12 +494,56 @@ export default function ConnectorListPage() {
           </Form.Item>
 
           {activeKind && <SchemaForm fields={activeKind.fields} editing={!!editing} />}
+
+          {probeResult && <ProbeResultAlert result={probeResult} />}
         </Form>
       </Modal>
 
       <ConnectorAuditDrawer connector={auditOf} onClose={() => setAuditOf(null)} />
       <ConnectorSchemaDrawer connector={schemaOf} onClose={() => setSchemaOf(null)} />
     </div>
+  );
+}
+
+/**
+ * 试连结果。
+ *
+ * 成功时把【探到的能力】也列出来——它决定这条连接接进来之后 Agent 到底能干什么，
+ * 在保存前就该让人看见（比如账号读不了 information_schema 时「能自描述」会缺席）。
+ *
+ * 失败时把只读判定的三态区分开：「确认可写」要换账号，「判不出来」要去查账号权限，
+ * 两者都不予保存但动作不同，压成一句话等于替使用者做了判断。
+ */
+function ProbeResultAlert({ result }: { result: ProbeOutcome }) {
+  if (result.ok) {
+    return (
+      <Alert
+        type="success"
+        showIcon
+        message="连接正常，只读已验证"
+        description={
+          <>
+            探测到的能力：
+            <Space size={4} wrap style={{ marginLeft: 4 }}>
+              {result.capabilities.map((c) => (
+                <Tag key={c}>{CAP_LABEL[c] ?? c}</Tag>
+              ))}
+            </Space>
+            {result.readonlyDetail && (
+              <div style={{ marginTop: 4, color: '#999' }}>只读依据：{result.readonlyDetail}</div>
+            )}
+          </>
+        }
+      />
+    );
+  }
+  return (
+    <Alert
+      type="error"
+      showIcon
+      message={result.readonlyUndetermined ? '无法确认这个账号是只读的' : '连接测试未通过'}
+      description={result.failureReason}
+    />
   );
 }
 

@@ -171,3 +171,19 @@ export interface SchemaSnapshotResult {
   diffs: SchemaObjectDiff[];
   syncedAt?: string | null;
 }
+
+/**
+ * 试连结果。
+ *
+ * 只读判定刻意保留三态（已验证 / 确认可写 / 判不出来）而不是压成一个布尔：
+ * 三者对使用者意味着完全不同的动作（可以保存 / 换只读账号 / 去查账号权限），
+ * 压成布尔等于替使用者做了这个判断。
+ */
+export interface ProbeOutcome {
+  ok: boolean;
+  failureReason?: string | null;
+  capabilities: string[];
+  readonlyVerified: boolean;
+  readonlyUndetermined: boolean;
+  readonlyDetail?: string | null;
+}
