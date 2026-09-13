@@ -8,6 +8,7 @@ import {
   MessageIcon,
   SkillIcon,
   PlugIcon,
+  DatabaseIcon,
 } from '@/components/icons/AtlasIcons';
 
 export type NavItem = {
@@ -49,6 +50,14 @@ export const WORKBENCH_NAV: NavItem[] = [
     label: '外部连接',
     path: '/console/connections',
     Icon: PlugIcon,
+  },
+  // 数据连接（连接器）：与上面同源——两个入口读写同一张 connection 表，这个是类型感知的新入口。
+  // 同样不设 module，理由同上。
+  {
+    key: 'connectors',
+    label: '数据连接',
+    path: '/console/connectors',
+    Icon: DatabaseIcon,
   },
 ];
 
