@@ -181,6 +181,18 @@ export default function PendingWritePage() {
             {r.agentName ? ` · 来自 ${r.agentName}` : ''}
           </div>
           <pre style={MONO}>{r.statementText}</pre>
+          {/* ★ 范围是审批唯一真正要判断的东西，而光看 SQL 判不出来。
+              措辞必须说清它是【提交时】的预估：估算与执行之间隔着人的思考时间，数据会变。 */}
+          {r.estimatedRows !== null && r.estimatedRows !== undefined ? (
+            <div style={{ marginTop: 8 }}>
+              预计影响 <b>{String(r.estimatedRows)}</b> 行
+              <span style={{ color: '#999' }}>（提交时预估，执行时可能已变化）</span>
+            </div>
+          ) : (
+            <div style={{ marginTop: 8, color: '#d46b08' }}>
+              平台<b>未能预估</b>影响行数——请自行确认 WHERE 条件的命中范围
+            </div>
+          )}
           <div style={{ marginTop: 8, color: '#666' }}>
             执行结果平台无法撤销。请确认 WHERE 条件命中的行数在你的预期之内。
           </div>
@@ -377,8 +389,21 @@ export default function PendingWritePage() {
                 )}
                 {r.decidedBy && <span>处理人 {r.decidedBy}</span>}
                 {r.decidedAt && <span>处理时间 {fmtTime(r.decidedAt)}</span>}
+                {r.estimatedRows !== null && r.estimatedRows !== undefined && (
+                  <span>预估影响 {String(r.estimatedRows)} 行（提交时）</span>
+                )}
                 {r.affectedRows !== null && r.affectedRows !== undefined && (
-                  <span>影响行数 {String(r.affectedRows)}</span>
+                  <span>实际影响行数 {String(r.affectedRows)}</span>
+                )}
+                {/* trace_id 让人能顺着回到「模型当时为什么要写这一条」——
+                    只看一条 SQL 是判不出它该不该执行的。 */}
+                {r.traceId && (
+                  <span>
+                    来自对话{' '}
+                    <Typography.Text copyable={{ text: r.traceId }} style={{ fontSize: 12 }}>
+                      {r.traceId.slice(0, 8)}…
+                    </Typography.Text>
+                  </span>
                 )}
               </Space>
               {/* 执行失败的原因后端已脱敏，可以直接展示——不给原因，人只能去猜或者再批一次。 */}

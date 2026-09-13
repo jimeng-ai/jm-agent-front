@@ -271,6 +271,21 @@ export interface PendingWriteRow {
   status: PendingWriteStatus;
   /** 仅 APPROVED 后有值（真正执行掉的行数）。numbers-as-strings，渲染前 Number() 兜底。 */
   affectedRows?: number | string | null;
+  /**
+   * ★ 提交时**预估**的影响行数。**不是承诺**：估算在提交时、执行在批准时，中间数据会变。
+   *
+   * 它存在的理由：`affectedRows` 要执行完才有值，那时候批已经批完了。而审批的人
+   * 光看一条 SQL 判不出它命中 3 行还是 30 万行——这个数是他唯一的范围参考。
+   * 估不出来为空（INSERT ... SELECT、超时、方言不支持）。
+   */
+  estimatedRows?: number | string | null;
+  /**
+   * ★ 发起这次写请求的那轮对话的 trace_id。
+   *
+   * 只看一条 SQL 判不出它该不该执行——得知道「模型当时为什么要写这一条」。
+   * 有它才能顺着回到那段对话（调用日志 · Trace 页按 trace_id 查）。
+   */
+  traceId?: string | null;
   /** 后端已脱敏，可直接展示给客户。 */
   errorDetail?: string | null;
   decidedBy?: string | null;
