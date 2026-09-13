@@ -5,8 +5,10 @@ import type {
   ConnectorAuditRow,
   ConnectorKind,
   ConnectorStatus,
+  ConnectorSchemaObject,
   ConnectorUpsert,
   ConnectorView,
+  SchemaSnapshotResult,
 } from './types';
 
 export const connectorApi = {
@@ -35,4 +37,14 @@ export const connectorApi = {
    */
   audit: (q: ConnectorAuditQuery) =>
     get<PageResult<ConnectorAuditRow>>('/admin/connectors/audit', q as Record<string, unknown>),
+
+  /** 已缓存的结构快照。工具查的是实时结构，这里看的是上次快照——两者可能不同，界面要标出同步时间。 */
+  schema: (id: string) => get<ConnectorSchemaObject[]>(`/admin/connectors/${id}/schema`),
+
+  /**
+   * 重新拉取结构并与上次比对。返回里的 diffs 才是重点：
+   * 客户悄悄加了字段、删了表，挂在上面的业务口径就跟着失效，而这件事没有别的机制会发现。
+   * 注意它会对客户库发 1+N 次元数据查询，所以是手动触发的。
+   */
+  refreshSchema: (id: string) => post<SchemaSnapshotResult>(`/admin/connectors/${id}/schema/refresh`),
 };

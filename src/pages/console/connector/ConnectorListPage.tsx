@@ -22,6 +22,7 @@ import { authApi } from '@/features/auth/api';
 import { connectorApi } from '@/features/connector/api';
 import SchemaForm from '@/features/connector/components/SchemaForm';
 import ConnectorAuditDrawer from '@/features/connector/components/ConnectorAuditDrawer';
+import ConnectorSchemaDrawer from '@/features/connector/components/ConnectorSchemaDrawer';
 import type { ConnectorKind, ConnectorUpsert, ConnectorView } from '@/features/connector/types';
 
 /**
@@ -67,6 +68,7 @@ export default function ConnectorListPage() {
   const [editing, setEditing] = useState<ConnectorView | null>(null);
   const [selectedKind, setSelectedKind] = useState<string | undefined>();
   const [auditOf, setAuditOf] = useState<ConnectorView | null>(null);
+  const [schemaOf, setSchemaOf] = useState<ConnectorView | null>(null);
 
   // 超管门控：staleTime 必须与其它用到 ['me','permissions'] 的地方一致（全局默认是 30s，
   // 这里和 ModuleRoute / WorkbenchSidebar 一样显式写 60s），否则同 key 不同 staleTime 会多发请求。
@@ -308,12 +310,18 @@ export default function ConnectorListPage() {
     {
       title: '操作',
       key: 'action',
-      width: 310,
+      width: 360,
       render: (_: unknown, row) => (
         <Space size={4}>
           <Button type="link" size="small" onClick={() => setAuditOf(row)}>
             使用记录
           </Button>
+          {/* 只有具备自描述能力的连接器才有结构可看，没有的话给个按钮只会点了报错。 */}
+          {row.capabilities?.includes('DESCRIBE') && (
+            <Button type="link" size="small" onClick={() => setSchemaOf(row)}>
+              结构
+            </Button>
+          )}
           <Button
             type="link"
             size="small"
@@ -374,7 +382,7 @@ export default function ConnectorListPage() {
         loading={listQuery.isLoading}
         pagination={false}
         // 列宽合计 1100，1440 宽的屏正好放得下；更窄的屏走横向滚动而不是把每列压扁。
-        scroll={{ x: 1100 }}
+        scroll={{ x: 1150 }}
       />
 
       <Modal
@@ -430,6 +438,7 @@ export default function ConnectorListPage() {
       </Modal>
 
       <ConnectorAuditDrawer connector={auditOf} onClose={() => setAuditOf(null)} />
+      <ConnectorSchemaDrawer connector={schemaOf} onClose={() => setSchemaOf(null)} />
     </div>
   );
 }

@@ -132,3 +132,42 @@ export interface ConnectorAuditQuery {
   start?: string;
   end?: string;
 }
+
+// ---------------------------------------------------------------------------
+// 结构快照与漂移检测
+// ---------------------------------------------------------------------------
+
+/** 快照里的一个对象（表 / 视图 / 接口…）。后端已解析好 detail，前端不再解一遍。 */
+export interface ConnectorSchemaObject {
+  objectType: string;
+  objectName: string;
+  objectComment?: string | null;
+  fields: Array<{
+    name: string;
+    type: string;
+    nullable?: boolean;
+    comment?: string | null;
+    extra?: string | null;
+  }>;
+  /** 这个对象的结构没取到时的原因（权限只到部分表是常见情况）；正常为空。 */
+  error?: string | null;
+  syncedAt?: string | null;
+}
+
+/** 对象级变化。details 对 CHANGED 而言是列级差异的中文描述。 */
+export interface SchemaObjectDiff {
+  objectName: string;
+  change: 'ADDED' | 'REMOVED' | 'CHANGED';
+  details: string[];
+}
+
+export interface SchemaSnapshotResult {
+  objectCount: number | string;
+  totalObjects: number | string;
+  /** 对象数超过平台上限，本次只覆盖了一部分——这时「没有差异」不等于「真的没变」。 */
+  truncated: boolean;
+  /** 第一次快照，此时「全是新增」没有信息量，不该当成结构漂移报警。 */
+  firstSnapshot: boolean;
+  diffs: SchemaObjectDiff[];
+  syncedAt?: string | null;
+}
