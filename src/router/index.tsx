@@ -20,6 +20,7 @@ const SkillListPage = lazy(() => import('@/pages/console/skill/SkillListPage'));
 const SkillBuilderPage = lazy(() => import('@/pages/console/skill/SkillBuilderPage'));
 const ConnectionListPage = lazy(() => import('@/pages/console/connection/ConnectionListPage'));
 const ConnectorListPage = lazy(() => import('@/pages/console/connector/ConnectorListPage'));
+const PendingWritePage = lazy(() => import('@/pages/console/connector/PendingWritePage'));
 const ChatHomePage = lazy(() => import('@/pages/chat/ChatHomePage'));
 const ChatConversationPage = lazy(() => import('@/pages/chat/ConversationPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
@@ -107,6 +108,8 @@ export default function AppRouter() {
           {/* 外部连接：不套 ModuleRoute，页面内部已做超管门控 */}
           <Route path="connections" element={<ConnectionListPage />} />
           <Route path="connectors" element={<ConnectorListPage />} />
+          {/* 写操作审批：同样不套 ModuleRoute，页面内部已做超管门控 */}
+          <Route path="pending-writes" element={<PendingWritePage />} />
         </Route>
 
         <Route

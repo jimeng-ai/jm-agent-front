@@ -5,6 +5,7 @@ import {
   PlayIcon,
   SparklesIcon,
   ListIcon,
+  BellIcon,
   MessageIcon,
   SkillIcon,
   PlugIcon,
@@ -58,6 +59,14 @@ export const WORKBENCH_NAV: NavItem[] = [
     label: '数据连接',
     path: '/console/connectors',
     Icon: DatabaseIcon,
+  },
+  // 写操作审批：待办性质的入口，和「数据连接」同源但不是管连接，所以单列一项。
+  // 同样不设 module（超管本就可见），页面内部自己做超管门控。
+  {
+    key: 'pending-writes',
+    label: '写操作审批',
+    path: '/console/pending-writes',
+    Icon: BellIcon,
   },
 ];
 

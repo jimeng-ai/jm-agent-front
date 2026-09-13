@@ -8,6 +8,10 @@ import type {
   ConnectorSchemaObject,
   ConnectorUpsert,
   ConnectorView,
+  GrantScriptRequest,
+  GrantScriptResult,
+  PendingWriteQuery,
+  PendingWriteRow,
   ProbeOutcome,
   SchemaSnapshotResult,
 } from './types';
@@ -57,4 +61,41 @@ export const connectorApi = {
    * 注意它会对客户库发 1+N 次元数据查询，所以是手动触发的。
    */
   refreshSchema: (id: string) => post<SchemaSnapshotResult>(`/admin/connectors/${id}/schema/refresh`),
+};
+
+/**
+ * 写操作分级相关的接口。
+ *
+ * 单独成组而不是并进 `connectorApi`：这几个端点的语义和上面那批不是一回事——
+ * 上面是「管连接」，这里是「管一次具体的写动作能不能落地」，调用方（授权面板、审批页）
+ * 也和连接列表页完全不重叠。分开之后，谁在用写这条线一眼就看得出来。
+ */
+export const connectorWriteApi = {
+  /**
+   * 生成建账号 + 授权的命令。
+   *
+   * ★ 后端只是**生成一段文本**，平台从不拿着超级用户去客户库上执行它——
+   * 那需要客户先给出一个能建账号的账号，等于把问题倒过来。这段命令是给客户 DBA 复制去跑的。
+   */
+  grantScript: (payload: GrantScriptRequest) =>
+    post<GrantScriptResult>('/admin/connectors/grant-script', payload),
+
+  /** 写操作审批单。走 GET + query，筛选条件能放进 URL（分享一条待办链接就有意义了）。 */
+  pendingWrites: (q: PendingWriteQuery) =>
+    get<PageResult<PendingWriteRow>>(
+      '/admin/connectors/pending-writes',
+      q as Record<string, unknown>,
+    ),
+
+  /**
+   * 批准并**立即执行**。
+   *
+   * 返回的是决策后的那一行：注意它可能是 FAILED（批准了、但语句在客户库上跑挂了）。
+   * 接口本身返回 200 只代表「审批这件事处理完了」，不代表数据改成功——调用方要看 status。
+   */
+  approve: (id: string) => post<PendingWriteRow>(`/admin/connectors/pending-writes/${id}/approve`),
+
+  /** 拒绝。reason 必填：事后回看时「谁拒的」没有「为什么拒」值钱。 */
+  reject: (id: string, reason: string) =>
+    post<PendingWriteRow>(`/admin/connectors/pending-writes/${id}/reject`, { reason }),
 };

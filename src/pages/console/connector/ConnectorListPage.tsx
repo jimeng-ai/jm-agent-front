@@ -21,6 +21,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { PlusOutlined } from '@ant-design/icons';
 import { authApi } from '@/features/auth/api';
 import { connectorApi } from '@/features/connector/api';
+import GrantScriptPanel from '@/features/connector/components/GrantScriptPanel';
 import SchemaForm from '@/features/connector/components/SchemaForm';
 import ConnectorAuditDrawer from '@/features/connector/components/ConnectorAuditDrawer';
 import ConnectorSchemaDrawer from '@/features/connector/components/ConnectorSchemaDrawer';
@@ -54,7 +55,25 @@ interface FormValues {
   displayName?: string;
   kind: string;
   params: ParamValues;
+  /** 写策略。默认 FORBIDDEN（只读）——放开容易收紧难，默认值取最严的那个。 */
+  writePolicy: string;
 }
+
+/**
+ * 写策略三档。
+ *
+ * ★ 这是**平台侧的闸**，不是数据库侧的授权。两者必须一起配：选了「写自动」而数据库账号
+ * 只有 SELECT，写操作照样会失败（而且失败在客户库上，排查更绕）。弹窗里的「生成授权命令」
+ * 面板跟着这个值走，就是为了让两边在同一个动作里对齐。
+ *
+ * 措辞上刻意不用「读/写/改」——那是权限的说法，而这里配的是**平台放不放行**：
+ * 同一个可写账号，策略调成只读，平台就一条写语句都不会发出去。
+ */
+const WRITE_POLICY_OPTIONS = [
+  { value: 'FORBIDDEN', label: '只读 —— 平台拒绝一切写操作（推荐）' },
+  { value: 'REQUIRE_APPROVAL', label: '写需审批 —— 模型提交，超管在「写操作审批」页逐条批准后才执行' },
+  { value: 'AUTO', label: '写自动 —— 模型可直接改数据，仅受护栏与行数上限约束' },
+];
 
 const healthBadge = (row: ConnectorView) => {
   const status =
@@ -76,6 +95,14 @@ export default function ConnectorListPage() {
   const [probeResult, setProbeResult] = useState<ProbeOutcome | null>(null);
   const [auditOf, setAuditOf] = useState<ConnectorView | null>(null);
   const [schemaOf, setSchemaOf] = useState<ConnectorView | null>(null);
+
+  // 授权命令面板要跟着表单当前值走，所以用 useWatch 而不是读一次初值：
+  // 用户把策略从「只读」改成「写自动」之后，生成的命令必须立刻跟着变成带写权限的那版，
+  // 否则他会拿着一段只读授权去配一条允许写的连接——两边分叉，且分叉在客户那边才暴露。
+  const watchedPolicy = Form.useWatch('writePolicy', form);
+  // 库名是通用参数名，不是类型分支：没有这个参数的类型（如 HTTP）读出来就是 undefined，
+  // 而 HTTP 连接器本来也不提供授权脚本，面板会自己说明。这里不出现任何 if (kind === ...)。
+  const watchedDatabase = Form.useWatch(['params', 'database'], form) as string | undefined;
 
   // 超管门控：staleTime 必须与其它用到 ['me','permissions'] 的地方一致（全局默认是 30s，
   // 这里和 ModuleRoute / WorkbenchSidebar 一样显式写 60s），否则同 key 不同 staleTime 会多发请求。
@@ -184,10 +211,9 @@ export default function ConnectorListPage() {
   const openCreate = () => {
     setEditing(null);
     setProbeResult(null);
-    form.resetFields();
-    const first = kinds[0]?.kind;
-    setSelectedKind(first);
-    form.setFieldsValue({ kind: first, params: defaultsOf(kinds.find((k) => k.kind === first)) });
+    // 表单内容由下面的 initialFormValues 给（见 <Form initialValues> 处的注释）。
+    // 这里只管状态：selectedKind 决定渲染哪套参数字段。
+    setSelectedKind(kinds[0]?.kind);
     setOpen(true);
   };
 
@@ -195,20 +221,46 @@ export default function ConnectorListPage() {
     setEditing(row);
     setProbeResult(null);
     setSelectedKind(row.kind);
-    form.setFieldsValue({
-      name: row.name,
-      displayName: row.displayName ?? undefined,
-      kind: row.kind,
-      // 敏感参数后端不回传，所以这里天然是空的 —— 留空即沿用原值。
-      params: { ...(row.params as ParamValues) },
-    });
     setOpen(true);
   };
+
+  /**
+   * 弹窗里表单的初始值。
+   *
+   * ★ **必须走 initialValues，不能在 openCreate / openEdit 里 setFieldsValue**。
+   * Modal 带 `destroyOnClose`，弹窗关着的时候 `<Form>` 是卸载的，此时 `useForm` 拿到的实例
+   * 并没有连上任何 Form 元素——在它上面调 setFieldsValue 会被**静默丢弃**
+   * （antd 只在 dev 下警告一次，生产什么都不会发生）。而 openCreate / openEdit 恰恰是
+   * 在 `setOpen(true)` 之前调用的，于是：新建时默认值不生效、编辑时整张表单是空的，
+   * 两种都不报错。表单随弹窗每次重新挂载，所以放在 initialValues 里每次打开都会重新读。
+   */
+  const initialFormValues = useMemo<Partial<FormValues>>(() => {
+    if (editing) {
+      return {
+        name: editing.name,
+        displayName: editing.displayName ?? undefined,
+        kind: editing.kind,
+        // 后端认不出来的值已经在 WritePolicy.parse 里回落成 FORBIDDEN，这里不用再兜一次。
+        writePolicy: editing.writePolicy,
+        // 敏感参数后端不回传，所以这里天然是空的 —— 留空即沿用原值。
+        params: { ...(editing.params as ParamValues) },
+      };
+    }
+    const first = kinds[0]?.kind;
+    return {
+      kind: first,
+      // ★ 新建默认只读。这是产品上定下的默认值：绝大多数接入就该停在只读，
+      //   而「默认放开、由用户去收紧」这种默认值，现实里没人会回头收紧。
+      writePolicy: 'FORBIDDEN',
+      params: defaultsOf(kinds.find((k) => k.kind === first)),
+    };
+  }, [editing, kinds]);
 
   const onFinish = (v: FormValues) => {
     const payload: ConnectorUpsert = {
       name: v.name,
       displayName: v.displayName,
+      writePolicy: v.writePolicy,
       params: stripBlankSecrets(v.params ?? {}, activeKind),
     };
     if (editing) {
@@ -325,6 +377,22 @@ export default function ConnectorListPage() {
         ),
     },
     {
+      // 与「只读验证」分开：那一列说的是**账号实际能不能写**（探测出来的事实），
+      // 这一列说的是**平台放不放行**（配置）。两者可以不一致，而不一致恰恰是要看见的：
+      // 一个能写的账号配成「只读」是安全的；反过来则是配置错误，写操作到了客户库才会失败。
+      title: '写策略',
+      key: 'writePolicy',
+      width: 110,
+      render: (_: unknown, row) =>
+        row.writePolicy === 'FORBIDDEN' ? (
+          <Tag>{row.writePolicyLabel || '只读'}</Tag>
+        ) : (
+          <Tag color={row.writePolicy === 'AUTO' ? 'red' : 'orange'}>
+            {row.writePolicyLabel || row.writePolicy}
+          </Tag>
+        ),
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
@@ -405,8 +473,9 @@ export default function ConnectorListPage() {
         dataSource={listQuery.data ?? []}
         loading={listQuery.isLoading}
         pagination={false}
-        // 列宽合计 1100，1440 宽的屏正好放得下；更窄的屏走横向滚动而不是把每列压扁。
-        scroll={{ x: 1150 }}
+        // 列宽合计 1260（加了「写策略」一列）。更窄的屏走横向滚动而不是把每列压扁——
+        // 压扁的后果实测过：标题会竖排，操作列的按钮被裁掉一半。
+        scroll={{ x: 1280 }}
       />
 
       <Modal
@@ -431,6 +500,11 @@ export default function ConnectorListPage() {
                   name: v.name,
                   displayName: v.displayName,
                   kind: v.kind,
+                  // ★ 写策略必须一起传：探测里的只读校验是**按策略判**的——
+                  //   策略是只读时，一个能写的账号会被判为不合格；策略放开了写，同一个账号才算合格。
+                  //   漏传这个字段，选了「写自动」的用户会看到一条「这个账号能写，不允许接入」的拒绝，
+                  //   而那正是他要的配置。
+                  writePolicy: v.writePolicy,
                   params: stripBlankSecrets(v.params ?? {}, activeKind),
                 });
               } catch {
@@ -453,7 +527,13 @@ export default function ConnectorListPage() {
           </Button>,
         ]}
       >
-        <Form form={form} layout="vertical" onFinish={onFinish} preserve={false}>
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={onFinish}
+          preserve={false}
+          initialValues={initialFormValues}
+        >
           <Form.Item
             label="类型"
             name="kind"
@@ -494,6 +574,46 @@ export default function ConnectorListPage() {
           </Form.Item>
 
           {activeKind && <SchemaForm fields={activeKind.fields} editing={!!editing} />}
+
+          <Form.Item
+            label="写策略"
+            name="writePolicy"
+            rules={[{ required: true, message: '请选择写策略' }]}
+            extra="这是平台侧的闸。数据库账号本身的权限是另一回事——两者都要配，下面的「生成授权命令」会按这里选的档生成。"
+          >
+            <Select options={WRITE_POLICY_OPTIONS} />
+          </Form.Item>
+
+          {/* ★ 放开写之后，「只读验证」这道防线就不再成立，必须当场说清楚它换成了什么。
+              不写这段的话，用户只会看到一个选项变了，不会意识到防护模型整个换了一套。 */}
+          {watchedPolicy && watchedPolicy !== 'FORBIDDEN' && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="这条连接将允许修改客户数据"
+              description={
+                <>
+                  只读校验不再是接入门槛（能写的账号也能通过）。此后拦得住误操作的只剩：
+                  单条 DML、<b>UPDATE / DELETE 必须带 WHERE</b>、影响行数超上限整条回滚、
+                  以及禁用 DDL / TRUNCATE / REPLACE。
+                  {watchedPolicy === 'AUTO'
+                    ? ' 选「写自动」意味着模型不经任何人确认即可改数据，请只对确实需要的连接使用。'
+                    : ' 选「写需审批」时，模型只能提交，实际执行发生在超管点「批准」之后。'}
+                </>
+              }
+            />
+          )}
+
+          {/* 折叠面板，默认收起：绝大多数情况下客户已经有账号了，这块不该占版面。
+              放在参数之后，是因为它要用到上面填的库名。 */}
+          {activeKind && (
+            <GrantScriptPanel
+              kind={activeKind.kind}
+              database={watchedDatabase}
+              writePolicy={watchedPolicy ?? 'FORBIDDEN'}
+            />
+          )}
 
           {probeResult && <ProbeResultAlert result={probeResult} />}
         </Form>

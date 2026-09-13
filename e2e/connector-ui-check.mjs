@@ -50,14 +50,19 @@ try {
   await sleep(600);
 
   // ---- 使用记录抽屉 ----
-  await page.click('button:has-text("使用记录")');
+  // 钉到具名连接，不用「第一行」：列表按名字排序，新增一条连接就会把断言挪到别人身上。
+  // :text-is 是精确匹配——「demo-shop」不能顺带匹配到「demo-shop-rw」。
+  await page.click('.ant-table-row:has(div:text-is("demo-shop")) button:has-text("使用记录")');
   await sleep(2200);
   await page.screenshot({ path: shot('connector-audit-drawer.png') });
   const drawer = await page.textContent('.ant-drawer');
   check('抽屉打开', drawer.includes('使用记录'));
   check('审计行来自真实接口', drawer.includes('conn_query') || drawer.includes('conn_catalog'));
   check('Agent 名已解析（不是雪花 id）', drawer.includes('全能助手'));
-  check('失败行带错误码', drawer.includes('NOT_FOUND'));
+  // 断言「失败行带着九类错误码之一」，不写死某一个码：
+  // 这张表只增不减，钉死具体码等于把断言绑在某一次历史调用上。
+  const CODES = /UNREACHABLE|AUTH_FAILED|FORBIDDEN|NOT_FOUND|TIMEOUT|RATE_LIMITED|RESULT_TOO_LARGE|UPSTREAM_ERROR|CONFIG_ERROR/;
+  check('失败行带错误码', CODES.test(drawer));
 
   // 展开【有语句的那一行】。不能随便展开第一行——conn_catalog 本来就没有语句，
   // 那样的断言会因为「没东西可看」而空转通过。
@@ -85,10 +90,15 @@ try {
   // 只读表体，不读整个抽屉——顶部那段说明里就写着「查目录、看结构」之类的字样，
   // 拿整个抽屉的文本做「不包含」断言会被说明文案带偏。
   const tbody = await page.textContent('.ant-drawer .ant-table-tbody');
-  const rowCount = await page.$$eval('.ant-drawer .ant-table-tbody tr.ant-table-row', (rs) => rs.length);
+  // 断言不变量而不是固定条数：审计只增不减，「恰好 1 行」这种写法迟早会因为多跑了一次调用而假红。
+  // 真正要守的是：筛完之后剩下的每一行都是失败行，且每行都带错误码。
+  const statuses = await page.$$eval('.ant-drawer .ant-table-tbody tr.ant-table-row', (rs) =>
+    rs.map((r) => r.innerText),
+  );
+  const allFailed = statuses.length > 0 && statuses.every((t) => t.includes('失败'));
   check('「仅失败」筛选生效',
-        rowCount === 1 && tbody.includes('NOT_FOUND') && !tbody.includes('conn_catalog'),
-        `表体行数=${rowCount}`);
+        allFailed && CODES.test(tbody) && !/成功/.test(tbody),
+        `表体行数=${statuses.length}`);
 } catch (e) {
   console.log('  ✗ 异常中断:', e.message);
   await page.screenshot({ path: shot('connector-ui-error.png') }).catch(() => {});

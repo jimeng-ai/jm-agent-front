@@ -71,6 +71,13 @@ export interface ConnectorView {
   /** ★ 未通过只读验证的连接不该被当成安全的，列表里要显眼。 */
   readonlyVerified: boolean;
   readonlyVerifiedAt?: string | null;
+  /**
+   * 写操作策略。三态，后端 WritePolicy.parse() 认不出来的值一律回落 FORBIDDEN，
+   * 所以这里可以当成必有值用，前端不用再兜一遍底。
+   */
+  writePolicy: WritePolicy;
+  /** 策略的中文名（只读 / 写需审批 / 写自动）。直接展示，别在前端再维护一份枚举→文案的映射。 */
+  writePolicyLabel: string;
   createTime?: string | null;
 }
 
@@ -87,6 +94,11 @@ export interface ConnectorUpsert {
   kind?: string;
   params: Record<string, unknown>;
   transport?: string;
+  /**
+   * 写策略。**刻意是 string 而不是 WritePolicy**：它来自表单里的 Select，
+   * 收窄成联合类型只会逼着调用方到处 cast；真正的闸在后端（parse 不认识就回落 FORBIDDEN）。
+   */
+  writePolicy?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -186,4 +198,92 @@ export interface ProbeOutcome {
   readonlyVerified: boolean;
   readonlyUndetermined: boolean;
   readonlyDetail?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// 写操作分级：授权命令生成 + 写操作审批
+// ---------------------------------------------------------------------------
+
+/**
+ * 连接级的写策略。
+ *
+ * 刻意是三态而不是「允不允许写」一个布尔：中间那档（写需审批）才是这套东西存在的理由——
+ * 客户既不想把生产库交给模型自动写，也不想把写这件事整个砍掉。
+ * 压成布尔等于逼客户在「全禁」和「全放」之间二选一。
+ *
+ * 与后端 `WritePolicy` 枚举同名同值；后端 `parse()` 认不出来一律回落 FORBIDDEN（fail-closed）。
+ */
+export type WritePolicy = 'FORBIDDEN' | 'REQUIRE_APPROVAL' | 'AUTO';
+
+/**
+ * 生成授权命令的入参。
+ *
+ * `kind` 原样回传给后端：**由后端决定生成哪种数据库的语法**，前端一如既往不认识任何具体类型
+ * （这里若出现 `if (kind === 'MYSQL')`，「新增一种连接器类型前端零改动」就破了）。
+ */
+export interface GrantScriptRequest {
+  kind: string;
+  /** 连接参数里的库名。可能还没填，此时后端只能生成不带库名的骨架。 */
+  database?: string;
+  username: string;
+  /** MySQL 的 `user@host` 里的 host：`%` 表示任意来源。 */
+  host: string;
+  /** 空数组 = 整库授权；非空 = 只授这几张表。 */
+  tables: string[];
+  /** 写策略决定授权里给不给 INSERT/UPDATE/DELETE，所以必须一起传。 */
+  writePolicy: string;
+}
+
+/** 生成结果。`sql` 是给人复制去执行的，`notes` 是必须一起读的注意事项（比如密码要自己换）。 */
+export interface GrantScriptResult {
+  sql: string;
+  notes: string[];
+}
+
+/** 写操作的三种动作。DDL / TRUNCATE / REPLACE 在护栏那层就被挡掉了，不会出现在这里。 */
+export type WriteOperation = 'INSERT' | 'UPDATE' | 'DELETE';
+
+/**
+ * 审批单状态。
+ *
+ * 注意 APPROVED 与 FAILED 是**两件事**：批准之后语句还要真的在客户库上跑一次，
+ * 跑挂了落 FAILED。所以「批准接口返回 200」不等于「数据改成功了」——
+ * 审批页要看返回行的 status 再决定提示成功还是失败。
+ */
+export type PendingWriteStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'FAILED';
+
+/**
+ * 一条待审批（或已决策）的写操作。
+ *
+ * `statementText` 是**平台护栏改写后、将要真正打到客户库上的那一条**，不是模型写的原文。
+ * 审批看的必须是这一条：看原文批准、执行改写后的语句，等于没审。
+ */
+export interface PendingWriteRow {
+  id: string;
+  time: string;
+  connectorName: string;
+  agentId?: string | null;
+  /** Agent 已删除时为空——审批记录不随 Agent 消失。 */
+  agentName?: string | null;
+  operation: WriteOperation;
+  targetTable?: string | null;
+  statementText: string;
+  status: PendingWriteStatus;
+  /** 仅 APPROVED 后有值（真正执行掉的行数）。numbers-as-strings，渲染前 Number() 兜底。 */
+  affectedRows?: number | string | null;
+  /** 后端已脱敏，可直接展示给客户。 */
+  errorDetail?: string | null;
+  decidedBy?: string | null;
+  decidedAt?: string | null;
+  /** 过了这个点后端就不再放行（超时未审 = 不执行，fail-closed）。 */
+  expiresAt?: string | null;
+}
+
+export interface PendingWriteQuery {
+  page?: number;
+  size?: number;
+  connectorId?: string;
+  agentId?: string;
+  /** 不传 = 全部状态。审批页默认只传 PENDING。 */
+  status?: PendingWriteStatus;
 }
