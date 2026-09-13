@@ -33,6 +33,7 @@ import {
 } from '@/features/agent/constants';
 import KnowledgeBindPanel from '@/features/agent/components/KnowledgeBindPanel';
 import SkillBindPanel from '@/features/agent/components/SkillBindPanel';
+import ConnectorBindPanel from '@/features/agent/components/ConnectorBindPanel';
 import PromptSplitEditor from '@/features/agent/components/PromptSplitEditor';
 import AvatarUpload from '@/features/agent/components/AvatarUpload';
 
@@ -325,6 +326,15 @@ export default function AgentEditorPage() {
               children: (
                 <Card>
                   <SkillBindPanel agentId={id} />
+                </Card>
+              ),
+            },
+            {
+              key: 'connectors',
+              label: '数据连接授权',
+              children: (
+                <Card>
+                  <ConnectorBindPanel agentId={id} />
                 </Card>
               ),
             },

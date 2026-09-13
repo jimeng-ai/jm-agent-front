@@ -9,6 +9,19 @@ export interface AgentSkillBinding {
 }
 
 /**
+ * Agent ↔ 连接器授权行。后端返回的是关系行（AgentConnection），要取其中的 connectionId
+ * 才能和连接器列表的 id 对上——与 AgentSkillBinding 同构。
+ *
+ * 注意字段名是 connectionId 不是 connectorId：底层就是同一张 connection 表，
+ * 「连接器」只是它类型感知之后的说法。
+ */
+export interface AgentConnectionBinding {
+  id: string;
+  agentId: string;
+  connectionId: string;
+}
+
+/**
  * 后端 presetQuestions 列是 json，实体字段为 String，故 wire 上是 JSON 数组字符串。
  * 在 API 边界双向转换：读时 string → string[]，写时 string[] → string。
  */
@@ -69,6 +82,16 @@ export const agentApi = {
     post<void>(`/admin/agent/agents/${id}/skills`, { skillId }),
   unbindSkill: (id: string, skillId: string) =>
     del<void>(`/admin/agent/agents/${id}/skills/${skillId}`),
+
+  // 连接器授权：与技能绑定形状一致，但【授予/撤销限企业超管】（后端 requireSuperAdmin）——
+  // 授予连接 = 让这个 Agent 能以某个身份访问客户的生产系统，比绑技能重得多。
+  // 列出（listConnections）不限超管，只要有该 Agent 的实例权限。
+  listConnections: (id: string) =>
+    get<AgentConnectionBinding[]>(`/admin/agent/agents/${id}/connections`),
+  grantConnection: (id: string, connectionId: string) =>
+    post<void>(`/admin/agent/agents/${id}/connections`, { connectionId }),
+  revokeConnection: (id: string, connectionId: string) =>
+    del<void>(`/admin/agent/agents/${id}/connections/${connectionId}`),
 };
 
 /** GET /data/admin/models 返回项；与调试台模型下拉 option 结构一致（value/label + maxTemp）。 */
