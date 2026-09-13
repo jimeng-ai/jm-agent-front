@@ -32,6 +32,20 @@ export interface PageQuery {
   size?: number;
 }
 
+/**
+ * MyBatis-Plus 的 Page<T> 序列化形状，后端分页接口一律返回它。
+ *
+ * 注意 total/size/current/pages 的类型是 `number | string`：data-service 全局开启了
+ * write_numbers_as_strings，数值到前端可能是字符串，渲染前统一用 Number() 兜底。
+ */
+export interface PageResult<T> {
+  records: T[];
+  total: number | string;
+  size: number | string;
+  current: number | string;
+  pages: number | string;
+}
+
 export type EntityStatus = 'DRAFT' | 'PUBLISHED';
 
 export interface BaseEntity {

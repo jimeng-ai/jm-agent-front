@@ -88,3 +88,47 @@ export interface ConnectorUpsert {
   params: Record<string, unknown>;
   transport?: string;
 }
+
+// ---------------------------------------------------------------------------
+// 使用记录（审计）
+// ---------------------------------------------------------------------------
+
+/**
+ * 一条使用记录。回答「这个连接被谁、在什么时候、用来做了什么」。
+ *
+ * 两个字段值得单独说明：
+ * - `errorDetail` 后端已脱敏（存的就是 ConnectorException.getSafeDetail()），可直接展示给客户；
+ *   原始异常从来只进日志。
+ * - `statementText` 是**平台实际执行**的语句，可能被护栏改写过（注入/收紧 LIMIT），
+ *   也可能超长被截断并标注「…[已截断]」。要的就是「真正打到客户库上的那条」。
+ */
+export interface ConnectorAuditRow {
+  id: string;
+  time: string;
+  connectorId: string;
+  connectorName: string;
+  agentId?: string | null;
+  /** Agent 已删除时为空——审计记录不随 Agent 消失。 */
+  agentName?: string | null;
+  capability: string;
+  operation: string;
+  traceId?: string | null;
+  rowCount?: number | string | null;
+  elapsedMs?: number | string | null;
+  success: boolean;
+  errorCode?: string | null;
+  errorDetail?: string | null;
+  statementText?: string | null;
+}
+
+export interface ConnectorAuditQuery {
+  page?: number;
+  size?: number;
+  connectorId?: string;
+  agentId?: string;
+  success?: boolean;
+  capability?: string;
+  /** 后端是 java.util.Date，传 ISO 字符串即可。 */
+  start?: string;
+  end?: string;
+}

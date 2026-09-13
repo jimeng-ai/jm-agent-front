@@ -111,13 +111,8 @@ export interface TraceReplay {
   conversation: TraceReplayTurn[];
 }
 
-export interface PageResult<T> {
-  records: T[];
-  total: Num;
-  size: Num;
-  current: Num;
-  pages: Num;
-}
+// PageResult 已上移到 @/api/types（与 PageQuery 同处），这里只做转出以免既有 import 全改。
+export type { PageResult } from '@/api/types';
 
 export interface TraceQuery {
   page?: number;

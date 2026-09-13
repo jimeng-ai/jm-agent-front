@@ -21,6 +21,7 @@ import { PlusOutlined } from '@ant-design/icons';
 import { authApi } from '@/features/auth/api';
 import { connectorApi } from '@/features/connector/api';
 import SchemaForm from '@/features/connector/components/SchemaForm';
+import ConnectorAuditDrawer from '@/features/connector/components/ConnectorAuditDrawer';
 import type { ConnectorKind, ConnectorUpsert, ConnectorView } from '@/features/connector/types';
 
 /**
@@ -65,6 +66,7 @@ export default function ConnectorListPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ConnectorView | null>(null);
   const [selectedKind, setSelectedKind] = useState<string | undefined>();
+  const [auditOf, setAuditOf] = useState<ConnectorView | null>(null);
 
   // 超管门控：staleTime 必须与其它用到 ['me','permissions'] 的地方一致（全局默认是 30s，
   // 这里和 ModuleRoute / WorkbenchSidebar 一样显式写 60s），否则同 key 不同 staleTime 会多发请求。
@@ -225,6 +227,7 @@ export default function ConnectorListPage() {
     {
       title: '名称',
       key: 'name',
+      width: 170,
       render: (_: unknown, row) => (
         <div>
           <div style={{ fontWeight: 500 }}>{row.displayName || row.name}</div>
@@ -235,11 +238,33 @@ export default function ConnectorListPage() {
     {
       title: '类型',
       key: 'kind',
-      render: (_: unknown, row) => <Tag>{row.kindLabel || row.kind}</Tag>,
+      width: 170,
+      // kindLabel 是连接器自己声明的 displayName，可能很长（「MySQL / 兼容 MySQL 协议的库（含
+      // Doris、StarRocks）」）。不设宽度 + 不省略的话，这一列会把整张表撑变形，右边的
+      // 「健康」「只读验证」被挤到标题竖排。这里截断 + tooltip 给全文——
+      // 注意是通用处理，不按 kind 分支，否则就破了「新增类型前端零改动」。
+      render: (_: unknown, row) => {
+        const label = row.kindLabel || row.kind;
+        return (
+          <Tooltip title={label}>
+            <Tag
+              style={{
+                maxWidth: 150,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {label}
+            </Tag>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '能力',
       key: 'capabilities',
+      width: 170,
       render: (_: unknown, row) =>
         row.capabilities?.length ? (
           <Space size={4} wrap>
@@ -256,12 +281,14 @@ export default function ConnectorListPage() {
     {
       title: '健康',
       key: 'health',
+      width: 100,
       render: (_: unknown, row) => healthBadge(row),
     },
     {
       // ★ 单列出来而不是塞进「健康」里：未验证只读的连接不该被当成安全的，要显眼。
       title: '只读验证',
       key: 'readonly',
+      width: 100,
       render: (_: unknown, row) =>
         row.readonlyVerified ? (
           <Tag color="green">已验证</Tag>
@@ -275,14 +302,18 @@ export default function ConnectorListPage() {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
+      width: 80,
       render: (v: string) => (v === 'ACTIVE' ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>),
     },
     {
       title: '操作',
       key: 'action',
-      width: 260,
+      width: 310,
       render: (_: unknown, row) => (
         <Space size={4}>
+          <Button type="link" size="small" onClick={() => setAuditOf(row)}>
+            使用记录
+          </Button>
           <Button
             type="link"
             size="small"
@@ -342,6 +373,8 @@ export default function ConnectorListPage() {
         dataSource={listQuery.data ?? []}
         loading={listQuery.isLoading}
         pagination={false}
+        // 列宽合计 1100，1440 宽的屏正好放得下；更窄的屏走横向滚动而不是把每列压扁。
+        scroll={{ x: 1100 }}
       />
 
       <Modal
@@ -395,6 +428,8 @@ export default function ConnectorListPage() {
           {activeKind && <SchemaForm fields={activeKind.fields} editing={!!editing} />}
         </Form>
       </Modal>
+
+      <ConnectorAuditDrawer connector={auditOf} onClose={() => setAuditOf(null)} />
     </div>
   );
 }

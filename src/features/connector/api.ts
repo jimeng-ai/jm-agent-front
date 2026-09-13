@@ -1,5 +1,13 @@
 import { del, get, post, put } from '@/api/client';
-import type { ConnectorKind, ConnectorStatus, ConnectorUpsert, ConnectorView } from './types';
+import type { PageResult } from '@/api/types';
+import type {
+  ConnectorAuditQuery,
+  ConnectorAuditRow,
+  ConnectorKind,
+  ConnectorStatus,
+  ConnectorUpsert,
+  ConnectorView,
+} from './types';
 
 export const connectorApi = {
   /** 类型清单 + 每种类型的表单 schema。前端渲染表单的唯一依据。 */
@@ -18,4 +26,13 @@ export const connectorApi = {
   setStatus: (id: string, status: ConnectorStatus) =>
     post<{ status: string }>(`/admin/connectors/${id}/status`, undefined, { params: { status } }),
   remove: (id: string) => del<{ deleted: boolean }>(`/admin/connectors/${id}`),
+
+  /**
+   * 使用记录。走 GET + query 参数，筛选条件能放进 URL。
+   *
+   * 路径是 /audit 而不是 /{id}/audit：连接维度只是最常用的一种筛选，
+   * 「某个 Agent 都访问过什么」同样要能回答。
+   */
+  audit: (q: ConnectorAuditQuery) =>
+    get<PageResult<ConnectorAuditRow>>('/admin/connectors/audit', q as Record<string, unknown>),
 };
