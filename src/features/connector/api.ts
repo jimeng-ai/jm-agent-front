@@ -12,8 +12,10 @@ import type {
   GrantScriptResult,
   PendingWriteQuery,
   PendingWriteRow,
+  ConnectorSemanticRow,
   ProbeOutcome,
   SchemaSnapshotResult,
+  SemanticDeriveStarted,
 } from './types';
 
 export const connectorApi = {
@@ -61,6 +63,29 @@ export const connectorApi = {
    * 注意它会对客户库发 1+N 次元数据查询，所以是手动触发的。
    */
   refreshSchema: (id: string) => post<SchemaSnapshotResult>(`/admin/connectors/${id}/schema/refresh`),
+
+  /**
+   * 语义层：已生成的「说明书」全文。
+   *
+   * 结构快照回答「有哪些表、哪些列」，这个接口回答**「它们是什么意思」**——
+   * 客户给的只读账号里全是 t_ord_mst 这样的名字，没有这一层模型就只能猜，
+   * 而猜错不会报错，只会返回一个看起来很正常的错数字。
+   */
+  semantic: (id: string) => get<ConnectorSemanticRow[]>(`/admin/connectors/${id}/semantic`),
+
+  /**
+   * 语义层：手工重新推导。
+   *
+   * ★ **异步**：后端把任务扔进线程池就返回 `{started:true}`，这不代表推导完成。
+   * 真实进度写在连接详情的 semanticStatus / semanticNote 上，调用方要回去刷那一行，
+   * 不能拿这次返回当「已生成」。
+   *
+   * ★ 重跑**只覆盖机器推断的行**：后端那条 SQL 是
+   * `DELETE FROM connector_semantic WHERE connector_id = ? AND source = 'INFERRED'`，
+   * 人在对话里答过的口径（HUMAN）与直接采信客户库注释的（IMPORTED）一行不动。
+   */
+  deriveSemantic: (id: string) =>
+    post<SemanticDeriveStarted>(`/admin/connectors/${id}/semantic/derive`),
 };
 
 /**

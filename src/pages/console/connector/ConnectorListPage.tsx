@@ -18,18 +18,21 @@ import {
 } from 'antd';
 import { Modal } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { PlusOutlined } from '@ant-design/icons';
+import { PlusOutlined, SyncOutlined } from '@ant-design/icons';
 import { authApi } from '@/features/auth/api';
 import { connectorApi } from '@/features/connector/api';
 import GrantScriptPanel from '@/features/connector/components/GrantScriptPanel';
 import SchemaForm from '@/features/connector/components/SchemaForm';
 import ConnectorAuditDrawer from '@/features/connector/components/ConnectorAuditDrawer';
 import ConnectorSchemaDrawer from '@/features/connector/components/ConnectorSchemaDrawer';
+import ConnectorSemanticDrawer from '@/features/connector/components/ConnectorSemanticDrawer';
+import { formatTime, semanticStatusMeta } from '@/features/connector/semantic';
 import type {
   ConnectorKind,
   ConnectorUpsert,
   ConnectorView,
   ProbeOutcome,
+  SemanticDataTier,
 } from '@/features/connector/types';
 
 /**
@@ -57,6 +60,14 @@ interface FormValues {
   params: ParamValues;
   /** 写策略。默认 FORBIDDEN（只读）——放开容易收紧难，默认值取最严的那个。 */
   writePolicy: string;
+  /**
+   * 数据出库档位。
+   *
+   * ★ 编辑时**必须从 ConnectorView.semanticDataTier 回填**：后端是整体覆盖的 PUT，
+   *   这个字段留空等于第 2 档，**不等于「保持原样」**。漏了它，用户只是来改个显示名，
+   *   一条第 3 档的连接就被降回第 2 档，而界面上什么都不会说。
+   */
+  semanticDataTier: string;
 }
 
 /**
@@ -75,6 +86,99 @@ const WRITE_POLICY_OPTIONS = [
   { value: 'AUTO', label: '写自动 —— 模型可直接改数据，仅受护栏与行数上限约束' },
 ];
 
+/**
+ * 数据出库档位的一档：下拉框那一行、选中后常驻的那条横幅、以及「什么东西会出库」那句话。
+ *
+ * ★ `egress` 是**逐字抄自后端 `SemanticDataTier.egressStatement()`** 的。那句话同时出现在
+ *   DDL 列注释、接口文档和连接详情接口的响应里，是同一句话的几个落点——
+ *   前端这份只是抄本，改这里就要同步改后端那份。安全说明和实现分叉，等于没有安全说明。
+ *   连接详情带下来的 `semanticDataTierEgress` 是正本，能拿到时优先显示它。
+ */
+interface SemanticDataTierMeta {
+  value: SemanticDataTier;
+  /** 下拉框里的一行。★ 第 3 档这一行自己就要把「真实取值出库」说完，不能只写档位名。 */
+  label: string;
+  alert: 'info' | 'warning' | 'error';
+  /** 选中后那条横幅的标题。 */
+  title: string;
+  /** 这一档具体什么东西会离开客户的数据库。 */
+  egress: string;
+  /** 额外要说重的那一句（代价 / 后果）。没有就不显示。 */
+  extra?: string;
+}
+
+/**
+ * 数据出库档位三档：为了看懂客户那个库，我们允许**什么形态的东西**离开它。
+ *
+ * ★ 它和「写策略」不是一回事，也不能互相替代：那道闸管「能不能改客户的数据」，
+ *   这道闸管「能带走客户的**什么**数据」。一条只读连接照样可能在第 3 档上把真实取值带出来。
+ *
+ * ★ 这里刻意把话写在**下拉框那一行**和**常驻横幅**上，而不是塞进 tooltip：
+ *   这是一次由人做的、有安全后果的选择，界面就是他了解自己在选什么的唯一地方。
+ *   要人把鼠标悬上去才说的后果，等于没说。
+ *
+ * ★ **两个方向的代价都要说**。只讲第 3 档的风险、不讲第 1 档的代价，所有人都会一路点到最严那档，
+ *   然后这套东西在没人知道的情况下静默变差：真实生产库上，仅凭名字推表关系的精确率约 0.49，
+ *   而推错的表关系不会报错，只会让模型 join 出一个看着很正常的错数字——比「查不出来」难发现得多。
+ */
+const SEMANTIC_DATA_TIERS: SemanticDataTierMeta[] = [
+  {
+    value: 'METADATA_ONLY',
+    label: '第 1 档 · 纯元数据 —— 只有表名、列名、类型、索引和客户自己写的注释出库，不做任何聚合',
+    // 不是 info：最严的那一档同样有代价，把它渲染成一条中性提示，就是在替客户隐瞒这件事。
+    alert: 'warning',
+    title: '这一档不是免费的：推出来的表关系里大约一半是错的，而且不报错',
+    egress:
+      '只有表名、列名、数据类型、可空性、索引和客户自己写在库里的注释会离开数据库。' +
+      '不做任何聚合，没有一条业务记录参与运算。代价：仅凭名字推表关系，真实生产库上精确率约 0.49，' +
+      '推出来的关系需要人工确认。',
+    extra:
+      '选这一档就等于同时接受「表关系要人工确认」：错的那一半不会报错，只会让模型 join 出一个看着很正常的错数字。',
+  },
+  {
+    value: 'DERIVED_STATS',
+    label: '第 2 档 · 派生统计【默认】 —— 允许在客户库内聚合，只带走统计量，逐行记录不出库',
+    alert: 'info',
+    title: '第 2 档（默认）会带走什么',
+    egress:
+      '在纯元数据之上，允许在客户库内做聚合、只把算出来的统计量带走：' +
+      'distinct 数、NULL 率、min/max、字符形状、两列之间的包含率、基数、minhash sketch' +
+      '（K 个哈希值，不是原始值）。逐行的业务记录不出库。' +
+      '但要如实说明：min/max 本身就是两个真实取值，低基数列的 distinct 数也会透露取值空间的大小。',
+  },
+  {
+    value: 'SAMPLE_VALUES',
+    label:
+      '第 3 档 · 样本值 —— 客户库里的【真实取值】本身出库（某列 top-k 实际值、低基数列的全量维值索引）',
+    alert: 'error',
+    title: '这一档会把客户库里的真实取值带进我们的库',
+    egress:
+      '在派生统计之上，允许把【真实取值】本身带出数据库：某列的 top-k 实际值、低基数列的全量维值索引。' +
+      '说白了，「地区」列的维值索引意味着贵司所有地区名进入我们的库，' +
+      '「客户名称」列的 top-k 意味着最高频的真实客户名进入我们的库。' +
+      '这一档默认关闭，只能由企业超管显式开启。取值出库前会过 PII 过滤（按列名与取值形状两道），' +
+      '但如实说明：同类实现的 PII 检测召回率约 95%，即大约每 20 个 PII 取值仍可能漏掉 1 个，' +
+      '过滤是减损手段，不是保证。',
+    extra:
+      '开启前请和客户把上面这句话原样说一遍：top-k 天然会把 PII 捞出来——姓名、手机号、地址就躺在高频取值里；' +
+      '有过滤不等于过滤得干净，这一档的正当性来自「有人为它做过一次决定」，不来自过滤器。',
+  },
+];
+
+/**
+ * 新建时的默认档。与后端 `SemanticDataTier.DEFAULT` 一致。
+ *
+ * ★ 刻意**不是**最严的第 1 档——这一点和写策略的默认值相反，理由也不同：
+ *   把「没选过」一律压到第 1 档，等于静默地把表关系推断的精确率打对折（约 1.00 → 约 0.49），
+ *   而不会有任何人收到通知。「没选过」不等于「选了最严的」。
+ * ★ 它永远不可能是第 3 档：真实取值出库只能是一次显式动作。
+ */
+const DEFAULT_SEMANTIC_DATA_TIER: SemanticDataTier = 'DERIVED_STATS';
+
+/** 认不出来（含后端比前端新、或库里被手工改过）返回 undefined，调用方必须自己兜底，不能留空白。 */
+const semanticDataTierMeta = (v?: string | null): SemanticDataTierMeta | undefined =>
+  SEMANTIC_DATA_TIERS.find((t) => t.value === v);
+
 const healthBadge = (row: ConnectorView) => {
   const status =
     row.healthState === 'HEALTHY' ? 'success' : row.healthState === 'UNHEALTHY' ? 'error' : 'default';
@@ -83,6 +187,57 @@ const healthBadge = (row: ConnectorView) => {
   const badge = <Badge status={status} text={text} />;
   // 不健康的原因后端已脱敏，可以直接展示——用户看不到原因就只能猜。
   return row.healthReason ? <Tooltip title={row.healthReason}>{badge}</Tooltip> : badge;
+};
+
+/**
+ * 语义层那一格。
+ *
+ * ★ 后端能产出的状态**一个不能漏**（NONE / RUNNING / READY / FAILED / NOT_APPLICABLE），
+ * 还要兜住第六种——前端比后端新、或后端加了新值。漏掉一个，这一格就是**空白**，
+ * 而「空白」和「没跑过」在人眼里是一回事：一条根本推不了语义层的 HTTP 连接会被当成卡住了，
+ * 有人去点重试，永远点不出结果。映射表和兜底都在 `features/connector/semantic.ts` 里。
+ *
+ * ★ NOT_APPLICABLE 走**灰色**而不是红色：它不是错误，是「这种连接器没有结构可推」。
+ * 把它渲染成红色，等于训练所有人忽略这一列——那样真正 FAILED 的几条也就没人看了。
+ *
+ * ★ 生成中显示的是 semanticClaimAt（本次开始时间），不是 semanticSyncedAt——
+ * 后者是「上一次成功」的时间，拿它当开始时间会差出一整轮。
+ */
+const semanticTag = (row: ConnectorView) => {
+  const meta = semanticStatusMeta(row.semanticStatus);
+  const running = row.semanticStatus === 'RUNNING';
+  const tip = (
+    <>
+      {meta.hint}
+      {running && row.semanticClaimAt && (
+        <>
+          <br />
+          本次开始于：{formatTime(row.semanticClaimAt)}
+        </>
+      )}
+      {row.semanticSyncedAt && (
+        <>
+          <br />
+          最近一次<b>成功</b>生成：{formatTime(row.semanticSyncedAt)}
+        </>
+      )}
+      {/* semanticNote 是后端写的摘要/失败原因，未统一脱敏（可能带客户主机名、账号）。
+          本页限企业超管，可以展示；别把它搬到客户侧的任何界面上。 */}
+      {row.semanticNote && (
+        <>
+          <br />
+          说明：{row.semanticNote}
+        </>
+      )}
+    </>
+  );
+  return (
+    <Tooltip title={tip}>
+      <Tag color={meta.color} icon={running ? <SyncOutlined spin /> : undefined}>
+        {meta.label}
+      </Tag>
+    </Tooltip>
+  );
 };
 
 export default function ConnectorListPage() {
@@ -95,11 +250,21 @@ export default function ConnectorListPage() {
   const [probeResult, setProbeResult] = useState<ProbeOutcome | null>(null);
   const [auditOf, setAuditOf] = useState<ConnectorView | null>(null);
   const [schemaOf, setSchemaOf] = useState<ConnectorView | null>(null);
+  /**
+   * ★ 语义层抽屉存的是 **id**，而不是像 auditOf / schemaOf 那样存整行。
+   *
+   * 那两个抽屉看的是已经发生过的事，打开那一刻的快照就够了；这个抽屉要显示
+   * 「生成中 → 已生成 / 失败」的变化。存整行等于把状态冻在点开的那一刻——
+   * 下面的轮询把列表刷新了，抽屉里那条横幅还停在「生成中」，而它永远不会自己变。
+   */
+  const [semanticOfId, setSemanticOfId] = useState<string | null>(null);
 
   // 授权命令面板要跟着表单当前值走，所以用 useWatch 而不是读一次初值：
   // 用户把策略从「只读」改成「写自动」之后，生成的命令必须立刻跟着变成带写权限的那版，
   // 否则他会拿着一段只读授权去配一条允许写的连接——两边分叉，且分叉在客户那边才暴露。
   const watchedPolicy = Form.useWatch('writePolicy', form);
+  // 出库档位那条横幅同样跟着当前值走：换一档，界面上那句「什么东西会离开客户的库」必须立刻跟着换。
+  const watchedTier = Form.useWatch('semanticDataTier', form);
   // 库名是通用参数名，不是类型分支：没有这个参数的类型（如 HTTP）读出来就是 undefined，
   // 而 HTTP 连接器本来也不提供授权脚本，面板会自己说明。这里不出现任何 if (kind === ...)。
   const watchedDatabase = Form.useWatch(['params', 'database'], form) as string | undefined;
@@ -126,6 +291,11 @@ export default function ConnectorListPage() {
     queryKey: ['connector', 'list'],
     queryFn: connectorApi.list,
     enabled,
+    // 语义层推导是后台异步跑的，跑完**没有任何推送**。有行停在「生成中」时自己转一下，
+    // 否则那一格会一直停在生成中，人只能靠手动刷新页面才知道跑完没有。
+    // 没有行在跑就完全不轮询——这是一张全量列表，不该为了一个偶发状态一直打后端。
+    refetchInterval: (q) =>
+      q.state.data?.some((r) => r.semanticStatus === 'RUNNING') ? 5_000 : false,
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['connector', 'list'] });
@@ -242,6 +412,21 @@ export default function ConnectorListPage() {
         kind: editing.kind,
         // 后端认不出来的值已经在 WritePolicy.parse 里回落成 FORBIDDEN，这里不用再兜一次。
         writePolicy: editing.writePolicy,
+        /**
+         * ★★ 出库档位必须**原样回填**，这是这个表单最容易出的那种静默 bug。
+         *
+         * 提交走的是整体覆盖的 PUT，而后端刻意规定「留空 = 默认档（第 2 档）」而不是「保持原样」——
+         * 让省略等于沿用，会造出一个没人审计得到的粘性状态：此后每一次改显示名的保存
+         * 都在默默给第 3 档续期，事后谁也说不清当初是谁把真实取值出库打开的。
+         *
+         * 所以不回填的后果很具体：来改一个显示名，顺手把一条第 3 档的连接降回第 2 档，
+         * 不报错、不提示，界面上那一格下次刷新才变。
+         *
+         * `??` 那一支只在「后端老得还没有这个字段」时才会走到——那种情况下本来也没有档位可沿用，
+         * 落到与后端同一个默认值是唯一诚实的选择。后端一旦返回了值（包括本页还不认识的值），
+         * 走的永远是原样回填。
+         */
+        semanticDataTier: editing.semanticDataTier ?? DEFAULT_SEMANTIC_DATA_TIER,
         // 敏感参数后端不回传，所以这里天然是空的 —— 留空即沿用原值。
         params: { ...(editing.params as ParamValues) },
       };
@@ -252,15 +437,41 @@ export default function ConnectorListPage() {
       // ★ 新建默认只读。这是产品上定下的默认值：绝大多数接入就该停在只读，
       //   而「默认放开、由用户去收紧」这种默认值，现实里没人会回头收紧。
       writePolicy: 'FORBIDDEN',
+      // ★ 出库档位的默认值**刻意不是最严的那档**（和上面那条相反的取舍，理由见常量注释）：
+      //   把「没选过」压到第 1 档，等于静默把表关系推断的精确率打对折，而没有人会被通知。
+      semanticDataTier: DEFAULT_SEMANTIC_DATA_TIER,
       params: defaultsOf(kinds.find((k) => k.kind === first)),
     };
   }, [editing, kinds]);
+
+  /**
+   * 档位下拉的选项。
+   *
+   * ★ 编辑一条档位值本页不认识的连接（后端比前端新、或者库里被手工改过）时，要把那个值
+   *   **原样留在选项里**：选项里没有它，antd 只会把原始枚举名当标签显示，用户看到一个
+   *   没头没尾的 `SOME_TIER`，最可能的反应是随手换成一个看得懂的——而那就是一次
+   *   谁都没打算做的改档。给它一行明确的说明，比让人去猜安全。
+   */
+  const tierOptions = useMemo(() => {
+    const base = SEMANTIC_DATA_TIERS.map((t) => ({ label: t.label, value: t.value as string }));
+    const current = editing?.semanticDataTier;
+    if (current && !base.some((o) => o.value === current)) {
+      base.push({
+        label: `${editing?.semanticDataTierLabel || current} —— 本页还不认识这个档位，保存将原样提交`,
+        value: current,
+      });
+    }
+    return base;
+  }, [editing]);
 
   const onFinish = (v: FormValues) => {
     const payload: ConnectorUpsert = {
       name: v.name,
       displayName: v.displayName,
       writePolicy: v.writePolicy,
+      // ★ 一定要带上：后端「留空 = 第 2 档」，不是「保持原样」。这一行就是编辑第 3 档连接时
+      //   不被静默降档的全部依靠——它来自 initialFormValues 里从 editing 回填的那个值。
+      semanticDataTier: v.semanticDataTier,
       params: stripBlankSecrets(v.params ?? {}, activeKind),
     };
     if (editing) {
@@ -300,6 +511,19 @@ export default function ConnectorListPage() {
       />
     );
   }
+
+  const rows = listQuery.data ?? [];
+  // 从**最新一次**列表数据里取，而不是存下点开那一刻的行：轮询刷新后抽屉里的状态要跟着变。
+  const semanticOf = rows.find((r) => r.id === semanticOfId) ?? null;
+
+  // 当前选中那一档的文案。认不出来的值（后端比前端新）返回 undefined，下面有兜底分支。
+  const tierMeta = semanticDataTierMeta(watchedTier);
+  // 「什么东西会离开客户的库」这句话：当前档位没被改动时，优先用后端随详情带下来的那一份——
+  // 它和 DDL 列注释同源，是正本；前端常量只是抄本，两份分叉时以正本为准。
+  const tierEgress =
+    watchedTier === editing?.semanticDataTier && editing?.semanticDataTierEgress
+      ? editing.semanticDataTierEgress
+      : tierMeta?.egress;
 
   const columns: ColumnsType<ConnectorView> = [
     {
@@ -377,6 +601,15 @@ export default function ConnectorListPage() {
         ),
     },
     {
+      // ★ 单列出来的理由和「只读验证」同一条：接入时零人工，推导是背着人跑的，
+      //   那就必须有一处能回答「它跑了没有、跑成了没有」——否则「零人工」在界面上
+      //   等同于「什么都没发生」。点「语义层」按钮看具体生成了什么。
+      title: '语义层',
+      key: 'semantic',
+      width: 110,
+      render: (_: unknown, row) => semanticTag(row),
+    },
+    {
       // 与「只读验证」分开：那一列说的是**账号实际能不能写**（探测出来的事实），
       // 这一列说的是**平台放不放行**（配置）。两者可以不一致，而不一致恰恰是要看见的：
       // 一个能写的账号配成「只读」是安全的；反过来则是配置错误，写操作到了客户库才会失败。
@@ -393,6 +626,38 @@ export default function ConnectorListPage() {
         ),
     },
     {
+      // ★ 和「写策略」并排：那一列说「能不能改客户的数据」，这一列说「能带走客户的什么数据」。
+      //   两道闸互不替代——一条只读连接照样可能在第 3 档上把真实取值带出来，
+      //   所以它必须在列表上有自己的一格，而不是藏在编辑弹窗里等人点进去才看得到。
+      title: '出库档位',
+      key: 'semanticDataTier',
+      width: 150,
+      render: (_: unknown, row) => {
+        const meta = semanticDataTierMeta(row.semanticDataTier);
+        // 后端给了中文短名就用它；没给退到原始枚举值；都没有也要有字——空白和「第 1 档」在人眼里
+        // 是两回事，但空白会被当成「没这回事」，而它实际上代表一个正在生效的出库口径。
+        const text = row.semanticDataTierLabel || row.semanticDataTier || '未知档位';
+        // 这句话优先用后端带下来的那份（与 DDL 列注释同源），前端常量只是它的抄本。
+        const tip =
+          row.semanticDataTierEgress ||
+          meta?.egress ||
+          '这个后端版本没有返回出库档位说明。后端的默认档是第 2 档 · 派生统计。';
+        return (
+          <Tooltip title={tip}>
+            {/* 只有第 3 档标红：真实取值出库是这一列里唯一需要被追问的选择。
+                第 1 档的代价（表关系精确率约 0.49）说在 tooltip 和编辑表单里，
+                它是客户的一个合法选择而不是故障——标红只会训练所有人忽略整列。
+                认不出来的值走橙色：那说明前端该补一条映射了，不能装作正常。 */}
+            <Tag
+              color={row.semanticDataTier === 'SAMPLE_VALUES' ? 'red' : meta ? undefined : 'orange'}
+            >
+              {text}
+            </Tag>
+          </Tooltip>
+        );
+      },
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
@@ -402,7 +667,7 @@ export default function ConnectorListPage() {
     {
       title: '操作',
       key: 'action',
-      width: 360,
+      width: 430,
       render: (_: unknown, row) => (
         <Space size={4}>
           <Button type="link" size="small" onClick={() => setAuditOf(row)}>
@@ -414,6 +679,12 @@ export default function ConnectorListPage() {
               结构
             </Button>
           )}
+          {/* 语义层入口**不按能力过滤**（和「结构」不同）：推不了语义层的连接恰恰最需要
+              有个地方说明白「为什么这条没有、而且重跑也不会有」。按能力藏起来，
+              那一格的「不适用」就成了死胡同。 */}
+          <Button type="link" size="small" onClick={() => setSemanticOfId(row.id)}>
+            语义层
+          </Button>
           <Button
             type="link"
             size="small"
@@ -470,12 +741,12 @@ export default function ConnectorListPage() {
       <Table<ConnectorView>
         rowKey="id"
         columns={columns}
-        dataSource={listQuery.data ?? []}
+        dataSource={rows}
         loading={listQuery.isLoading}
         pagination={false}
-        // 列宽合计 1260（加了「写策略」一列）。更窄的屏走横向滚动而不是把每列压扁——
-        // 压扁的后果实测过：标题会竖排，操作列的按钮被裁掉一半。
-        scroll={{ x: 1280 }}
+        // 列宽合计 1590（在 1440 上加了「出库档位」150）。更窄的屏走横向滚动
+        // 而不是把每列压扁——压扁的后果实测过：标题会竖排，操作列的按钮被裁掉一半。
+        scroll={{ x: 1610 }}
       />
 
       <Modal
@@ -505,6 +776,9 @@ export default function ConnectorListPage() {
                   //   漏传这个字段，选了「写自动」的用户会看到一条「这个账号能写，不允许接入」的拒绝，
                   //   而那正是他要的配置。
                   writePolicy: v.writePolicy,
+                  // 试连不落库，档位不参与探测；照样原样带上，是为了让「试连发出去的那份载荷」
+                  // 和「保存发出去的那份」保持同一个形状——两者分叉过一次，就再也没人敢信试连结果。
+                  semanticDataTier: v.semanticDataTier,
                   params: stripBlankSecrets(v.params ?? {}, activeKind),
                 });
               } catch {
@@ -605,6 +879,40 @@ export default function ConnectorListPage() {
             />
           )}
 
+          <Form.Item
+            label="数据出库档位"
+            name="semanticDataTier"
+            rules={[{ required: true, message: '请选择数据出库档位' }]}
+            extra="为了看懂客户那个库，我们允许多少东西离开它。两个方向都有代价：往严里选，表关系只能靠名字猜；往松里选，离开客户库的东西更具体。"
+          >
+            <Select options={tierOptions} />
+          </Form.Item>
+
+          {/* ★ 这条横幅**常驻**，三档都显示，而且不是 tooltip。
+              一次有安全后果的选择，界面就是做选择的人了解自己在选什么的地方——
+              要人把鼠标悬上去才肯说的后果，等于没说。
+              三档都显示，是因为只讲第 3 档的风险会把所有人推到第 1 档，
+              然后这套东西在没人知道的情况下静默变差（精确率约 0.49，而推错的表关系不报错）。 */}
+          {watchedTier && (
+            <Alert
+              type={tierMeta?.alert ?? 'warning'}
+              showIcon
+              style={{ marginBottom: 16 }}
+              message={tierMeta?.title ?? `本页还不认识这个档位（${watchedTier}）`}
+              description={
+                tierMeta ? (
+                  <>
+                    {tierEgress}
+                    {tierMeta.extra && <div style={{ marginTop: 4 }}>{tierMeta.extra}</div>}
+                  </>
+                ) : (
+                  // 认不出来也要原样提交回去（那是用户没打算改的东西），但必须说清楚本页解释不了它。
+                  '保存时它会被原样提交回去，档位不变；但本页说不出这一档具体什么东西会出库，请先升级前端再改这条连接。'
+                )
+              }
+            />
+          )}
+
           {/* 折叠面板，默认收起：绝大多数情况下客户已经有账号了，这块不该占版面。
               放在参数之后，是因为它要用到上面填的库名。 */}
           {activeKind && (
@@ -621,6 +929,7 @@ export default function ConnectorListPage() {
 
       <ConnectorAuditDrawer connector={auditOf} onClose={() => setAuditOf(null)} />
       <ConnectorSchemaDrawer connector={schemaOf} onClose={() => setSchemaOf(null)} />
+      <ConnectorSemanticDrawer connector={semanticOf} onClose={() => setSemanticOfId(null)} />
     </div>
   );
 }
