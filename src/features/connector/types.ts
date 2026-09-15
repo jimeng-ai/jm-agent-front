@@ -124,6 +124,8 @@ export interface ConnectorView {
    * ★ 仍标成可选：兜底分支必须存在（同 semanticStatus 那条注释的理由）。
    * ★ 更要紧的是**编辑表单必须把它原样回填进 ConnectorUpsert.semanticDataTier**——
    *   那边留空等于第 2 档，**不等于「保持原样」**，漏回填会把一条已开第 3 档的连接静默降档。
+   * ★ 语义层抽屉拿它判断「存着的第 3 档取值此刻给不给模型」（semantic.ts `sampleValuesAllowed`）：
+   *   给模型的工具在注入那一刻按**当前**档位再判一次，降了档，存着的判别值就不再给模型。
    */
   semanticDataTier?: SemanticDataTier | null;
 
@@ -248,15 +250,99 @@ export interface SchemaObjectDiff {
   details: string[];
 }
 
+/**
+ * 一张消失的表带走了多少说明。与后端 `ConnectorSchemaService.RemovedImpact` 同形。
+ *
+ * ★ 计数字段 numbers-as-strings，且可能为 null。一律走 semantic.ts 的 `countOf()`（先判空再转数字），
+ * 不要直接 `Number()`：`Number(null) === 0`，会把「不知道」静默变成「没有」。
+ */
+export interface SchemaRemovedImpact {
+  objectName: string;
+  /**
+   * **本次刷新新归到这张表名下**的非口径说明条数（表用途 / 字段含义 / 表关系 / 待澄清的歧义）。
+   *
+   * ★ 「新归到」不等于「新标成结构已变」：一条两端都消失的表关系，早就因为另一端标过「结构已变」，
+   *   这次又因这张表消失归过来，算在这里，却不算进 semanticStaled。所以按表的数和总数对不上是正常的，
+   *   界面上**不许**拿总数替按表明细下结论（反之亦然）——措辞统一走 semantic.ts `refreshImpactWording()`。
+   */
+  staledRows?: number | string | null;
+  /** 本次刷新新归到这张表名下的业务口径（METRIC）条数。「新归到」的含义同上。 */
+  staledMetrics?: number | string | null;
+  /**
+   * 本次新归到这张表名下的口径词条（如「销售额」）。
+   *
+   * ★ 这是一次刷新里最该让人看见的东西：STALE 的口径**整条不再注入**，模型从此不知道
+   * 「销售额要扣退款」这件事，照自己的理解去算——不报错，数字看着照样正常。
+   *
+   * ★ 只有口径是这样。`staledRows` 数的那些（表用途 / 字段含义 / 表关系 / 待澄清的歧义）STALE 之后
+   * **照样注入**，只是带着「结构已变」的标记。文案里把两者说成一回事，就是在对人撒谎：
+   * 要么吓唬人「说明全没了」，要么让人以为口径也还带着标记在用。
+   */
+  metricTerms?: string[] | null;
+}
+
 export interface SchemaSnapshotResult {
   objectCount: number | string;
   totalObjects: number | string;
-  /** 对象数超过平台上限，本次只覆盖了一部分——这时「没有差异」不等于「真的没变」。 */
+  /**
+   * 对象数超过平台上限，本次只覆盖了一部分——这时「没有差异」不等于「真的没变」。
+   *
+   * ★ 快照之外的表**两头都判断不了**：后端不再把「只是没排进快照」的表报成 REMOVED
+   * （从前会，结果是一个大库每次刷新都报一片「删除」），所以差异列表里没有它们，
+   * 不代表它们还在，也不代表它们没变。界面上必须把 {@link truncationNote} 摆在差异列表旁边。
+   */
   truncated: boolean;
+  /**
+   * 截断说明（后端原话）：共几个、按什么顺序、留了几个。没截断时为 null。
+   *
+   * ★ **原样展示，不要在前端自己拼「只覆盖了前 N 个」**。快照是按重要性（估算行数的数量级）排的，
+   * 不是按表名；前端写一个「前」字，人就会按字母序去脑补漏掉的是哪些——而排序依据只有后端知道
+   * （换一种连接器可能是另一种顺序）。后端比前端旧、没给这个字段时，兜底文案里也不许出现「前」。
+   */
+  truncationNote?: string | null;
+  /**
+   * 刷新被拒绝的原因。非空 = 客户库这次突然返回了 0 个对象，后端判定这份结果可疑，**没有落库**。
+   *
+   * ★ 非空时，这个返回里的其它字段都不描述一份已保存的快照：
+   * - `semanticStaled` 为 null **不是**「漂移处置没跑成」——根本没去核对（核对一份空结构只会把全部说明标成过期）；
+   * - `diffs` 为空**不是**「结构没有变化」。
+   * 所以界面必须先判它、单独画一条警告，然后直接收手，不能落到下面那几种常规结果里。
+   */
+  guardNote?: string | null;
   /** 第一次快照，此时「全是新增」没有信息量，不该当成结构漂移报警。 */
   firstSnapshot: boolean;
   diffs: SchemaObjectDiff[];
   syncedAt?: string | null;
+
+  // ── 这次刷新对语义层的影响（漂移处置）──────────────────────────────────────
+  // 快照落库之后，后端会把挂在表和列上的说明对照新结构重挂一遍锚点。**每次刷新都跑**
+  // （首次快照、结构没变时也跑），所以下面的 null 不是常态，出现就是真失败。
+
+  /**
+   * 本次把多少条说明**新**标成了「结构已变」（本来就是 STALE 的不重复计）。
+   *
+   * ★★ 这是三态，不是一个数：
+   * - `null` / 缺省 = **漂移处置没跑成**。快照照常保存了，但说明没有对照新结构核对过——
+   *   可能已经和现实对不上，却没被标出来。后端刻意保留这个 null，就是不让一次失败看起来像平安无事。
+   * - `0` = 核对过，确实没有说明受影响。
+   * - `> 0` = 有说明失效。
+   *
+   * ★ 到前端是 `"0"` / `"3"` 这样的字符串。**先判空再转数字**，否则前两态会被合成一态。
+   */
+  semanticStaled?: number | string | null;
+  /** 本次恢复的条数：结构对上了，之前的「结构已变」自动撤销。null 的含义同上。 */
+  semanticRevived?: number | string | null;
+  /**
+   * 按**消失的表**拆开的影响。
+   *
+   * - `null` / 缺省 = 没有这份明细（漂移处置失败，或后端版本还没有这个字段）。
+   *   ★ 不能当空数组：总数 semanticStaled 不是 0 时，那几条挂在哪张表上是「不知道」，不是「没有」。
+   * - 空数组 = 核对过，没有哪张消失的表带走了说明。
+   *
+   * ★ 列表里的表**不一定都在本次 diffs 里**：之前某次刷新里消失、而那次漂移处置没跑成的表，后端记下了，
+   *   在下一次刷新（手动或定时，谁先跑谁处置）重新应用并在这里列出。只沿着 diffs 去找明细会漏掉它们。
+   */
+  semanticStaledByObject?: SchemaRemovedImpact[] | null;
 }
 
 /**
@@ -422,8 +508,47 @@ export type SemanticEvidence = 'COMMENT' | 'DATA' | 'NAME' | 'GUESS';
 /** 行状态。STALE = 它锚的结构已经变了，这句话可能已经不成立。 */
 export type SemanticRowStatus = 'DRAFT' | 'CONFIRMED' | 'STALE';
 
-/** 采样验证结论。P1 还没有做采样验证，所以现在推出来的行几乎全是 NONE。 */
+/**
+ * 采样验证结论。
+ *
+ * NONE = 没查（档位不允许 / 预算用完 / 还没轮到）；UNDECIDABLE = 查了但判不出来（样本太少 / 超时）。
+ * 两者对模型说的是不同的话，界面上也不能混。
+ */
 export type SemanticVerified = 'CONFIRMED' | 'WEAK' | 'REJECTED' | 'UNDECIDABLE' | 'NONE';
+
+/**
+ * JOIN 行 detail 里的 `join_kind`（采样验证阶段写入）。**存量行没有这个键，按 SIMPLE 对待。**
+ *
+ * - POLYMORPHIC：这一列按另一列（判别列）的取值指向不同的表，join 必须带上类型条件；
+ * - COMPOSITE：目标表要几列合起来才唯一，只按一列 join 会一行对多行。
+ *
+ * 这两种即使数据核过也**不进**注入里的普通 `joins`，只作为需要带条件的关系给模型。
+ */
+export type JoinKind = 'SIMPLE' | 'POLYMORPHIC' | 'COMPOSITE';
+
+/**
+ * OBJECT 行 detail 里的 `table_shape`：明细表 / 多指标周期表 / 键值对表 / 其他。
+ *
+ * ★ 一个枚举值直接决定模型怎么聚合：键值对表被当成明细表处理时，**所有**聚合都是错的。
+ * ★ 只认这四个值，且区分大小写：写入方（推导 / 实测）写的就是枚举名。
+ * ★ **有没有 `table_shape_source` 才是新旧行的分界**，不是取值长什么样。早期推导写的是自由文本
+ *   （「主表」「流水表」…），也可能恰好是个全大写的词；没有 source 的一律是旧版描述。
+ * ★ 有 source 也不够：source 要**恰好**是 {@link TableShapeSource} 之一。给模型的工具对旧行和认不出的行
+ *   **一个字都不给**（不是「当一句旧描述给」），界面也就不许把它们画成任何形态，更不许画键值对表警示。
+ */
+export type TableShape = 'DETAIL' | 'MULTI_METRIC_PERIOD' | 'KEY_VALUE' | 'OTHER';
+
+/** `table_shape_source`：MODEL = 模型看名字判断的；MEASURED = 用数据测出来的（会覆盖模型的判断）。 */
+export type TableShapeSource = 'MODEL' | 'MEASURED';
+
+/**
+ * `table_shape_measurement.outcome`：一次键值对形态实测的结论。
+ *
+ * ★ 实测**只能确认、不能否定**：NOT_KEY_VALUE 说的是「按平台挑的这两列测，不是指标名 + 指标值」，
+ * 挑错了列测出来的「不是」说明不了整张表，所以它从不推翻模型说的「键值对表」。
+ * UNDECIDABLE = 发了语句但判不出来（样本太少 / 超时 / 没权限），下一轮会重测。
+ */
+export type TableShapeMeasurementOutcome = 'KEY_VALUE' | 'NOT_KEY_VALUE' | 'INCONCLUSIVE' | 'UNDECIDABLE';
 
 /**
  * 语义层里的一条断言。
@@ -447,6 +572,20 @@ export interface ConnectorSemanticRow {
   /**
    * 按 scope 定形的结构化细节，后端已解析（JOIN 的另一端与基数、CAVEAT 涉及的表…）。
    * 后端解析不了时为 null——只丢这一个字段，不让整张表打不开。
+   *
+   * 读法集中在 semantic.ts（`joinCare()` / `tableShapeOf()` / `detailEntries()`），组件里不要直接掏键：
+   * - JOIN：`join_kind`（{@link JoinKind}）、`discriminator_column`、`discriminator_value`（仅第 3 档且过了
+   *   敏感信息筛查才有；★ **存着不等于给模型**：工具按连接**当前**档位再判一次，降了档就连同嵌着它写的
+   *   `care_reason` 一起不给——所以 `joinCare()` / `detailEntries()` 都必须传档位）、`composite_columns`、`care_reason`；
+   *   采样验证的细账：`auto_joinable`（目标列唯一才为 true）、`sample_n` / `match_n`（numbers-as-strings）、
+   *   `containment`（0~1，字符串）、`verify_note`（判不出 / 被拒的原因，已脱敏）；
+   * - OBJECT：`table_shape`（{@link TableShape}）、`table_shape_source`（**缺它 = 旧版行；不恰好是 MODEL / MEASURED = 认不出**，
+   *   两种工具都整行形态不出）、
+   *   `table_shape_model_guess`、`kv_name_column` / `kv_value_column`（仅 KEY_VALUE 且实测）、
+   *   `table_shape_measurement`（对象：`outcome` {@link TableShapeMeasurementOutcome} / `name_column` /
+   *   `value_column` / `basis`）；
+   * - METRIC / CAVEAT：`stale_removed_objects`（是哪几张消失的表让它变成「结构已变」的）。
+   * 存量行没有这些键——没有就什么都不画，不画空白。
    */
   detail?: Record<string, unknown> | null;
   source?: SemanticSource | null;

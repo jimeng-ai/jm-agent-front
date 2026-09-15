@@ -16,7 +16,7 @@ import {
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ReloadOutlined, UserOutlined } from '@ant-design/icons';
+import { ReloadOutlined, UserOutlined, WarningOutlined } from '@ant-design/icons';
 import { connectorApi } from '@/features/connector/api';
 import {
   confidenceOf,
@@ -26,13 +26,22 @@ import {
   groupByScope,
   historyEntries,
   isHuman,
+  isKeyValueTable,
   isStale,
+  joinCare,
   joinTarget,
   rowAnchor,
   rowStatusMeta,
   semanticStatusMeta,
   sourceMeta,
+  tableShapeOf,
   verifiedMeta,
+} from '@/features/connector/semantic';
+import type {
+  JoinCare,
+  SemanticGroup,
+  TableShapeView,
+  TagMeta,
 } from '@/features/connector/semantic';
 import type { ConnectorSemanticRow, ConnectorView } from '@/features/connector/types';
 
@@ -51,8 +60,15 @@ import type { ConnectorSemanticRow, ConnectorView } from '@/features/connector/t
  *    （口径的纠正走对话），所以这一眼是任何人唯一一次可能发现「这条口径写错了」的机会；
  *    两者长得一样，就等于谁都不会去核其中任何一条。
  * 3. **STALE 要显眼。** 它锚的结构已经变了，这句话可能已经不成立。
- * 4. **JOIN 的 verified=NONE 要说重话。** 现阶段没有采样验证，每条表关系都只是「名字看着像」；
+ * 4. **JOIN 的 verified=NONE 要说重话。** 没用数据核过的表关系只是「名字看着像」；
  *    它和一条真外键在界面上长得一样，就会被当成事实用。
+ * 5. **「多态关联 / 复合键」与「键值对表」要在列表里直接看得见，不能只躺在展开详情里。**
+ *    前两者漏了条件，join 出来的数字会串表或放大；后者当成明细表聚合全错——都不报错。
+ *    机器产出的几组默认收起，所以数量还要露在分组标题上。
+ *    存量行没有这些键，就什么都不画（不画「未知」、不画空白）。
+ * 6. **「模型读到的」只画模型此刻真读得到的。** 表形态只有给模型的工具认下的那种（来源恰好 MODEL / MEASURED、
+ *    取值恰好四种之一）才画成形态、才有键值对表警示；多态关联上存着的判别值，连接**当前**档位没开放样本值时
+ *    工具不给模型，这里单独标「不提供给模型」，不画成 join 条件。画多了，人以为模型被告知过，模型其实什么都没收到。
  */
 
 interface Props {
@@ -66,6 +82,187 @@ const PAGE_THRESHOLD = 20;
 /** 人答的口径给一层底色。★ 这一眼是「这句话谁说的」在列表里唯一的区分手段。 */
 const HUMAN_ROW_STYLE: CSSProperties = { background: '#f9f0ff' };
 
+/**
+ * 「join 时要带什么条件 / 聚合前要先筛什么」这类附注。和 gloss 分开画：
+ * gloss 是「这是什么」，这块是「怎么用才不出错」的硬条件，混在一句话里就读不出轻重。
+ */
+const CARE_NOTE_STYLE: CSSProperties = {
+  marginTop: 6,
+  padding: '4px 8px',
+  borderLeft: '3px solid #fa8c16',
+  background: '#fff7e6',
+  fontSize: 12,
+  lineHeight: 1.7,
+};
+
+const SUB_STYLE: CSSProperties = { fontSize: 12, color: '#999', marginTop: 2 };
+
+/**
+ * 多态关联 / 复合键：为什么要当心 + 做对它必须补上的条件。
+ *
+ * ★ 只把模型**此刻读得到**的东西画成条件。存着、但被档位挡下的判别值单独一句、标明不提供给模型：
+ *   画成「列 = 取值」，人会以为模型知道该加哪个类型条件，而模型收到的只有「有这么一列，取值自己去查」。
+ */
+function JoinCareNote({ care, tierText }: { care: JoinCare; tierText: string }) {
+  const c = care.condition;
+  return (
+    <div style={CARE_NOTE_STYLE}>
+      <div>{care.careReason ?? care.hint}</div>
+      {care.careReasonWithheld && (
+        <Typography.Text type="secondary" style={{ display: 'block' }}>
+          （后端记下的原话里嵌着具体取值，当前档位不提供给模型，模型收到的是上面这类通用说明；原话见展开详情）
+        </Typography.Text>
+      )}
+      {c?.type === 'DISCRIMINATOR' && (
+        <div>
+          join 时带上类型条件：<Typography.Text code>{c.column}</Typography.Text>
+          {c.value !== null ? (
+            <>
+              {' = '}
+              <Typography.Text code>{c.value}</Typography.Text>
+            </>
+          ) : c.withheldValue !== null ? (
+            <div>
+              <Typography.Text type="warning">
+                库里存着的取值 <Typography.Text code>{c.withheldValue}</Typography.Text>
+                <b>不提供给模型</b>：这条连接当前是「{tierText}」，没有开放样本值。模型只知道要带
+                <Typography.Text code>{c.column}</Typography.Text>
+                的类型条件，会被要求先查出取值、拿不准就问人。
+              </Typography.Text>
+            </div>
+          ) : c.valuesAllowed ? (
+            <Typography.Text type="secondary">
+              （平台没有记下哪个取值对应目标表：还没探查到、没通过敏感信息筛查，或几个取值分不出来。模型会被要求先查出取值、拿不准就问人）
+            </Typography.Text>
+          ) : (
+            <Typography.Text type="secondary">
+              （这条连接当前是「{tierText}」，没有开放样本值，具体取值不会随说明书提供给模型）
+            </Typography.Text>
+          )}
+        </div>
+      )}
+      {c?.type === 'COMPOSITE' && (
+        <div>
+          目标表
+          {c.target && <Typography.Text code>{c.target}</Typography.Text>}要
+          {c.columns.map((col, i) => (
+            <span key={`${i}-${col}`}>
+              {i > 0 && ' + '}
+              <Typography.Text code>{col}</Typography.Text>
+            </span>
+          ))}
+          合起来才唯一，join 时这 {c.columns.length} 列都要对上。
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 形态是怎么定的（实测 / 模型判断）。实测给绿色标签，模型判断只给灰字：两者可信度不在一个量级。 */
+function ShapeSourceMark({ source }: { source: TagMeta }) {
+  return (
+    <Tooltip title={source.hint}>
+      {source.color ? (
+        <Tag color={source.color}>{source.label}</Tag>
+      ) : (
+        <span style={{ fontSize: 12, color: '#999' }}>{source.label}</span>
+      )}
+    </Tooltip>
+  );
+}
+
+/**
+ * 表形态 + 怎么定的。键值对表加警示图标：它是唯一「当成明细表处理就全错」的形态。
+ *
+ * 工具没认下的两种（旧行 / 来源或取值认不出）只画一行灰字，**不画标签**：标签长得像标准分类，
+ * 人会把「主表」当成平台的判断去用。★ 悬停说明必须照实说「模型读不到」：给模型的工具对这两种一个字都不出。
+ * 从前写成「给模型时同样只当一句旧描述」，是在替工具许一个它没兑现的诺——人会以为模型至少看过这句话。
+ */
+function TableShapeTags({ shape }: { shape: TableShapeView }) {
+  if (shape.kind === 'LEGACY') {
+    return (
+      <Tooltip title="早期推导写的一句自由描述，不是明细表 / 多指标周期表 / 键值对表 / 其他 这四种形态之一，也没有用数据测过。给模型的工具不提供这句描述，也不按它决定怎么聚合——这张表模型读得到的只有「说明」那一栏的话。重新生成后，机器推断的行会按四种形态重新判断。">
+        <div style={SUB_STYLE}>旧版描述：{shape.raw}</div>
+      </Tooltip>
+    );
+  }
+  if (shape.kind === 'UNRECOGNIZED') {
+    return (
+      <Tooltip
+        title={
+          shape.source
+            ? '形态取值不是明细表 / 多指标周期表 / 键值对表 / 其他 之一（后端比本页新，或数据写坏了）。给模型的工具只认这四个值，认不出就把这一行的形态整个丢掉：模型读不到它，也收不到键值对表的聚合告警。'
+            : `形态来源（table_shape_source）是「${shape.sourceRaw}」，不是 MODEL（模型判断）/ MEASURED（实测）之一（后端比本页新，或数据写坏了）。给模型的工具只认这两个来源，认不出就把这一行的形态整个丢掉：模型读不到它，也收不到键值对表的聚合告警。`
+        }
+      >
+        <div style={SUB_STYLE}>
+          未认出的形态：{shape.raw}（{shape.source ? shape.source.label : `来源 ${shape.sourceRaw}`}，模型读不到）
+        </div>
+      </Tooltip>
+    );
+  }
+  return (
+    <div style={{ marginTop: 4 }}>
+      <Tooltip title={shape.shape.hint}>
+        <Tag color={shape.shape.color} icon={shape.keyValue ? <WarningOutlined /> : undefined}>
+          {shape.shape.label}
+        </Tag>
+      </Tooltip>
+      <ShapeSourceMark source={shape.source} />
+      {shape.modelGuess && (
+        <div style={SUB_STYLE}>
+          模型原判：{shape.modelGuess}
+          {shape.measured ? '（已被实测推翻）' : ''}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 键值对表：聚合前必须先按指标名筛。实测过的给出具体列名。 */
+function KeyValueNote({ shape }: { shape: Extract<TableShapeView, { kind: 'SHAPE' }> }) {
+  return (
+    <div style={CARE_NOTE_STYLE}>
+      一行是一对「指标名 = 值」，不是一条记录。聚合前先按
+      {shape.kvNameColumn ? <Typography.Text code>{shape.kvNameColumn}</Typography.Text> : '指标名那一列'}
+      筛出一个指标，再对
+      {shape.kvValueColumn ? <Typography.Text code>{shape.kvValueColumn}</Typography.Text> : '值那一列'}
+      求和或计数。
+    </div>
+  );
+}
+
+/**
+ * 分组标题上的提示数。机器产出的几组默认收起、还分页，一张键值对表藏在第 7 页里等于没标。
+ * 只露数、不强制展开：这是「性质」，不是「警报」（强制展开留给 STALE）。
+ * 返回 null 而不是渲染一个空组件：Space 会给空组件也留一格间距。
+ */
+function groupFlags(g: SemanticGroup, tier: string | null | undefined) {
+  if (g.scope === 'OBJECT') {
+    // 只数新版判定下的键值对表：旧行（没有 table_shape_source）哪怕原文写着「键值对」也不算，那不是平台的判断。
+    const n = g.rows.filter(isKeyValueTable).length;
+    return n > 0 ? (
+      <Tooltip title="一行是一对「指标名 = 值」的表。当成明细表直接求和、计数会全错。">
+        <Tag color="volcano" icon={<WarningOutlined />}>
+          键值对表 {n} 张
+        </Tag>
+      </Tooltip>
+    ) : null;
+  }
+  if (g.scope === 'JOIN') {
+    // 数据不支持（REJECTED）的不计：那几条本来就不会给模型，谈不上「要带条件」。
+    const n = g.rows.filter((r) => joinCare(r, tier) && r.verified !== 'REJECTED').length;
+    return n > 0 ? (
+      <Tooltip title="多态关联 / 复合键：join 时必须带上各行写明的条件，漏了会串表或把数字放大。">
+        <Tag color="orange" icon={<WarningOutlined />}>
+          需带条件 {n} 条
+        </Tag>
+      </Tooltip>
+    ) : null;
+  }
+  return null;
+}
+
 export default function ConnectorSemanticDrawer({ connector, onClose }: Props) {
   const { message, modal } = App.useApp();
   const qc = useQueryClient();
@@ -73,6 +270,10 @@ export default function ConnectorSemanticDrawer({ connector, onClose }: Props) {
   const status = connector?.semanticStatus;
   const statusMeta = semanticStatusMeta(status);
   const running = status === 'RUNNING';
+  // 连接的当前档位。存着的第 3 档取值此刻给不给模型取决于它（semantic.ts sampleValuesAllowed），
+  // 往下每一处读条件、读详情都要带上——joinCare / detailEntries 把它设成必填，就是不让哪一处漏掉。
+  const tier = connector?.semanticDataTier;
+  const tierText = connector?.semanticDataTierLabel || connector?.semanticDataTier || '未知档位';
 
   const query = useQuery({
     queryKey: ['connector', 'semantic', connector?.id],
@@ -82,21 +283,23 @@ export default function ConnectorSemanticDrawer({ connector, onClose }: Props) {
     refetchInterval: running ? 5_000 : false,
   });
 
-  const refreshRow = () => {
+  // ★ 按入参里的连接 id 刷，不读闭包里的 connector：派发返回时抽屉可能已经换成了别的连接，
+  //   那时刷的应当仍是【点了重新生成的那条】（与结构快照抽屉同一个坑，那边把 A 的结果画进了 B）。
+  const refreshRow = (id: string) => {
     qc.invalidateQueries({ queryKey: ['connector', 'list'] });
-    qc.invalidateQueries({ queryKey: ['connector', 'semantic', connector?.id] });
+    qc.invalidateQueries({ queryKey: ['connector', 'semantic', id] });
   };
 
   const deriveMut = useMutation({
-    mutationFn: () => connectorApi.deriveSemantic(connector!.id),
-    onSuccess: () => {
+    mutationFn: (id: string) => connectorApi.deriveSemantic(id),
+    onSuccess: (_: unknown, id) => {
       // ★ 返回的是「已派发」，不是「已生成」。文案一旦写成「已重新生成」，人就会当场关掉抽屉，
       //   带着一份还没变的说明书走人。
       message.info('已提交。推导在后台异步跑，这次点击只是把任务派发出去——进度看上方的状态。');
-      refreshRow();
+      refreshRow(id);
       // 认领（状态变「生成中」）发生在后台线程里，可能比这次 invalidate 晚几百毫秒。
       // 只刷一次多半刷到的还是旧状态，列表那边也就不会开始轮询。补一次。
-      window.setTimeout(refreshRow, 2_000);
+      window.setTimeout(() => refreshRow(id), 2_000);
     },
     onError: (e: Error) => message.error(e.message),
   });
@@ -112,6 +315,9 @@ export default function ConnectorSemanticDrawer({ connector, onClose }: Props) {
    *   很便宜的口子；记成「永远不打」会让人对着一条没快照的连接连点十次。
    */
   const confirmDerive = () => {
+    if (!connector) return;
+    // 在点按钮这一刻就把 id 定下来：确认框开着的时候抽屉也可能被换掉，点「开始生成」派发的必须是打开确认框的那条。
+    const targetId = connector.id;
     modal.confirm({
       title: '重新生成语义层？',
       width: 560,
@@ -135,7 +341,7 @@ export default function ConnectorSemanticDrawer({ connector, onClose }: Props) {
       ),
       okText: '开始生成',
       cancelText: '取消',
-      onOk: () => deriveMut.mutateAsync(),
+      onOk: () => deriveMut.mutateAsync(targetId),
     });
   };
 
@@ -151,12 +357,22 @@ export default function ConnectorSemanticDrawer({ connector, onClose }: Props) {
       width: 200,
       render: (_: unknown, r) => {
         const target = r.scope === 'JOIN' ? joinTarget(r) : null;
+        const care = joinCare(r, tier);
+        const shape = tableShapeOf(r);
         return (
           <div>
             <Typography.Text code>{rowAnchor(r)}</Typography.Text>
-            {target && (
-              <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>→ {target}</div>
+            {target && <div style={SUB_STYLE}>→ {target}</div>}
+            {care && (
+              <div style={{ marginTop: 4 }}>
+                <Tooltip title={care.hint}>
+                  <Tag color="orange" icon={<WarningOutlined />}>
+                    {care.label}
+                  </Tag>
+                </Tooltip>
+              </div>
             )}
+            {shape && <TableShapeTags shape={shape} />}
           </div>
         );
       },
@@ -164,9 +380,17 @@ export default function ConnectorSemanticDrawer({ connector, onClose }: Props) {
     {
       title: '说明（模型读到的就是这句话）',
       key: 'gloss',
-      render: (_: unknown, r) => (
-        <Typography.Text style={{ whiteSpace: 'pre-wrap' }}>{r.gloss || '—'}</Typography.Text>
-      ),
+      render: (_: unknown, r) => {
+        const care = joinCare(r, tier);
+        const shape = tableShapeOf(r);
+        return (
+          <div>
+            <Typography.Text style={{ whiteSpace: 'pre-wrap' }}>{r.gloss || '—'}</Typography.Text>
+            {care && <JoinCareNote care={care} tierText={tierText} />}
+            {shape?.kind === 'SHAPE' && shape.keyValue && <KeyValueNote shape={shape} />}
+          </div>
+        );
+      },
     },
     {
       title: '来源',
@@ -224,7 +448,8 @@ export default function ConnectorSemanticDrawer({ connector, onClose }: Props) {
       key: 'status',
       width: 110,
       render: (_: unknown, r) => {
-        const meta = rowStatusMeta(r.status);
+        // 带上 scope：「结构已变」的口径整条停止注入，其它 scope 带着标记照样注入——悬停说明必须跟着分开说。
+        const meta = rowStatusMeta(r.status, r.scope);
         return (
           <Tooltip title={meta.hint}>
             <Tag color={meta.color}>{meta.label}</Tag>
@@ -235,14 +460,15 @@ export default function ConnectorSemanticDrawer({ connector, onClose }: Props) {
   ];
 
   const renderExpanded = (r: ConnectorSemanticRow) => {
-    const details = detailEntries(r);
+    const details = detailEntries(r, tier);
     const history = historyEntries(r);
     const conf = confidenceOf(r);
     return (
       <Descriptions size="small" column={1} bordered>
         {details.map((d) => (
           <Descriptions.Item key={d.key} label={d.label}>
-            {d.value}
+            {/* 保留换行：形态实测的留痕是多行（结论 / 测的两列 / 依据），挤成一行就读不出层次。 */}
+            <span style={{ whiteSpace: 'pre-wrap' }}>{d.value}</span>
           </Descriptions.Item>
         ))}
         {conf !== null && (
@@ -293,7 +519,7 @@ export default function ConnectorSemanticDrawer({ connector, onClose }: Props) {
   };
 
   const hasExpandable = (r: ConnectorSemanticRow) =>
-    detailEntries(r).length > 0 ||
+    detailEntries(r, tier).length > 0 ||
     confidenceOf(r) !== null ||
     historyEntries(r).length > 0 ||
     !!r.traceId ||
@@ -396,7 +622,7 @@ export default function ConnectorSemanticDrawer({ connector, onClose }: Props) {
             </Tag>
           </Tooltip>
           {staleCount > 0 && (
-            <Tooltip title="它们锚的表/列结构已经变了，这些说明可能已经不成立。">
+            <Tooltip title="它们锚的表/列结构已经变了，这些说明可能已经不成立。其中业务口径整条不再提供给模型；表用途、字段含义、表关系仍会提供给模型，只是带着「结构已变」的标记。">
               <Tag color="red">结构已变 {staleCount} 项</Tag>
             </Tooltip>
           )}
@@ -445,6 +671,7 @@ export default function ConnectorSemanticDrawer({ connector, onClose }: Props) {
               <Space size={6} wrap>
                 <b>{g.meta.label}</b>
                 <Tag>{g.rows.length}</Tag>
+                {groupFlags(g, tier)}
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   {g.meta.desc}
                 </Typography.Text>
