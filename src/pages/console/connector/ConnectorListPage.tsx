@@ -202,19 +202,33 @@ const healthBadge = (row: ConnectorView) => {
  *
  * ★ 生成中显示的是 semanticClaimAt（本次开始时间），不是 semanticSyncedAt——
  * 后者是「上一次成功」的时间，拿它当开始时间会差出一整轮。
+ *
+ * ★ 生成中（RUNNING）的悬停**刻意只有两行**：「本次开始于」（没有 claimAt 就不画这一行）+ 固定的「正在生成语义层」。
+ * 其它状态照旧是 hint + 最近一次成功时间 + 说明。RUNNING 时不画后三样，理由是产品要求：
+ * 列表悬停只回答「什么时候开始的、是不是在生成」，其余细节去抽屉看。这是取舍，不是这三样没用：
+ *   - semanticNote 此时是后端写的进度话术。全量推导是「正在生成语义层……」，与固定文案一致；
+ *     但增量补写是「正在为 N 张表补写说明书……」，带着「这是增量、补几张表」的信息——
+ *     这一点列表悬停刻意不带，只在抽屉的「最新说明」里看得到；
+ *   - 「最近一次成功生成」与 hint 同理，抽屉里都有。
+ * 完整信息没有丢：抽屉顶部横幅（ConnectorSemanticDrawer）照旧四样都画，hint 也还在那里用——
+ * 所以别为了精简这里去改 semantic.ts 的 RUNNING hint。
  */
 const semanticTag = (row: ConnectorView) => {
   const meta = semanticStatusMeta(row.semanticStatus);
   const running = row.semanticStatus === 'RUNNING';
-  const tip = (
+  const tip = running ? (
     <>
-      {meta.hint}
-      {running && row.semanticClaimAt && (
+      {row.semanticClaimAt && (
         <>
-          <br />
           本次开始于：{formatTime(row.semanticClaimAt)}
+          <br />
         </>
       )}
+      正在生成语义层
+    </>
+  ) : (
+    <>
+      {meta.hint}
       {row.semanticSyncedAt && (
         <>
           <br />
