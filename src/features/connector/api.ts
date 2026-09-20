@@ -35,6 +35,26 @@ export const connectorApi = {
     post<ProbeOutcome>('/admin/connectors/probe', payload, id ? { params: { id } } : undefined),
   update: (id: string, payload: ConnectorUpsert) =>
     put<ConnectorView>(`/admin/connectors/${id}`, payload),
+
+  /**
+   * 取回已保存的凭据明文（编辑弹窗里点「眼睛」）。
+   *
+   * ★ **必须是单独一次请求，不能并进 `get`。** 这是整个「查看密码」功能唯一容易做错的地方：
+   * 把明文塞进详情返回值里，界面上照样可以先打码再点眼睛显示，看起来一模一样——
+   * 但明文在**打开弹窗的那一刻**就已经过了 HTTP、进了浏览器内存和 devtools 的 Network 面板。
+   * 藏起来只发生在视觉层，泄露发生在传输层。所以明文只在用户真的点了那一下才去取。
+   *
+   * ★ **是 POST 不是 GET。** 后端每次调用都写一条 `admin.credential_reveal` 审计——
+   * 有副作用的端点做成 GET，任何一处预取 / 重试 / 把 GET 当幂等的中间件都会凭空造出
+   * 「有人查看了密码」的记录，而那张表的全部价值就在于它记的每一条都真的发生过。
+   *
+   * ★ **拿到的值不要写进表单、不要放进 react-query 缓存。** 只在组件内 state 里活到弹窗关闭
+   * （Modal 有 destroyOnClose）。写进表单会在下一次保存时把它当成「用户新填的密码」重新加密一遍，
+   * 白白多一次明文往返。
+   *
+   * @returns 敏感参数名 → 明文。该类型没有敏感参数时是空对象
+   */
+  revealCredential: (id: string) => post<Record<string, string>>(`/admin/connectors/${id}/credential`),
   /**
    * 重新探测。注意后端**不会**因探测失败返回错误状态——失败原因回填在
    * healthState / healthReason 里正常返回，所以这里拿到的永远是「现在的状态」。

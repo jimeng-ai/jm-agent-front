@@ -861,7 +861,13 @@ export default function ConnectorListPage() {
             <Input placeholder="CRM 生产库（只读）" />
           </Form.Item>
 
-          {activeKind && <SchemaForm fields={activeKind.fields} editing={!!editing} />}
+          {activeKind && (
+            <SchemaForm
+              fields={activeKind.fields}
+              editing={!!editing}
+              connectorId={editing?.id ?? null}
+            />
+          )}
 
           <Form.Item
             label="写策略"

@@ -2,6 +2,7 @@ import { Fragment } from 'react';
 import { Divider, Form, Input, InputNumber, Select, Switch } from 'antd';
 import type { Rule } from 'antd/es/form';
 import type { ParamFieldSchema } from '../types';
+import SecretField from './SecretField';
 
 /**
  * 按后端下发的表单 schema 渲染参数表单。
@@ -16,8 +17,13 @@ import type { ParamFieldSchema } from '../types';
 
 interface Props {
   fields: ParamFieldSchema[];
-  /** 编辑态：敏感字段留空表示沿用原值，占位提示要相应改变。 */
+  /**
+   * 编辑态：敏感字段不再是空输入框，而是「已保存」态（见 {@link SecretField}）。
+   * 语义不变——不主动更换就不往表单里写值，后端那条「留空 = 沿用原值」照旧生效。
+   */
   editing: boolean;
+  /** 编辑态的连接 id，敏感字段取回明文时要用。新建态传 null。 */
+  connectorId?: string | null;
   /** 表单里参数字段的命名空间，避免与 name/displayName 撞名。 */
   namePath?: string;
 }
@@ -36,15 +42,12 @@ function rulesOf(f: ParamFieldSchema, editing: boolean): Rule[] {
   return rules;
 }
 
-function controlOf(f: ParamFieldSchema, editing: boolean) {
+function controlOf(f: ParamFieldSchema, editing: boolean, connectorId: string | null) {
   switch (f.type) {
     case 'password':
-      return (
-        <Input.Password
-          autoComplete="new-password"
-          placeholder={editing ? '留空表示不修改' : (f.placeholder ?? '')}
-        />
-      );
+      // 编辑态交给 SecretField：它自己处理「已保存 / 更换中」两种形态，以及点眼睛取回明文。
+      // 新建态它退化成一个普通的 Input.Password，与改动前完全一致。
+      return <SecretField field={f} connectorId={editing ? connectorId : null} />;
     case 'int':
       return <InputNumber min={f.min} max={f.max} style={{ width: '100%' }} />;
     case 'bool':
@@ -71,7 +74,12 @@ function controlOf(f: ParamFieldSchema, editing: boolean) {
   }
 }
 
-export default function SchemaForm({ fields, editing, namePath = 'params' }: Props) {
+export default function SchemaForm({
+  fields,
+  editing,
+  connectorId = null,
+  namePath = 'params',
+}: Props) {
   // 按 group 分段，保持后端给出的字段顺序（Map 的插入序）。
   const groups = new Map<string, ParamFieldSchema[]>();
   for (const f of fields) {
@@ -102,7 +110,7 @@ export default function SchemaForm({ fields, editing, namePath = 'params' }: Pro
               // bool 用 Switch，值绑在 checked 上而不是 value。
               valuePropName={f.type === 'bool' ? 'checked' : undefined}
             >
-              {controlOf(f, editing)}
+              {controlOf(f, editing, connectorId)}
             </Form.Item>
           ))}
         </Fragment>

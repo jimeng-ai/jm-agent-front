@@ -26,6 +26,7 @@ import { downloadArtifact, fetchArtifactBlob, fetchGenImageBlob } from '@/api/ag
 import { glyphColor } from '@/utils/glyph';
 import {
   inferStepKind,
+  isDescTruncated,
   kindLabel,
   stepTitle,
   formatStepInput,
@@ -290,7 +291,10 @@ function ToolStepCard({ tc }: { tc: ToolCallView }) {
   const sub = formatStepInput(tc.input);
   const summary = summarizeResult(tc, kind);
   const outputString = typeof tc.output === 'string' ? tc.output : undefined;
-  const hasDetail = tc.input != null || !!outputString;
+  // 标题被截短时，完整描述降级到详情里。它是工具定义的 description，本质是写给模型的操作规范，
+  // 不该占着标题位；但也不能直接丢掉——排查「模型为什么这么调」时，它是唯一的线索。
+  const fullDesc = isDescTruncated(tc.desc) ? tc.desc!.trim() : '';
+  const hasDetail = tc.input != null || !!outputString || !!fullDesc;
   const inputPretty =
     tc.input == null
       ? ''
@@ -320,6 +324,12 @@ function ToolStepCard({ tc }: { tc: ToolCallView }) {
             </button>
             {showDetail && (
               <>
+                {fullDesc ? (
+                  <div className="chat-step__desc">
+                    <div className="chat-step__desc-label">工具说明（发给模型的完整定义）</div>
+                    {fullDesc}
+                  </div>
+                ) : null}
                 {inputPretty ? <pre className="chat-step__pre">{inputPretty}</pre> : null}
                 {outputText ? <pre className="chat-step__pre">{outputText}</pre> : null}
               </>

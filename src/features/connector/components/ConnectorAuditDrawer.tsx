@@ -74,7 +74,10 @@ export default function ConnectorAuditDrawer({ connector, onClose }: Props) {
       render: (_: unknown, r) => (
         <Space size={4} wrap>
           <Typography.Text code>{r.operation}</Typography.Text>
-          <Tag>{CAP_LABEL[r.capability] ?? r.capability}</Tag>
+          {/* capability 为空是有意义的值，不是缺数据：这一行没有用到任何连接器能力
+              （管理面动作，如 admin.credential_reveal —— 它碰的是我们自己存的密文，客户库上什么都没发生）。
+              照原样渲染会出一个空的灰色 Tag，看起来像渲染坏了；不渲染才是如实的。 */}
+          {r.capability ? <Tag>{CAP_LABEL[r.capability] ?? r.capability}</Tag> : null}
         </Space>
       ),
     },

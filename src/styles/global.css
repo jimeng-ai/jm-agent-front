@@ -2047,6 +2047,28 @@ img.chat-agent-glyph {
   word-break: break-all;
 }
 
+/* 工具说明（折叠详情里的完整 description）。
+   刻意【不】用 .chat-step__pre 的深色代码块：它不是代码也不是数据，是一段中文说明，
+   等宽深色会让人误以为那是工具的原始返回值。 */
+.chat-step__desc {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  background: var(--c-bg-subtle, #f8fafc);
+  color: var(--c-text-secondary, #475569);
+  border-left: 2px solid var(--c-border, #e2e8f0);
+  border-radius: var(--r-md);
+  font-size: var(--fs-12);
+  line-height: 1.7;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+.chat-step__desc-label {
+  margin-bottom: 4px;
+  font-size: var(--fs-12);
+  color: var(--c-text-tertiary, #94a3b8);
+}
+
 /* 四种分类配色：图标块 + 标签 */
 .chat-step--kb .chat-step__icon {
   background: #ecfdf5;

@@ -26,7 +26,13 @@ export interface ParamFieldSchema {
   label: string;
   type: ParamFieldType;
   required: boolean;
-  /** true 表示敏感：不进 config_json，只进密文，且永不回读。编辑时留空 = 沿用原值。 */
+  /**
+   * true 表示敏感：不进 config_json，只进密文。
+   *
+   * 详情接口（`connectorApi.get` / `list`）**永远不返回**它，连占位串都没有。
+   * 唯一的取回口是 `connectorApi.revealCredential`，单独一次 POST，后端每次都写审计。
+   * 编辑时不主动更换 = 沿用原值。
+   */
   secret: boolean;
   default?: string;
   placeholder?: string;
@@ -199,7 +205,8 @@ export interface ConnectorAuditRow {
   agentId?: string | null;
   /** Agent 已删除时为空——审计记录不随 Agent 消失。 */
   agentName?: string | null;
-  capability: string;
+  /** 能力。**可能为 null**：管理面动作（如凭据取回）不使用任何连接器能力。 */
+  capability: string | null;
   operation: string;
   traceId?: string | null;
   rowCount?: number | string | null;
