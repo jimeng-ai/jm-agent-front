@@ -117,6 +117,31 @@ export interface ConnectorView {
    */
   semanticNote?: string | null;
 
+  // ── 说明书是不是全本 ──────────────────────────────────────────────────────
+  // 上面那个 semanticNote 里一直写着残缺（「本次只覆盖 9/14 张表」「模型输出被 max_tokens 截断」），
+  // 但那是一段中文散文：不显眼、会被别的说明挤掉、也没法查。下面两个字段是同一件事的
+  // **结构化形状**，给界面一个明确的警示位。★ 它们是**增加**的信号，不是 semanticNote 的替代——
+  // 那段散文照旧要能看到全文（点开抽屉），后端也不会改它的文案。
+
+  /**
+   * 当前这份说明书是不是全本。
+   * COMPLETE = 完整（只说没有整块缺失，**不保证内容对**）；PARTIAL = 残缺，缺在哪见 semanticGaps。
+   *
+   * ★ **null / undefined 不等于残缺**，那是「没跑过」：存量连接、以及从未成功生成过的连接都是空。
+   *   把这两种混成一个显示，等于上线当天把所有连接标红，然后所有人一起学会忽略这个标记。
+   * ★ 它只由一次**成功生成**写下，失败与中断都不动——那时库里还是上一版说明书。
+   *   所以 semanticStatus=FAILED 配一个 COMPLETE 是正常的：它描述的是**当前库里那一版**。
+   */
+  semanticCoverage?: SemanticCoverage | null;
+
+  /**
+   * 残缺的成因码，semanticCoverage=PARTIAL 时才非空。后端已经拆成数组，前端不要再 split。
+   *
+   * ★ 渲染必须有兜底：后端将来多一个码，认不出来也得显示出来（见 semantic.ts `semanticGapMeta`）。
+   *   静默丢掉一条缺口，等于把「说明书缺了什么」这个问题重新答错。
+   */
+  semanticGaps?: string[] | null;
+
   // ── 数据出库档位 ────────────────────────────────────────────────────────────
   // 三个字段一起给，是因为这一格在界面上不是一个下拉框，而是一句要被人读懂的承诺：
   // 档位值（提交时**原样回填**）、短名（列表/下拉框显示）、这一档到底什么东西会出库（展开显示）。
@@ -147,6 +172,16 @@ export interface ConnectorView {
   semanticDataTierEgress?: string | null;
 
   createTime?: string | null;
+
+  /**
+   * 「这个库已经接过了」——只在**新建**的返回里出现，是提醒不是错误。
+   *
+   * 后端唯一键只管连接名不重，不管指向哪个库。同一个库建两条连接是合法的（一条只读给 Agent、
+   * 一条可写走审批），但语义层按连接切：会**推导两遍**，两边的业务口径**不互通**——
+   * 在 A 上确认过的口径，Agent 用 B 查时一个字都看不到，直接按默认算。不报错，只是悄悄算出
+   * 不一样的数，所以必须在建连当下让人看见，而且不能用一闪而过的 toast。
+   */
+  sameTargetHint?: string | null;
 }
 
 /**
@@ -500,6 +535,26 @@ export interface PendingWriteQuery {
  */
 export type SemanticStatus = 'NONE' | 'RUNNING' | 'READY' | 'FAILED' | 'NOT_APPLICABLE';
 
+/**
+ * 当前这份说明书是不是全本。**空值（null / undefined）是第三态：没跑过。**
+ *
+ * ★ 三态必须分开渲染。`COMPLETE` 不值得标记（它是应该的），`PARTIAL` 要一个看得见的警示，
+ * 空值只是「还没生成」——把空值也标成残缺，等于上线当天给所有存量连接挂红标，
+ * 然后所有人一起学会忽略这个标记，那比没有这个标记更糟。
+ */
+export type SemanticCoverage = 'COMPLETE' | 'PARTIAL';
+
+/**
+ * 残缺的成因码。后端枚举（SemanticGap）的全集，但**前端不许当成封闭集合用**：
+ * 后端多加一个码而前端漏了映射时，必须退化成「未知缺口（XXX）」而不是静默丢掉——
+ * 丢掉一条缺口，等于把「说明书缺了什么」这个问题重新答错一次。
+ */
+export type SemanticGapCode =
+  | 'TABLES_MISSING'
+  | 'TABLES_GAVE_UP'
+  | 'SNAPSHOT_TRUNCATED'
+  | 'MODEL_OUTPUT_TRUNCATED';
+
 /** 一条断言挂在什么上。METRIC / CAVEAT 不挂具体的表，挂整条连接。 */
 export type SemanticScope = 'OBJECT' | 'FIELD' | 'JOIN' | 'METRIC' | 'CAVEAT';
 
@@ -619,4 +674,18 @@ export interface ConnectorSemanticRow {
 /** 手工重跑的返回。★ 它只代表「已派发」，不代表「已生成」——真实进度在 ConnectorView.semanticStatus 上。 */
 export interface SemanticDeriveStarted {
   started: boolean;
+}
+
+/**
+ * 删掉一行语义的返回。
+ *
+ * ★ `removed` 是**实际删除行数**，不是布尔。0 是正常结局（重复点击、并发里被别人先删了），
+ *   后端对它不报错。
+ * ★ **numbers-as-strings**：本工作区的契约是数字字段按字符串下发，所以 `removed` 可能是 `'1'`。
+ *   任何比较（`removed > 0`）之前必须先 `Number()`——`'0' > 0` 是 false 没错，
+ *   但 `'01'`、空串这类值上直接比较会给出静默的错答案。
+ */
+export interface SemanticRowDeleted {
+  deleted: boolean;
+  removed: number | string;
 }

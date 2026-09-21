@@ -16,9 +16,10 @@ import {
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { ReloadOutlined, UserOutlined, WarningOutlined } from '@ant-design/icons';
+import { DeleteOutlined, ReloadOutlined, UserOutlined, WarningOutlined } from '@ant-design/icons';
 import { connectorApi } from '@/features/connector/api';
 import {
+  SEMANTIC_PARTIAL_CONSEQUENCE,
   confidenceOf,
   detailEntries,
   evidenceMeta,
@@ -32,6 +33,7 @@ import {
   joinTarget,
   rowAnchor,
   rowStatusMeta,
+  semanticCoverageOf,
   semanticStatusMeta,
   sourceMeta,
   tableShapeOf,
@@ -56,9 +58,9 @@ import type { ConnectorSemanticRow, ConnectorView } from '@/features/connector/t
  *
  * 1. **gloss 永远和 source / evidence / verified / status 一起显示。** 只显示那句话，
  *    会让一条可能已经不成立的推测看起来像事实。
- * 2. **人答的口径（source=HUMAN）必须和机器推断长得不一样。** 平台**刻意没有编辑入口**
- *    （口径的纠正走对话），所以这一眼是任何人唯一一次可能发现「这条口径写错了」的机会；
- *    两者长得一样，就等于谁都不会去核其中任何一条。
+ * 2. **人答的口径（source=HUMAN）必须和机器推断长得不一样。** 改一条口径走的是对话
+ *    （模型问、业务方答、平台记下来覆盖），这一页只能**删**、不能改；而删只有企业超管点得到。
+ *    所以这一眼往往是「这条口径写错了」被发现的地方，两者长得一样就等于谁都不会去核其中任何一条。
  * 3. **STALE 要显眼。** 它锚的结构已经变了，这句话可能已经不成立。
  * 4. **JOIN 的 verified=NONE 要说重话。** 没用数据核过的表关系只是「名字看着像」；
  *    它和一条真外键在界面上长得一样，就会被当成事实用。
@@ -270,6 +272,8 @@ export default function ConnectorSemanticDrawer({ connector, onClose }: Props) {
   const status = connector?.semanticStatus;
   const statusMeta = semanticStatusMeta(status);
   const running = status === 'RUNNING';
+  // 残缺信号。★ 只有 PARTIAL 非 null：空值是「没跑过」（存量连接），不是残缺，见 semanticCoverageOf。
+  const partialCoverage = semanticCoverageOf(connector ?? undefined);
   // 连接的当前档位。存着的第 3 档取值此刻给不给模型取决于它（semantic.ts sampleValuesAllowed），
   // 往下每一处读条件、读详情都要带上——joinCare / detailEntries 把它设成必填，就是不让哪一处漏掉。
   const tier = connector?.semanticDataTier;
@@ -342,6 +346,72 @@ export default function ConnectorSemanticDrawer({ connector, onClose }: Props) {
       okText: '开始生成',
       cancelText: '取消',
       onOk: () => deriveMut.mutateAsync(targetId),
+    });
+  };
+
+  const deleteMut = useMutation({
+    mutationFn: (v: { connectorId: string; rowId: string }) =>
+      connectorApi.deleteSemanticRow(v.connectorId, v.rowId),
+    onSuccess: (res, v) => {
+      // ★ removed 按字符串下发（本工作区契约：数字字段按字符串出网），比较前必须 Number()。
+      if (Number(res?.removed ?? 0) > 0) {
+        message.success('已删除。这一行是物理删除，不可恢复。');
+      } else {
+        // 后端对「这行本来就不在」返回 removed=0 且不报错。当成成功提示会骗人，当成失败也骗人——
+        // 如实说它已经不在了，人才知道不用再点第二次。
+        message.info('这一行已经不在了（可能刚被别人删掉），本次没有删除任何内容。');
+      }
+      refreshRow(v.connectorId);
+    },
+    onError: (e: Error) => message.error(e.message),
+  });
+
+  /**
+   * 删一行之前，把**三件会让人后悔**的事说全。
+   *
+   * 少说哪一件都会导致一次谁都没打算做的删除：
+   * - **物理删除、不可恢复**：这不是别处那种「停用 / 软删」，库里那一行是真的没了。
+   * - **机器推断的行删了会回来**：下一次重新生成又会把它原样推一遍。要它不再出现，
+   *   得去改让它被推出来的东西（结构注释、口径），删这一行只是清掉当前这一份。
+   * - **人工确认的行删了，覆盖留痕一起消失**：那份留痕是「任何能对话的人都能覆盖口径」
+   *   这个已知代价的唯一取证材料，删掉之后再没有任何地方能回答「这条口径被谁改过几次」。
+   */
+  const confirmDeleteRow = (r: ConnectorSemanticRow) => {
+    if (!connector || !r.id) return;
+    // ★ 在【点击这一刻】就把两个 id 定下来。确认框开着的时候抽屉可能已经被换成另一条连接
+    //   （列表在轮询，外面点一下别的行就换了），那时再读闭包里的 connector，
+    //   一次对 A 的确认会落到 B 上——而 rowId 在 B 上多半查无此行，删不掉、也看不出哪里不对。
+    const connectorId = connector.id;
+    const rowId = r.id;
+    const human = isHuman(r);
+    modal.confirm({
+      title: `删除这一行语义「${rowAnchor(r)}」？`,
+      width: 560,
+      content: (
+        <div style={{ fontSize: 13 }}>
+          <p style={{ marginTop: 8 }}>
+            <b>物理删除，不可恢复。</b>这不是停用、也不是软删——库里那一行会被真的删掉，
+            没有回收站，也没有撤销。
+          </p>
+          <p>
+            <b>机器推断的行（</b>
+            <Tag color="default">机器推断</Tag>
+            <b>）删掉后，下次重新生成会再推一遍。</b>
+            这里删的只是当前这一份；要它不再出现，得去处理让它被推出来的东西。
+          </p>
+          <p style={{ marginBottom: 0 }}>
+            <b>人工确认的行（</b>
+            <Tag color="purple">人工确认</Tag>
+            <b>）删掉后，连同它的覆盖留痕一起消失。</b>
+            那份留痕是「这条口径被谁、在哪次对话里改过」的唯一记录，删了就再也查不到。
+            {human && <b>——你正要删的就是这样一行。</b>}
+          </p>
+        </div>
+      ),
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: () => deleteMut.mutateAsync({ connectorId, rowId }),
     });
   };
 
@@ -456,6 +526,26 @@ export default function ConnectorSemanticDrawer({ connector, onClose }: Props) {
           </Tooltip>
         );
       },
+    },
+    {
+      title: '操作',
+      key: 'ops',
+      width: 88,
+      render: (_: unknown, r) => (
+        // 只有删，没有改：改一条口径走的是对话（同一个 term 再答一次覆盖，并留痕），
+        // 在这里直接编辑 gloss 会绕开「谁在哪次对话里说的」这套追溯，把一句话变成没有出处的断言。
+        <Tooltip title="物理删除，不可恢复">
+          <Button
+            type="link"
+            danger
+            size="small"
+            icon={<DeleteOutlined />}
+            onClick={() => confirmDeleteRow(r)}
+          >
+            删除
+          </Button>
+        </Tooltip>
+      ),
     },
   ];
 
@@ -592,6 +682,46 @@ export default function ConnectorSemanticDrawer({ connector, onClose }: Props) {
         }
       />
 
+      {/* 说明书不是全本。
+          ★ 这条横幅是**加出来的**，上面那条状态横幅里的 semanticNote 全文一个字都没动——
+            后端写的那段散文（「本次只覆盖 9/14 张表」「模型输出被 max_tokens 截断」）照旧在那里，
+            运维读的还是它。这里只是把**同一件事**从散文里拎出来，给它一个看得见的位置。
+          ★ 独立一条 warning 而不是并进上面那条 success：并进去就又变成一段接在成功后面的小字，
+            而「生成成功」和「生成出来的东西不全」正是最容易被读成一件事的两件事。
+          ★ 文案落点是**后果**，不是现象：模型看不到缺掉的那部分，它不会报错，只会答得不对。 */}
+      {partialCoverage && (
+        <Alert
+          type="warning"
+          showIcon
+          icon={<WarningOutlined />}
+          style={{ marginBottom: 12 }}
+          message="这份说明书不完整"
+          description={
+            <>
+              {SEMANTIC_PARTIAL_CONSEQUENCE}
+              <br />
+              下面列出来的行是<b>已经生成的那部分</b>，它们本身照常可用——缺的是没列出来的那些。
+              {partialCoverage.gaps.length > 0 && (
+                <ul style={{ margin: '8px 0 0', paddingInlineStart: 20 }}>
+                  {partialCoverage.gaps.map((g) => (
+                    <li key={g.label}>
+                      <b>{g.label}</b>：{g.desc}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {/* 后端只说了 PARTIAL、没给成因码时也要把话说完整：少了成因不等于少了后果。 */}
+              {partialCoverage.gaps.length === 0 && (
+                <>
+                  <br />
+                  后端没有给出具体成因，详情看上面那条「最新说明」的全文。
+                </>
+              )}
+            </>
+          }
+        />
+      )}
+
       <Alert
         type="info"
         showIcon
@@ -603,8 +733,9 @@ export default function ConnectorSemanticDrawer({ connector, onClose }: Props) {
             这样的名字，模型靠这些行才知道哪张是订单表、怎么 join、销售额减不减退款——
             <b>猜错不会报错，只会返回一个看起来很正常的错数字</b>。
             <br />
-            平台<b>刻意不提供编辑入口</b>：口径的纠正走对话（模型问、业务方答、平台记下来）。
-            所以这一页是唯一能看出「某条口径写错了」的地方——重点看
+            这一页<b>只能删、不能改</b>：改一条口径走的是对话（模型问、业务方答，用同一个词条覆盖并留痕），
+            在这里直接编辑会让一句话变成没有出处的断言。删除是物理删除、不可恢复，而且只有企业超管点得到——
+            发现口径错了的业务方通常要来找超管。所以重点看
             <Tag color="purple" style={{ marginInline: 4 }}>
               人工确认
             </Tag>

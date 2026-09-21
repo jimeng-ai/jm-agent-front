@@ -18,7 +18,7 @@ import {
 } from 'antd';
 import { Modal } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { PlusOutlined, SyncOutlined } from '@ant-design/icons';
+import { PlusOutlined, SyncOutlined, WarningOutlined } from '@ant-design/icons';
 import { authApi } from '@/features/auth/api';
 import { connectorApi } from '@/features/connector/api';
 import GrantScriptPanel from '@/features/connector/components/GrantScriptPanel';
@@ -26,7 +26,12 @@ import SchemaForm from '@/features/connector/components/SchemaForm';
 import ConnectorAuditDrawer from '@/features/connector/components/ConnectorAuditDrawer';
 import ConnectorSchemaDrawer from '@/features/connector/components/ConnectorSchemaDrawer';
 import ConnectorSemanticDrawer from '@/features/connector/components/ConnectorSemanticDrawer';
-import { formatTime, semanticStatusMeta } from '@/features/connector/semantic';
+import {
+  SEMANTIC_PARTIAL_CONSEQUENCE,
+  formatTime,
+  semanticCoverageOf,
+  semanticStatusMeta,
+} from '@/features/connector/semantic';
 import type {
   ConnectorKind,
   ConnectorUpsert,
@@ -245,12 +250,40 @@ const semanticTag = (row: ConnectorView) => {
       )}
     </>
   );
+  // ★ 残缺是**另一个维度**，不是第六个状态，所以是状态标签**旁边**的第二个标签，不是把「已生成」改写成别的词。
+  //   「已生成」这件事没有变（说明书确实在库里、模型确实在读它），变的是「它是不是全本」。
+  //   合成一个词的代价是把两件事挤成一句含糊的话，而含糊的警示等于没有警示。
+  //
+  // ★ 只有 PARTIAL 画这个标签。空值是「没跑过」（存量连接），不是残缺——两者混在一起，
+  //   上线当天所有连接都会挂红标，然后所有人一起学会忽略它（semanticCoverageOf 守着这条规矩）。
+  const coverage = semanticCoverageOf(row);
   return (
-    <Tooltip title={tip}>
-      <Tag color={meta.color} icon={running ? <SyncOutlined spin /> : undefined}>
-        {meta.label}
-      </Tag>
-    </Tooltip>
+    <Space size={4} wrap>
+      <Tooltip title={tip}>
+        <Tag color={meta.color} icon={running ? <SyncOutlined spin /> : undefined}>
+          {meta.label}
+        </Tag>
+      </Tooltip>
+      {coverage && (
+        <Tooltip
+          title={
+            <>
+              {SEMANTIC_PARTIAL_CONSEQUENCE}
+              {coverage.gaps.map((g) => (
+                <div key={g.label} style={{ marginTop: 6 }}>
+                  · <b>{g.label}</b>：{g.desc}
+                </div>
+              ))}
+              <div style={{ marginTop: 6 }}>点「语义层」看本次生成说明的全文。</div>
+            </>
+          }
+        >
+          <Tag color="warning" icon={<WarningOutlined />}>
+            不完整
+          </Tag>
+        </Tooltip>
+      )}
+    </Space>
   );
 };
 
@@ -330,10 +363,20 @@ export default function ConnectorListPage() {
 
   const createMut = useMutation({
     mutationFn: (payload: ConnectorUpsert) => connectorApi.create(payload),
-    onSuccess: () => {
+    onSuccess: (created) => {
       message.success('已创建（连通性、只读权限与能力均已验证通过）');
       closeModal();
       invalidate();
+      // 「同一个库已经接过了」用 Modal 而不是 message：它不是操作结果，是一件需要被读完并理解的事
+      // ——两份语义层、口径不互通，错了不会报错，只会悄悄算出不一样的数。一闪而过的 toast 等于没说。
+      if (created?.sameTargetHint) {
+        Modal.info({
+          title: '这个库已经接过了',
+          width: 560,
+          content: created.sameTargetHint,
+          okText: '知道了',
+        });
+      }
     },
     onError: (e: Error) => message.error(e.message),
   });
@@ -620,7 +663,9 @@ export default function ConnectorListPage() {
       //   等同于「什么都没发生」。点「语义层」按钮看具体生成了什么。
       title: '语义层',
       key: 'semantic',
-      width: 110,
+      // 比别的状态列宽：残缺时这一格是两个标签（「已生成」+「不完整」），挤在 110 会折行成两排，
+      // 而折了行的警示标签读起来像装饰。
+      width: 170,
       render: (_: unknown, row) => semanticTag(row),
     },
     {

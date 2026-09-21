@@ -9,14 +9,37 @@ import type { ToolCallView } from '@/features/chat-admin/types';
 export type StepKind = 'kb' | 'tool' | 'plugin' | 'skill';
 
 // 关键词命中即归类；顺序：kb → plugin → skill → 兜底 tool。
+//
+// ★ 这几条正则【只对工具名生效】，见 inferStepKind。中文词条保留是为了租户自装的中文名工具，
+//   不是为了匹配描述——描述里随便一句「对比」「检索」都会把分类带偏，那正是当初出问题的方式。
 const KB_RE = /检索|知识库|向量|资料库|文档库|retriev|knowledge|\brag\b|vector|embedding/i;
 const PLUGIN_RE =
   /插件|通知|推送|飞书|钉钉|企业?微信|lark|webhook|web ?hook|\bhook\b|plugin|notif|push|发送/i;
-const SKILL_RE = /\bskill\b|技能|对比|生成报告|归纳总结|汇总成|拉成一张表|方案对比/i;
+// skills?：activate_skills 这类复数名同样要算 Skill，\bskill\b 匹配不到它。
+const SKILL_RE = /\bskills?\b|技能|对比|生成报告|归纳总结|汇总成|拉成一张表|方案对比/i;
 
-/** 推断步骤分类。仅看 name + desc，避免被冗长 output 误导。 */
-export function inferStepKind(call: Pick<ToolCallView, 'name' | 'desc'>): StepKind {
-  const hay = `${call.name ?? ''} ${call.desc ?? ''}`;
+/**
+ * 把工具名归一成「空格分词」的形式再做匹配。
+ *
+ * <p>★ 这一步不是美化，是<b>必需</b>的：工具名是 snake_case，而 `_` 在正则里算 word char，
+ * 所以 `\brag\b` <b>匹配不到</b> `rag_search`（g 与 _ 之间没有词边界）。不做归一就改成
+ * 「只看 name」，知识库检索会当场掉出「知识库」分类——修一个 bug 引入另一个。
+ */
+function normalizeName(name?: string): string {
+  return (name ?? '').replace(/[_\-.]+/g, ' ');
+}
+
+/**
+ * 推断步骤分类。
+ *
+ * <h3>★ 只看 name，刻意不看 desc</h3>
+ * `desc` 是<b>写给模型的</b>工具描述，动辄上千字的负向约束。拿它当分类依据的结果是：
+ * `conn_define_metric` 因描述里一句「对比」被显示成「Skill」、高德 POI 因「检索」被显示成
+ * 「知识库 · 命中 N 个分片」——都是看起来很确定、实际完全错的标签。
+ * 工具名是短的、稳定的、由开发者选定的，它才是分类该依据的东西。
+ */
+export function inferStepKind(call: Pick<ToolCallView, 'name'>): StepKind {
+  const hay = normalizeName(call.name);
   if (KB_RE.test(hay)) return 'kb';
   if (PLUGIN_RE.test(hay)) return 'plugin';
   if (SKILL_RE.test(hay)) return 'skill';

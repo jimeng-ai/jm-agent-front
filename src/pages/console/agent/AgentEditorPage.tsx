@@ -304,6 +304,18 @@ export default function AgentEditorPage() {
                   <Form.Item label="Max Tokens" name={['modelParams', 'maxTokens']}>
                     <InputNumber min={256} max={32768} step={256} style={{ width: 200 }} />
                   </Form.Item>
+                  {/*
+                    这三个参数【只在对话平面生效】。后端在派发到沙箱时会打一条 warn，但那条 warn
+                    只进服务端日志——配参数的人在界面上看不到任何东西，改完以为生效了。
+                    说明放在这里而不是对话里：需要知道这件事的是【配 Agent 的人】，
+                    而对话的人没配过 temperature，告诉他「你的参数没生效」毫无意义。
+                  */}
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    这三个参数仅在<strong>对话平面</strong>生效。当该 Agent 绑定了需要沙箱执行的技能，
+                    或会话中上传过文件时，该轮改走<strong>沙箱平面</strong>——Claude Agent SDK 的 Options
+                    不接受 temperature / topP / maxTokens，这几项届时<strong>不会生效</strong>，
+                    但也不会报错。需要按 Agent 调参时，请避免让它走沙箱平面。
+                  </Typography.Text>
                 </Card>
               ),
             },

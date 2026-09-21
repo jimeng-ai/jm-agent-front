@@ -5,6 +5,7 @@ import type {
   SchemaRemovedImpact,
   SchemaSnapshotResult,
   SemanticEvidence,
+  SemanticGapCode,
   SemanticRowStatus,
   SemanticScope,
   SemanticSource,
@@ -94,6 +95,90 @@ export function semanticStatusMeta(v?: string | null): SemanticStatusMeta {
     hint: '后端返回了本页还不认识的状态值，前端需要补一条映射。',
   };
 }
+
+// ---------------------------------------------------------------------------
+// 连接级：说明书是不是全本（残缺信号）
+// ---------------------------------------------------------------------------
+//
+// ★ 这一段解决的**不是「没显示」**。残缺一直显示着——列表悬停的「说明：」、抽屉的
+//   「最新说明：」都会把 semanticNote 原样展出来，里面白纸黑字写着「本次只覆盖 9/14 张表」
+//   「模型输出疑似被 max_tokens 截断，说明书不完整」。问题是那句话**没有形状**：
+//   它是一段中文散文，混在其它说明中间，不引人注意。
+//
+// ★ 所以这里做的是给它一个**视觉上明确的位置**，而不是换一套文案。semanticNote 一个字不动，
+//   点开抽屉照旧看得到全文；这几个函数只负责把 semanticCoverage / semanticGaps 这个
+//   结构化信号翻成「一个警示标签 + 一句说清后果的话」。
+//
+// ★ 后果那句话必须说到底：说明书不完整 = **模型看不到那些表和字段，它不会报错，只会答得不对**。
+//   只写「不完整」，读的人会按「少了点锦上添花的东西」理解，然后照常信它给出的数字。
+
+export interface SemanticGapMeta {
+  /** 缺在哪，短名。 */
+  label: string;
+  /** 这条缺口意味着什么。说后果，不复述现象。 */
+  desc: string;
+}
+
+const GAP_META: Record<SemanticGapCode, SemanticGapMeta> = {
+  TABLES_MISSING: {
+    label: '有表没进说明书',
+    desc: '本次该覆盖的表没覆盖全。没覆盖到的那些表，模型完全看不到——它不会说「我不知道这张表」，只会用看得到的表凑一个答案。',
+  },
+  TABLES_GAVE_UP: {
+    label: '有表反复失败后被放弃',
+    desc: '有表试过几次都没生成出来，已被放弃。重新生成大概率还是同样结果，要先看那几张表本身出了什么问题。',
+  },
+  SNAPSHOT_TRUNCATED: {
+    label: '结构快照本身就不全',
+    desc: '客户库的对象数超过了结构快照的上限，超出的表根本没进过快照，因此也不会有语义。★ 只重新生成语义层补不回来，得先解决快照那一层。',
+  },
+  MODEL_OUTPUT_TRUNCATED: {
+    label: '模型输出被截断',
+    desc: '模型这次的输出超了长度上限，尾部被截掉（已保留到最后一个完整条目）。调大 connector.semantic.max-tokens 后重新生成通常能补全。',
+  },
+};
+
+/** 认不出来的成因码也要显示出来。静默丢掉一条缺口，等于把「缺了什么」这个问题重新答错一次。 */
+export function semanticGapMeta(code: string): SemanticGapMeta {
+  return (
+    GAP_META[code as SemanticGapCode] ?? {
+      label: `未知缺口（${code}）`,
+      desc: '后端报了一种本页还不认识的残缺成因，前端需要补一条映射。在补上之前，请按「说明书不完整」处理。',
+    }
+  );
+}
+
+export interface SemanticCoverageView {
+  /** 这份说明书残缺。**只有它为 true 时才画警示**。 */
+  partial: boolean;
+  /** 残缺的成因，已翻成中文；后端没给成因时是空数组（仍然是残缺）。 */
+  gaps: SemanticGapMeta[];
+}
+
+/**
+ * 连接级的残缺视图。**三态里只有 PARTIAL 会返回非 null。**
+ *
+ * - `COMPLETE` → null：完整是应该的，不值得占一个标记位。满屏都是标记时，没有一个标记是有效的。
+ * - 空值（null / undefined）→ null：那是**没跑过**（存量连接、或从未成功生成过），
+ *   不是残缺。把它也标成残缺，等于上线当天给所有存量连接挂红标，然后所有人一起学会忽略这个标记。
+ *   「没跑过」这件事由 semanticStatus=NONE 那一格回答，不在这里重复。
+ * - 认不出来的值 → 也返回 null：一个本页不认识的状态**不能被当成残缺**，
+ *   否则后端加一个新状态（比如「部分验证」）就会让所有连接凭空变红。
+ */
+export function semanticCoverageOf(c?: {
+  semanticCoverage?: string | null;
+  semanticGaps?: string[] | null;
+}): SemanticCoverageView | null {
+  if (c?.semanticCoverage !== 'PARTIAL') return null;
+  return { partial: true, gaps: (c.semanticGaps ?? []).map(semanticGapMeta) };
+}
+
+/**
+ * 残缺意味着什么，一句话。列表悬停和抽屉横幅**共用这一句**——
+ * 两处各写一份文案，迟早会漂成两种说法，而这句话正是这个标记存在的全部理由。
+ */
+export const SEMANTIC_PARTIAL_CONSEQUENCE =
+  '说明书不完整：缺掉的那些表和字段，模型看不到。它不会因此报错，也不会说「我不知道」，只会拿看得到的部分凑一个答案——一个看起来很正常的错数字。';
 
 // ---------------------------------------------------------------------------
 // 行级：scope / source / evidence / verified / status

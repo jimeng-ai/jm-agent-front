@@ -16,6 +16,7 @@ import type {
   ProbeOutcome,
   SchemaSnapshotResult,
   SemanticDeriveStarted,
+  SemanticRowDeleted,
 } from './types';
 
 export const connectorApi = {
@@ -106,6 +107,24 @@ export const connectorApi = {
    */
   deriveSemantic: (id: string) =>
     post<SemanticDeriveStarted>(`/admin/connectors/${id}/semantic/derive`),
+
+  /**
+   * 语义层：删掉**一行**。
+   *
+   * ★ **物理删除，不可恢复。** 后端走的是裸 `DELETE FROM connector_semantic`，不是逻辑删除——
+   * 唯一键 `uk_connector_semantic` 不含 `deleted`，留一条软删死行会永久占住键位，
+   * 同一条断言此后再也写不进去（而且报出来的是「口径正在被同时修改」这种假并发错）。
+   * 所以确认框里必须把「不可恢复」说出来，不能照搬别处「删除」按钮的措辞。
+   *
+   * ★ **rowId 走路径参数，不是 body。** `client.ts` 的 `del<T>(url)` 只接一个 url，
+   * 没有 body、也没有 params。**不要为这一个接口去改 `del` 的签名**——那个函数被所有 feature
+   * 共用，为一处需求加可选参数，受影响的是整条 HTTP 层。后端因此把 rowId 设计成路径的一段。
+   *
+   * ★ 返回的 `removed` 是**实际删除行数**，可能是 0（重复点击、或者并发里被别人先删了）。
+   * 后端对这种情况不报错，是幂等的——调用方按 0 提示「这行已经不在了」，不要当成失败。
+   */
+  deleteSemanticRow: (id: string, rowId: string) =>
+    del<SemanticRowDeleted>(`/admin/connectors/${id}/semantic/${rowId}`),
 };
 
 /**
