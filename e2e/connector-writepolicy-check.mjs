@@ -8,7 +8,7 @@ import { CONFIG, launchBrowser, login, shot, sleep } from './lib.mjs';
  * 用 label[for=...] 定位到 Form.Item、再点 selector，才是用户实际点的那个东西。
  */
 const pickOption = async (page, fieldId, optionText) => {
-  const item = `.ant-modal .ant-form-item:has(label[for="${fieldId}"])`;
+  const item = `[data-testid="connector-form-drawer"] .ant-form-item:has(label[for="${fieldId}"])`;
   await page.click(`${item} .ant-select-selector`);
   await sleep(400);
   await page.click(`.ant-select-dropdown:visible .ant-select-item:has-text("${optionText}")`);
@@ -17,7 +17,7 @@ const pickOption = async (page, fieldId, optionText) => {
 
 const selectedText = (page, fieldId) =>
   page.evaluate((id) => {
-    const el = document.querySelector(`.ant-modal #${id}`);
+    const el = document.querySelector(`[data-testid="connector-form-drawer"] #${id}`);
     const item = el?.closest('.ant-form-item')?.querySelector('.ant-select-selection-item');
     return item ? item.textContent.trim() : null;
   }, fieldId);
@@ -29,47 +29,82 @@ const check = (name, ok, detail = '') => {
   console.log(`  ${ok ? '✓' : '✗'} ${name}${detail ? ' — ' + detail : ''}`);
 };
 
+const okEnvelope = (data) => ({ success: true, respCode: '200', respMsg: 'ok', data });
+
+let delayedGrant = null;
+const grantRequests = [];
+const grantFixture = async (route) => {
+  const body = route.request().postDataJSON();
+  grantRequests.push(body);
+  if (delayedGrant) {
+    delayedGrant.started();
+    await delayedGrant.gate;
+    delayedGrant = null;
+  }
+  const privileges =
+    body.writePolicy === 'FORBIDDEN' ? 'SELECT' : 'SELECT, INSERT, UPDATE, DELETE';
+  await route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(
+      okEnvelope({
+        sql: `CREATE USER '${body.username}'@'${body.host}' IDENTIFIED BY '请替换成一个强密码';\nGRANT ${privileges} ON \`${body.database}\`.* TO '${body.username}'@'${body.host}';`,
+        notes: ['请替换成一个强密码'],
+      }),
+    ),
+  });
+};
+
+const armDelayedGrant = () => {
+  let release;
+  let started;
+  const startedPromise = new Promise((resolve) => {
+    started = resolve;
+  });
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  delayedGrant = { gate, started };
+  return { release, startedPromise };
+};
+
 const { browser, page } = await launchBrowser();
 try {
   await login(page);
+  await page.route('**/admin/connectors/grant-script', grantFixture);
 
   // ---------------- 列表页 ----------------
   await page.goto(`${BASE}/console/connectors`, { waitUntil: 'domcontentloaded' });
   await sleep(2500);
-  const headers = await page.$$eval('.ant-table-thead th', (ts) => ts.map((t) => t.textContent.trim()));
-  check('列表出现「写策略」列', headers.includes('写策略'), headers.join(' / '));
-
-  const policyTags = await page.$$eval('.ant-table-tbody tr', (rows) =>
-    rows.map((r) => {
-      const tds = r.querySelectorAll('td');
-      return { name: tds[0]?.innerText.split('\n')[0], policy: tds[5]?.innerText.trim() };
-    }),
+  await page.waitForSelector('[data-testid="connector-card-grid"]');
+  const policyTags = await page.$$eval('[data-testid="connector-card"]', (cards) =>
+    cards.map((card) => ({ name: card.getAttribute('data-connector-name'), text: card.innerText })),
   );
   check(
-    '可写连接显示「写需审批」',
-    policyTags.some((r) => r.policy === '写需审批'),
+    '可写连接卡片显示「写需审批」',
+    policyTags.some((r) => r.text.includes('平台写策略') && r.text.includes('写需审批')),
     JSON.stringify(policyTags),
   );
   check(
-    '只读连接显示「只读」',
-    policyTags.some((r) => r.policy === '只读'),
+    '只读连接卡片显示「只读」',
+    policyTags.some((r) => r.text.includes('平台写策略') && r.text.includes('只读')),
   );
 
-  // ---------------- 新建弹窗 ----------------
+  // ---------------- 新建 Drawer ----------------
   await page.click('button:has-text("新建连接")');
-  await sleep(1200);
+  await page.waitForSelector('[data-testid="connector-form-drawer"]');
   // 默认选中的是 kinds[0]，不一定是 MySQL；显式切到 MySQL，否则后面没有「库名」这个参数。
   await pickOption(page, 'kind', 'MySQL');
   const defaultPolicy = await selectedText(page, 'writePolicy');
   check('新建时写策略默认「只读」', !!defaultPolicy && defaultPolicy.includes('只读'), defaultPolicy || '(没找到)');
 
   // 只读档不该出现放开写的告警
-  const warnBefore = await page.$('.ant-modal .ant-alert-warning');
+  const warnBefore = await page.$('[data-testid="connector-form-drawer"] .ant-alert-warning');
   check('只读档不显示「将允许修改客户数据」告警', !warnBefore);
 
   // 切到「写自动」
   await pickOption(page, 'writePolicy', '写自动');
-  const warnText = await page.textContent('.ant-modal .ant-alert-warning').catch(() => null);
+  const warnText = await page.textContent('[data-testid="connector-form-drawer"] .ant-alert-warning').catch(() => null);
   check(
     '切到「写自动」后出现告警并说明剩下哪些护栏',
     !!warnText && warnText.includes('WHERE') && warnText.includes('回滚'),
@@ -77,17 +112,17 @@ try {
   );
 
   // ---------------- 授权命令面板 ----------------
-  const panel = await page.$('.ant-modal .ant-collapse');
+  const panel = await page.$('[data-testid="connector-form-drawer"] .ant-collapse');
   check('弹窗内有可折叠的「生成授权命令」面板', !!panel);
-  await page.click('.ant-modal .ant-collapse-header');
+  await page.click('[data-testid="connector-form-drawer"] .ant-collapse-header');
   await sleep(500);
-  await page.fill('.ant-modal #params_database', 'demo_shop');
+  await page.fill('[data-testid="connector-form-drawer"] #params_database', 'demo_shop');
   await sleep(300);
   // 不按文字找：antd 会给两个汉字的按钮自动插空格，实际文本是「生 成」，has-text("生成") 永远匹配不上。
-  await page.click('.ant-modal .ant-collapse-content .ant-btn-primary');
+  await page.click('[data-testid="connector-form-drawer"] .ant-collapse-content .ant-btn-primary');
   // 生成结果是 Typography.Paragraph（不是 <pre>），所以按「出现可复制块」等。
-  await page.waitForSelector('.ant-modal .ant-collapse-content .ant-typography-copy', { timeout: 20000 });
-  const sql = await page.innerText('.ant-modal .ant-collapse-content');
+  await page.waitForSelector('[data-testid="connector-form-drawer"] .ant-collapse-content .ant-typography-copy', { timeout: 20000 });
+  const sql = await page.innerText('[data-testid="connector-form-drawer"] .ant-collapse-content');
   check(
     '写自动档生成的命令带 INSERT/UPDATE/DELETE',
     sql.includes('INSERT') && sql.includes('UPDATE') && sql.includes('DELETE'),
@@ -96,27 +131,159 @@ try {
   check('生成的命令不含明文密码', sql.includes('请替换成一个强密码'));
   await page.screenshot({ path: shot('writepolicy-modal.png') });
 
-  // 切回只读，命令必须跟着变
+  // 切回只读后，旧的可写命令不能继续复制；必须先明确标成过期，再由用户重新生成。
   await pickOption(page, 'writePolicy', '只读');
-  // 等文案变化而不是固定 sleep：两档生成的 GRANT 行必然不同。
+  await page.waitForSelector('[data-testid="grant-script-stale"]');
+  const stalePanel = await page.innerText(
+    '[data-testid="connector-form-drawer"] .ant-collapse-content',
+  );
+  check(
+    '写自动命令切到只读后立即标记过期并要求重新生成',
+    stalePanel.includes('已过期') && stalePanel.includes('重新生成'),
+  );
+  check(
+    '过期的写自动命令不再提供复制按钮',
+    (await page.locator('[data-testid="grant-script-result"] .ant-typography-copy').count()) === 0,
+  );
+
+  // 明确重新生成后，才得到与当前只读策略绑定的新结果。
   // 不按文字找：antd 会给两个汉字的按钮自动插空格，实际文本是「生 成」，has-text("生成") 永远匹配不上。
-  await page.click('.ant-modal .ant-collapse-content .ant-btn-primary');
-  await page.waitForFunction(
-    (prev) => {
-      const el = document.querySelector('.ant-modal .ant-collapse-content');
-      return !!el && el.innerText !== prev;
-    },
-    sql,
+  const readonlyResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname.endsWith('/admin/connectors/grant-script'),
     { timeout: 20000 },
   );
-  const sql2 = await page.innerText('.ant-modal .ant-collapse-content');
+  await page.click('[data-testid="connector-form-drawer"] .ant-collapse-content .ant-btn-primary');
+  await readonlyResponse;
+  await page.waitForFunction(
+    () => {
+      const result = document.querySelector('[data-testid="grant-script-result"]');
+      return (
+        !!result &&
+        !document.querySelector('[data-testid="grant-script-stale"]') &&
+        result.textContent?.includes('GRANT SELECT ON') &&
+        !result.textContent?.includes('UPDATE')
+      );
+    },
+    undefined,
+    { timeout: 20000 },
+  );
+  const sql2 = await page.innerText('[data-testid="connector-form-drawer"] .ant-collapse-content');
   check(
     '切回只读后重新生成 → 只剩 SELECT',
     sql2.includes('GRANT SELECT ON') && !sql2.includes('UPDATE'),
     sql2.split('\n').find((l) => l.startsWith('GRANT')) || '',
   );
 
-  await page.click('.ant-modal .ant-modal-footer .ant-btn:not(.ant-btn-primary):nth-of-type(2)').catch(() => page.keyboard.press('Escape'));
+  // 请求发出后再改输入也不能让迟到的响应“复活”为可复制结果。
+  const username = page.locator(
+    '[data-testid="connector-form-drawer"] .ant-collapse-content input',
+  ).first();
+  await username.fill('jm_snapshot_a');
+  await page.waitForSelector('[data-testid="grant-script-stale"]');
+  const delayed = armDelayedGrant();
+  const delayedResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname.endsWith('/admin/connectors/grant-script'),
+    { timeout: 20000 },
+  );
+  await page.click('[data-testid="connector-form-drawer"] .ant-collapse-content .ant-btn-primary');
+  await delayed.startedPromise;
+  await username.fill('jm_snapshot_b');
+  delayed.release();
+  await delayedResponse;
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="grant-script-result"]')
+        ?.textContent?.includes('jm_snapshot_a'),
+    undefined,
+    { timeout: 10000 },
+  );
+  check(
+    '授权请求途中修改输入，迟到结果仍明确过期且不可复制',
+    (await page.locator('[data-testid="grant-script-stale"]').count()) === 1 &&
+      (await page.locator('[data-testid="grant-script-result"] .ant-typography-copy').count()) === 0,
+  );
+  check(
+    'Fixture 收到生成 SQL 所需的完整非敏感字段',
+    grantRequests.every(
+      (request) =>
+        typeof request.kind === 'string' &&
+        Object.hasOwn(request, 'database') &&
+        typeof request.writePolicy === 'string' &&
+        typeof request.username === 'string' &&
+        typeof request.host === 'string' &&
+        Array.isArray(request.tables),
+    ),
+    JSON.stringify(grantRequests),
+  );
+
+  const grantButton =
+    '[data-testid="connector-form-drawer"] .ant-collapse-content .ant-btn-primary';
+  const waitGrantSettled = () =>
+    page.waitForFunction(
+      (selector) => {
+        const button = document.querySelector(selector);
+        return (
+          !!button &&
+          !button.classList.contains('ant-btn-loading') &&
+          !button.hasAttribute('disabled')
+        );
+      },
+      grantButton,
+      { timeout: 20000 },
+    );
+
+  // React 状态更新前，同一事件循环里的连续触发不能穿过 pending 防重。
+  // fixture 把第一个请求挂住，直接数浏览器实际发出了几次 POST。
+  const beforeDoubleClick = grantRequests.length;
+  const doubleClickDelay = armDelayedGrant();
+  await page.evaluate((selector) => {
+    const button = document.querySelector(selector);
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  }, grantButton);
+  await doubleClickDelay.startedPromise;
+  await sleep(250);
+  check(
+    '生成按钮同一渲染周期双击只发一次 POST',
+    grantRequests.length === beforeDoubleClick + 1,
+    `新增 ${grantRequests.length - beforeDoubleClick} 次`,
+  );
+  doubleClickDelay.release();
+  await waitGrantSettled();
+
+  const beforeDoubleEnter = grantRequests.length;
+  const enterDelay = armDelayedGrant();
+  await page.evaluate(() => {
+    const input = document.querySelector(
+      '[data-testid="connector-form-drawer"] .ant-collapse-content input',
+    );
+    const event = () =>
+      new KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        keyCode: 13,
+        bubbles: true,
+        cancelable: true,
+      });
+    input.dispatchEvent(event());
+    input.dispatchEvent(event());
+  });
+  await enterDelay.startedPromise;
+  await sleep(250);
+  check(
+    '账号输入框连续 Enter 只发一次 POST',
+    grantRequests.length === beforeDoubleEnter + 1,
+    `新增 ${grantRequests.length - beforeDoubleEnter} 次`,
+  );
+  enterDelay.release();
+  await waitGrantSettled();
+
+  await page.click('[data-testid="connector-form-drawer"] button:has-text("取消")').catch(() => page.keyboard.press('Escape'));
   await sleep(600);
 
   // ---------------- 审批页 ----------------

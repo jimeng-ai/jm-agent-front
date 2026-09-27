@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Alert, Button, Collapse, Input, Radio, Select, Space, Typography } from 'antd';
 import { connectorWriteApi } from '@/features/connector/api';
+import type { GrantScriptRequest, GrantScriptResult } from '@/features/connector/types';
 
 /**
  * 「不知道怎么建账号？生成授权命令」面板。
@@ -34,6 +35,20 @@ interface Props {
 type HostMode = 'any' | 'custom';
 type ScopeMode = 'database' | 'tables';
 
+interface GrantInputSnapshot {
+  /** 真正发送给后端、会改变 SQL 的字段。 */
+  request: GrantScriptRequest;
+  /** UI 的选择语义也纳入快照；不能把「整库」和「指定表」错误视为同一份结果。 */
+  hostMode: HostMode;
+  scope: ScopeMode;
+  fingerprint: string;
+}
+
+interface GeneratedScript {
+  result: GrantScriptResult;
+  fingerprint: string;
+}
+
 /** 默认账号名。取只读的那个名字是因为绝大多数连接就该停在只读上。 */
 const DEFAULT_USERNAME = 'jm_readonly';
 
@@ -55,26 +70,58 @@ export default function GrantScriptPanel({ kind, database, writePolicy }: Props)
   const [host, setHost] = useState('');
   const [scope, setScope] = useState<ScopeMode>('database');
   const [tables, setTables] = useState<string[]>([]);
+  const [generated, setGenerated] = useState<GeneratedScript | null>(null);
+  // React Query 的 isPending 要到下一次渲染才更新；同一事件循环里的双击 / 连续 Enter
+  // 会在它变成 true 前连续调用 generate。ref 在 mutate 前同步上锁，堵住这段窗口。
+  const pendingRef = useRef(false);
+
+  // 生成结果必须绑定【发请求那一刻】的完整非敏感输入。不能只盯 writePolicy：库名、账号、
+  // 来源 host、整库/指定表和表名都会改变 SQL；请求在路上时改任一项，迟到响应也只能算过期。
+  const request: GrantScriptRequest = {
+    kind,
+    database,
+    username: username.trim(),
+    host: hostMode === 'any' ? '%' : host.trim(),
+    tables: scope === 'tables' ? [...tables] : [],
+    writePolicy,
+  };
+  const fingerprint = JSON.stringify({
+    kind: request.kind,
+    database: request.database ?? null,
+    writePolicy: request.writePolicy,
+    username: request.username,
+    hostMode,
+    host: request.host,
+    scope,
+    tables: request.tables,
+  });
 
   const mut = useMutation({
-    mutationFn: () =>
-      connectorWriteApi.grantScript({
-        kind,
-        database,
-        username: username.trim(),
-        host: hostMode === 'any' ? '%' : host.trim(),
-        // 空数组 = 整库；后端据此决定 GRANT 的粒度。
-        tables: scope === 'tables' ? tables : [],
-        writePolicy,
-      }),
+    mutationFn: (input: GrantInputSnapshot) => connectorWriteApi.grantScript(input.request),
+    onSuccess: (result, input) => {
+      setGenerated({ result, fingerprint: input.fingerprint });
+    },
+    onSettled: () => {
+      pendingRef.current = false;
+    },
   });
 
   const hostMissing = hostMode === 'custom' && !host.trim();
   const tablesMissing = scope === 'tables' && tables.length === 0;
   const canGenerate = !!username.trim() && !hostMissing && !tablesMissing;
+  const stale = generated !== null && generated.fingerprint !== fingerprint;
 
   const generate = () => {
-    if (canGenerate) mut.mutate();
+    // 校验不通过时不占锁；请求无论成功还是失败，都由 onSettled 释放。
+    if (!canGenerate || pendingRef.current || mut.isPending) return;
+    pendingRef.current = true;
+    try {
+      mut.mutate({ request, hostMode, scope, fingerprint });
+    } catch (error) {
+      // mutate 通常把错误交给 mutation 状态机；若调用本身同步抛错，也不能永久锁死。
+      pendingRef.current = false;
+      throw error;
+    }
   };
 
   /** 回车在外层 Form 里等于提交整张表单，必须拦掉；顺手让它等于点「生成」。 */
@@ -142,7 +189,7 @@ export default function GrantScriptPanel({ kind, database, writePolicy }: Props)
 
       <Space>
         <Button type="primary" loading={mut.isPending} disabled={!canGenerate} onClick={generate}>
-          生成
+          {generated ? '重新生成' : '生成'}
         </Button>
         <Typography.Text type="secondary">
           授权按当前写策略生成；改了写策略要重新生成一次。
@@ -158,18 +205,31 @@ export default function GrantScriptPanel({ kind, database, writePolicy }: Props)
         />
       )}
 
-      {mut.data && (
-        <div>
+      {generated && (
+        <div data-testid="grant-script-result">
+          {stale ? (
+            <Alert
+              data-testid="grant-script-stale"
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="授权命令已过期"
+              description="生成后，连接类型、库名、写策略或授权范围等输入发生了变化。请重新生成；旧命令已禁止一键复制。"
+            />
+          ) : null}
           <Typography.Text strong>请把这段交给客户的 DBA 执行，密码需自行替换。</Typography.Text>
           <div style={{ marginTop: 8, position: 'relative' }}>
             {/* copyable 显式给 text：结果是多行语句，让它从 children 里推更容易被样式影响。 */}
-            <Typography.Paragraph style={CODE_BLOCK} copyable={{ text: mut.data.sql }}>
-              {mut.data.sql}
+            <Typography.Paragraph
+              style={{ ...CODE_BLOCK, ...(stale ? { opacity: 0.58 } : {}) }}
+              copyable={stale ? undefined : { text: generated.result.sql }}
+            >
+              {generated.result.sql}
             </Typography.Paragraph>
           </div>
-          {mut.data.notes.length > 0 && (
+          {generated.result.notes.length > 0 && (
             <ul style={{ margin: '8px 0 0', paddingLeft: 18, color: '#666' }}>
-              {mut.data.notes.map((n) => (
+              {generated.result.notes.map((n) => (
                 <li key={n}>{n}</li>
               ))}
             </ul>

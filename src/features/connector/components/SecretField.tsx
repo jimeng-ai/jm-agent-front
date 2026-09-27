@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { App, Button, Input, Space, Tooltip, Typography } from 'antd';
 import { EyeInvisibleOutlined, EyeOutlined } from '@ant-design/icons';
 import { connectorApi } from '../api';
@@ -34,16 +34,40 @@ interface Props {
   value?: string;
   /** 由 antd Form.Item 注入。 */
   onChange?: (v: string | undefined) => void;
+  /** 由 Form.Item 注入，必须透传给真正的 input，保证 label[for] 与自动化定位有效。 */
+  id?: string;
   field: ParamFieldSchema;
   /** 编辑态的连接 id；新建态传 null（那时没有「已保存的值」可谈）。 */
   connectorId: string | null;
 }
 
-export default function SecretField({ value, onChange, field, connectorId }: Props) {
+export default function SecretField({ value, onChange, id, field, connectorId }: Props) {
   const { message } = App.useApp();
   const [replacing, setReplacing] = useState(false);
   const [revealed, setRevealed] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const mountedRef = useRef(true);
+  const revealGenerationRef = useRef(0);
+  const activeConnectorRef = useRef(connectorId);
+  // render 阶段就同步反映最新 connector，避免新 props commit 后、effect cleanup 前的极短窗口。
+  activeConnectorRef.current = connectorId;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    revealGenerationRef.current += 1;
+    setRevealed(null);
+    setLoading(false);
+    setReplacing(false);
+    return () => {
+      mountedRef.current = false;
+      revealGenerationRef.current += 1;
+    };
+  }, [connectorId]);
+
+  const invalidateReveal = () => {
+    revealGenerationRef.current += 1;
+    if (mountedRef.current) setLoading(false);
+  };
 
   // 新建态：没有「已保存的值」，就是一个普通的密码框。
   // antd 自带的眼睛在这里是对的——它显示的是用户自己刚敲进去的东西，不涉及任何取回。
@@ -54,6 +78,7 @@ export default function SecretField({ value, onChange, field, connectorId }: Pro
   if (!connectorId) {
     return (
       <Input.Password
+        id={id}
         autoComplete="new-password"
         placeholder={field.placeholder ?? ''}
         value={value}
@@ -67,6 +92,7 @@ export default function SecretField({ value, onChange, field, connectorId }: Pro
     return (
       <Space.Compact style={{ width: '100%' }}>
         <Input.Password
+          id={id}
           autoFocus
           autoComplete="new-password"
           value={value}
@@ -75,6 +101,7 @@ export default function SecretField({ value, onChange, field, connectorId }: Pro
         />
         <Button
           onClick={() => {
+            invalidateReveal();
             setReplacing(false);
             // ★ 必须清空。留着用户刚敲的半截值，保存时会把一条好连接改成连不上的。
             onChange?.(undefined);
@@ -88,12 +115,23 @@ export default function SecretField({ value, onChange, field, connectorId }: Pro
 
   const reveal = async () => {
     if (revealed !== null) {
+      invalidateReveal();
       setRevealed(null);
       return;
     }
+    const requestConnectorId = connectorId;
+    const generation = revealGenerationRef.current + 1;
+    revealGenerationRef.current = generation;
     setLoading(true);
     try {
       const secrets = await connectorApi.revealCredential(connectorId);
+      if (
+        !mountedRef.current ||
+        revealGenerationRef.current !== generation ||
+        activeConnectorRef.current !== requestConnectorId
+      ) {
+        return;
+      }
       const v = secrets[field.name];
       if (v === undefined) {
         // 后端按敏感参数名返回。取不到说明两边的字段名对不上，这是配置问题，不是「密码是空的」。
@@ -102,9 +140,22 @@ export default function SecretField({ value, onChange, field, connectorId }: Pro
       }
       setRevealed(v);
     } catch (e) {
+      if (
+        !mountedRef.current ||
+        revealGenerationRef.current !== generation ||
+        activeConnectorRef.current !== requestConnectorId
+      ) {
+        return;
+      }
       message.error(e instanceof Error ? e.message : `取回${field.label}失败`);
     } finally {
-      setLoading(false);
+      if (
+        mountedRef.current &&
+        revealGenerationRef.current === generation &&
+        activeConnectorRef.current === requestConnectorId
+      ) {
+        setLoading(false);
+      }
     }
   };
 
@@ -112,6 +163,7 @@ export default function SecretField({ value, onChange, field, connectorId }: Pro
   return (
     <Space.Compact style={{ width: '100%' }}>
       <Input
+        id={id}
         readOnly
         // 不用 Input.Password：它自带的眼睛只能显示 value 本身，而这里的 value 是一串占位符，
         // 点开只会露出一串 ● 的明文，反而让人以为密码就是这个。眼睛必须是我们自己的。
@@ -131,11 +183,15 @@ export default function SecretField({ value, onChange, field, connectorId }: Pro
         <Button
           loading={loading}
           icon={revealed ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+          aria-label={
+            revealed ? `隐藏${field.label}明文` : `查看${field.label}明文（会记一条使用记录）`
+          }
           onClick={reveal}
         />
       </Tooltip>
       <Button
         onClick={() => {
+          invalidateReveal();
           setReplacing(true);
           setRevealed(null);
         }}

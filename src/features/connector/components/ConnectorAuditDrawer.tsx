@@ -1,7 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Descriptions, Drawer, Empty, Segmented, Space, Table, Tag, Typography } from 'antd';
+import {
+  Alert,
+  Button,
+  Descriptions,
+  Drawer,
+  Empty,
+  Segmented,
+  Space,
+  Table,
+  Tag,
+  Typography,
+} from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import { ReloadOutlined } from '@ant-design/icons';
 import { connectorApi } from '@/features/connector/api';
 import type { ConnectorAuditRow, ConnectorView } from '@/features/connector/types';
 
@@ -24,6 +36,10 @@ interface Props {
   onClose: () => void;
 }
 
+interface PanelProps {
+  connector: ConnectorView;
+}
+
 const CAP_LABEL: Record<string, string> = {
   QUERY: '能查',
   DESCRIBE: '能自描述',
@@ -32,21 +48,27 @@ const CAP_LABEL: Record<string, string> = {
 
 type SuccessFilter = 'all' | 'ok' | 'fail';
 
-export default function ConnectorAuditDrawer({ connector, onClose }: Props) {
+export function ConnectorAuditPanel({ connector }: PanelProps) {
   const [page, setPage] = useState(1);
   const [size, setSize] = useState(20);
   const [successFilter, setSuccessFilter] = useState<SuccessFilter>('all');
 
+  useEffect(() => {
+    setPage(1);
+    setSuccessFilter('all');
+  }, [connector.id]);
+
   const query = useQuery({
-    queryKey: ['connector', 'audit', connector?.id, page, size, successFilter],
+    queryKey: ['connector', 'audit', connector.id, page, size, successFilter],
     queryFn: () =>
       connectorApi.audit({
-        connectorId: connector!.id,
+        connectorId: connector.id,
         page,
         size,
         success: successFilter === 'all' ? undefined : successFilter === 'ok',
       }),
-    enabled: !!connector,
+    // Tab 重新打开时拿最新审计；缓存仍作为失败时的非阻断回退。
+    refetchOnMount: 'always',
   });
 
   const columns: ColumnsType<ConnectorAuditRow> = [
@@ -112,15 +134,15 @@ export default function ConnectorAuditDrawer({ connector, onClose }: Props) {
   ];
 
   const rows = query.data?.records ?? [];
+  const hasCachedPage = query.data !== undefined;
+  const initialError = query.isError && !hasCachedPage;
+  const backgroundError = query.isError && hasCachedPage;
+  const retry = () => {
+    void query.refetch();
+  };
 
   return (
-    <Drawer
-      title={connector ? `使用记录 · ${connector.displayName || connector.name}` : '使用记录'}
-      open={!!connector}
-      onClose={onClose}
-      width={960}
-      destroyOnClose
-    >
+    <div data-testid="connector-audit-panel" className="connector-audit-panel">
       <Alert
         type="info"
         showIcon
@@ -144,52 +166,111 @@ export default function ConnectorAuditDrawer({ connector, onClose }: Props) {
         />
       </Space>
 
-      <Table<ConnectorAuditRow>
-        rowKey="id"
-        size="small"
-        columns={columns}
-        dataSource={rows}
-        loading={query.isLoading}
-        locale={{ emptyText: <Empty description="还没有使用记录" /> }}
-        expandable={{
-          // 只有「有东西可展开」的行才给箭头，否则一排点不动的箭头很误导。
-          rowExpandable: (r) => !!r.statementText || !!r.errorDetail || !!r.traceId,
-          expandedRowRender: (r) => (
-            <Descriptions size="small" column={1} bordered>
-              {r.statementText && (
-                <Descriptions.Item label="平台实际执行的语句">
-                  <Typography.Paragraph
-                    style={{ marginBottom: 0, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}
-                    copyable
-                  >
-                    {r.statementText}
-                  </Typography.Paragraph>
-                </Descriptions.Item>
-              )}
-              {r.errorDetail && <Descriptions.Item label="失败原因">{r.errorDetail}</Descriptions.Item>}
-              {r.traceId && (
-                <Descriptions.Item label="调用链路">
-                  <Typography.Text copyable code>
-                    {r.traceId}
-                  </Typography.Text>
-                </Descriptions.Item>
-              )}
-            </Descriptions>
-          ),
-        }}
-        pagination={{
-          current: page,
-          pageSize: size,
-          total: Number(query.data?.total ?? 0),
-          showSizeChanger: true,
-          pageSizeOptions: [20, 50, 100],
-          showTotal: (t) => `共 ${t} 条`,
-          onChange: (p, s) => {
-            setPage(p);
-            setSize(s);
-          },
-        }}
-      />
+      {initialError ? (
+        <Alert
+          data-testid="connector-audit-initial-error"
+          type="error"
+          showIcon
+          message="使用记录加载失败"
+          description={(query.error as Error).message}
+          action={
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              loading={query.isFetching}
+              onClick={retry}
+            >
+              重试
+            </Button>
+          }
+        />
+      ) : (
+        <>
+          {backgroundError ? (
+            <Alert
+              data-testid="connector-audit-background-error"
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="使用记录刷新失败，下面保留的是上一次结果"
+              description={(query.error as Error).message}
+              action={
+                <Button
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  loading={query.isFetching}
+                  onClick={retry}
+                >
+                  重试
+                </Button>
+              }
+            />
+          ) : null}
+          <Table<ConnectorAuditRow>
+            rowKey="id"
+            size="small"
+            columns={columns}
+            dataSource={rows}
+            loading={query.isLoading || (query.isFetching && hasCachedPage)}
+            locale={{ emptyText: <Empty description="还没有使用记录" /> }}
+            expandable={{
+              // 只有「有东西可展开」的行才给箭头，否则一排点不动的箭头很误导。
+              rowExpandable: (r) => !!r.statementText || !!r.errorDetail || !!r.traceId,
+              expandedRowRender: (r) => (
+                <Descriptions size="small" column={1} bordered>
+                  {r.statementText && (
+                    <Descriptions.Item label="平台实际执行的语句">
+                      <Typography.Paragraph
+                        style={{ marginBottom: 0, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}
+                        copyable
+                      >
+                        {r.statementText}
+                      </Typography.Paragraph>
+                    </Descriptions.Item>
+                  )}
+                  {r.errorDetail && (
+                    <Descriptions.Item label="失败原因">{r.errorDetail}</Descriptions.Item>
+                  )}
+                  {r.traceId && (
+                    <Descriptions.Item label="调用链路">
+                      <Typography.Text copyable code>
+                        {r.traceId}
+                      </Typography.Text>
+                    </Descriptions.Item>
+                  )}
+                </Descriptions>
+              ),
+            }}
+            pagination={{
+              current: page,
+              pageSize: size,
+              total: Number(query.data?.total ?? 0),
+              showSizeChanger: true,
+              pageSizeOptions: [20, 50, 100],
+              showTotal: (t) => `共 ${t} 条`,
+              onChange: (p, s) => {
+                setPage(p);
+                setSize(s);
+              },
+            }}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+/** 兼容旧入口的薄包装；真实内容可直接嵌入连接 Inspector。 */
+export default function ConnectorAuditDrawer({ connector, onClose }: Props) {
+  return (
+    <Drawer
+      title={connector ? `使用记录 · ${connector.displayName || connector.name}` : '使用记录'}
+      open={!!connector}
+      onClose={onClose}
+      width={960}
+      destroyOnClose
+    >
+      {connector ? <ConnectorAuditPanel connector={connector} /> : null}
     </Drawer>
   );
 }

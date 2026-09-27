@@ -58,6 +58,10 @@ interface Props {
   onClose: () => void;
 }
 
+interface PanelProps {
+  connector: ConnectorView;
+}
+
 /** 刷新是发给哪条连接的。★ 作为 mutation 的入参传进去，回调里只认它，不去读抽屉「现在」开着谁。 */
 interface RefreshTarget {
   id: string;
@@ -103,7 +107,9 @@ function changeMeta(change: string): { color: string; label: string } {
 function toastTail(impact: RefreshSemanticImpact): { tail: string; alarm: boolean } {
   if (impact.failed) return { tail: '；但语义层这次没能跟着核对', alarm: true };
   const { clauses } = refreshImpactWording(impact);
-  return clauses.length > 0 ? { tail: `；${clauses.join('，')}`, alarm: true } : { tail: '', alarm: false };
+  return clauses.length > 0
+    ? { tail: `；${clauses.join('，')}`, alarm: true }
+    : { tail: '', alarm: false };
 }
 
 /** 一次刷新结果的一句话总结（toast 用）。 */
@@ -235,7 +241,7 @@ function RemovedImpactBody({
   );
 }
 
-export default function ConnectorSchemaDrawer({ connector, onClose }: Props) {
+export function ConnectorSchemaPanel({ connector }: PanelProps) {
   const { message } = App.useApp();
   const qc = useQueryClient();
   // 留整个刷新结果，不只留 diffs：语义影响也在上面。只留 diffs 就只能说「表没了」，
@@ -263,6 +269,9 @@ export default function ConnectorSchemaDrawer({ connector, onClose }: Props) {
     queryKey: ['connector', 'schema', connector?.id],
     queryFn: () => connectorApi.schema(connector!.id),
     enabled: !!connector,
+    // 每次 Inspector / 连接实例挂载都核一次服务端快照；Tab 内切换会保留本 Panel，
+    // 避免把一次性的 refresh diffs 连同组件 state 一起销毁。
+    refetchOnMount: 'always',
   });
 
   const refreshMut = useMutation({
@@ -296,7 +305,9 @@ export default function ConnectorSchemaDrawer({ connector, onClose }: Props) {
     },
     onError: (e: Error, target) => {
       message.error(
-        shownIdRef.current === target.id ? e.message : `「${target.label}」刷新结构失败：${e.message}`,
+        shownIdRef.current === target.id
+          ? e.message
+          : `「${target.label}」刷新结构失败：${e.message}`,
       );
     },
   });
@@ -310,7 +321,25 @@ export default function ConnectorSchemaDrawer({ connector, onClose }: Props) {
   const refreshing = connectorId !== null && pendingRefreshIds.includes(connectorId);
 
   const objects = query.data ?? [];
+  const hasCachedSnapshot = query.data !== undefined;
+  const initialQueryError = query.isError && !hasCachedSnapshot;
+  const backgroundQueryError = query.isError && hasCachedSnapshot;
   const syncedAt = objects[0]?.syncedAt;
+
+  const startRefresh = () => {
+    if (!connector) return;
+    const id = connector.id;
+    // ★ 点下去这一刻再从缓存核一次：禁用要等下一次渲染才生效，连点两下的第二下会赶在它前面。
+    if (
+      qc.isMutating({
+        mutationKey: REFRESH_MUTATION_KEY,
+        predicate: (mutation) => refreshTargetIdOf(mutation) === id,
+      }) > 0
+    ) {
+      return;
+    }
+    refreshMut.mutate({ id, label: connector.displayName || connector.name });
+  };
 
   // 双保险：回调里已经按连接丢弃过一次；渲染时再核一次归属，任何一条漏网的路径都画不进别的连接。
   const last = lastRefresh && lastRefresh.connectorId === connector?.id ? lastRefresh.result : null;
@@ -348,40 +377,26 @@ export default function ConnectorSchemaDrawer({ connector, onClose }: Props) {
   ];
 
   return (
-    <Drawer
-      title={connector ? `结构快照 · ${connector.displayName || connector.name}` : '结构快照'}
-      open={!!connector}
-      onClose={() => {
-        setLastRefresh(null);
-        onClose();
-      }}
-      width={900}
-      destroyOnClose
-      extra={
+    <div data-testid="connector-schema-panel" className="connector-schema-panel">
+      <div className="connector-panel-toolbar">
+        <div>
+          <Typography.Title level={5} style={{ margin: 0 }}>
+            结构快照
+          </Typography.Title>
+          <Typography.Text type="secondary">
+            {connector.displayName || connector.name}
+          </Typography.Text>
+        </div>
         <Button
           icon={<ReloadOutlined />}
           // 这条连接自己有刷新在路上就转圈并禁用；别的连接那次还没回来，不影响这里。
           loading={refreshing}
           disabled={refreshing}
-          onClick={() => {
-            if (!connector) return;
-            const id = connector.id;
-            // ★ 点下去这一刻再从缓存核一次：禁用要等下一次渲染才生效，连点两下的第二下会赶在它前面。
-            if (
-              qc.isMutating({
-                mutationKey: REFRESH_MUTATION_KEY,
-                predicate: (m) => refreshTargetIdOf(m) === id,
-              }) > 0
-            ) {
-              return;
-            }
-            refreshMut.mutate({ id, label: connector.displayName || connector.name });
-          }}
+          onClick={startRefresh}
         >
           刷新结构
         </Button>
-      }
-    >
+      </div>
       <Alert
         type="info"
         showIcon
@@ -401,6 +416,64 @@ export default function ConnectorSchemaDrawer({ connector, onClose }: Props) {
         }
       />
 
+      {initialQueryError ? (
+        <Alert
+          data-testid="connector-schema-initial-error"
+          type="error"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="结构快照加载失败"
+          description={(query.error as Error).message}
+          action={
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              loading={query.isFetching}
+              onClick={() => void query.refetch()}
+            >
+              重试
+            </Button>
+          }
+        />
+      ) : null}
+
+      {backgroundQueryError ? (
+        <Alert
+          data-testid="connector-schema-background-error"
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="结构快照刷新失败，下面保留的是上一次结果"
+          description={(query.error as Error).message}
+          action={
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              loading={query.isFetching}
+              onClick={() => void query.refetch()}
+            >
+              重试
+            </Button>
+          }
+        />
+      ) : null}
+
+      {refreshMut.isError ? (
+        <Alert
+          data-testid="connector-schema-refresh-error"
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="刷新结构失败，旧快照没有被替换"
+          description={(refreshMut.error as Error).message}
+          action={
+            <Button size="small" icon={<ReloadOutlined />} onClick={startRefresh}>
+              重试
+            </Button>
+          }
+        />
+      ) : null}
+
       {/* ⓪ 刷新被拒。★ 必须先判、单独画：那次返回不是一份快照，落进下面任何一条都是假话——
           ①会说「没核对成」，③会说「结构没有变化」。 */}
       {guardNote && (
@@ -413,7 +486,8 @@ export default function ConnectorSchemaDrawer({ connector, onClose }: Props) {
             <>
               {guardNote}
               <br />
-              一次返回 0 个对象，更可能是「这次没看到」，而不是「整个库的表都删光了」，所以平台<b>没有保存</b>这份结果：
+              一次返回 0 个对象，更可能是「这次没看到」，而不是「整个库的表都删光了」，所以平台
+              <b>没有保存</b>这份结果：
               上一份快照原样保留，挂在上面的说明也不会因为这次的空结果被标成「结构已变」。
               <br />
               常见原因：只读账号的权限被收回或收窄了、连接参数指向的库不对了、客户库这时本身有问题。
@@ -641,44 +715,61 @@ export default function ConnectorSchemaDrawer({ connector, onClose }: Props) {
         />
       )}
 
-      <Table<ConnectorSchemaObject>
-        rowKey="objectName"
-        size="small"
-        columns={columns}
-        dataSource={objects}
-        loading={query.isLoading}
-        pagination={false}
-        locale={{
-          emptyText: <Empty description="还没有快照，点右上角「刷新结构」拉取一次" />,
-        }}
-        expandable={{
-          rowExpandable: (r) => r.fields.length > 0 || !!r.error,
-          expandedRowRender: (r) =>
-            r.error ? (
-              <Typography.Text type="danger">{r.error}</Typography.Text>
-            ) : (
-              <Table
-                rowKey="name"
-                size="small"
-                pagination={false}
-                dataSource={r.fields}
-                columns={[
-                  { title: '列', dataIndex: 'name', key: 'name', width: 180 },
-                  { title: '类型', dataIndex: 'type', key: 'type', width: 160 },
-                  {
-                    title: '可空',
-                    dataIndex: 'nullable',
-                    key: 'nullable',
-                    width: 70,
-                    render: (v: boolean) => (v ? '是' : '否'),
-                  },
-                  { title: '注释', dataIndex: 'comment', key: 'comment' },
-                  { title: '其它', dataIndex: 'extra', key: 'extra', width: 140 },
-                ]}
-              />
-            ),
-        }}
-      />
+      {!initialQueryError ? (
+        <Table<ConnectorSchemaObject>
+          rowKey="objectName"
+          size="small"
+          columns={columns}
+          dataSource={objects}
+          loading={query.isLoading || (query.isFetching && hasCachedSnapshot)}
+          pagination={false}
+          locale={{
+            emptyText: <Empty description="还没有快照，点右上角「刷新结构」拉取一次" />,
+          }}
+          expandable={{
+            rowExpandable: (r) => r.fields.length > 0 || !!r.error,
+            expandedRowRender: (r) =>
+              r.error ? (
+                <Typography.Text type="danger">{r.error}</Typography.Text>
+              ) : (
+                <Table
+                  rowKey="name"
+                  size="small"
+                  pagination={false}
+                  dataSource={r.fields}
+                  columns={[
+                    { title: '列', dataIndex: 'name', key: 'name', width: 180 },
+                    { title: '类型', dataIndex: 'type', key: 'type', width: 160 },
+                    {
+                      title: '可空',
+                      dataIndex: 'nullable',
+                      key: 'nullable',
+                      width: 70,
+                      render: (v: boolean) => (v ? '是' : '否'),
+                    },
+                    { title: '注释', dataIndex: 'comment', key: 'comment' },
+                    { title: '其它', dataIndex: 'extra', key: 'extra', width: 140 },
+                  ]}
+                />
+              ),
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** 兼容旧入口的薄包装；结构状态机与刷新防重都留在可嵌入 Panel 内。 */
+export default function ConnectorSchemaDrawer({ connector, onClose }: Props) {
+  return (
+    <Drawer
+      title={connector ? `结构快照 · ${connector.displayName || connector.name}` : '结构快照'}
+      open={!!connector}
+      onClose={onClose}
+      width={900}
+      destroyOnClose
+    >
+      {connector ? <ConnectorSchemaPanel connector={connector} /> : null}
     </Drawer>
   );
 }
