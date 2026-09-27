@@ -18,49 +18,15 @@ export function SemanticTag({ meta, icon }: { meta: TagMeta; icon?: React.ReactN
 
 /** 多态 / 复合键关系的使用约束。只展示 joinCare 已判定为模型当前能读到的部分。 */
 export function JoinCareSummary({ care, tierText }: { care: JoinCare; tierText: string }) {
-  const condition = care.condition;
   return (
     <div className="semantic-care-note">
-      <div>{care.careReason ?? care.hint}</div>
+      <div>{care.careReason}</div>
       {care.careReasonWithheld && (
         <Typography.Text type="secondary">
-          后端原话含具体取值，当前档位不提供给模型；原话仍在 Inspector 的留存区。
+          后端原话含具体取值，「{tierText}」当前不提供给模型；原话仍在 Inspector 的留存区。
         </Typography.Text>
       )}
-      {condition?.type === 'DISCRIMINATOR' && (
-        <div className="semantic-condition-line">
-          <span>join 时带类型条件：</span>
-          <Typography.Text code>{condition.column}</Typography.Text>
-          {condition.value !== null ? (
-            <>
-              <span>=</span>
-              <Typography.Text code>{condition.value}</Typography.Text>
-            </>
-          ) : condition.withheldValue !== null ? (
-            <span className="semantic-condition-warning">
-              取值已留存，但「{tierText}」不向模型开放；模型会先查、拿不准就问人。
-            </span>
-          ) : condition.valuesAllowed ? (
-            <span className="semantic-condition-warning">
-              当前允许样本值，但尚未取得可安全使用的判别值。
-            </span>
-          ) : (
-            <span className="semantic-muted">当前档位不提供具体取值。</span>
-          )}
-        </div>
-      )}
-      {condition?.type === 'COMPOSITE' && (
-        <div className="semantic-condition-line">
-          <span>{condition.target ? `目标表 ${condition.target}：` : '目标表：'}</span>
-          {condition.columns.map((column, index) => (
-            <span key={`${index}-${column}`}>
-              {index > 0 && ' + '}
-              <Typography.Text code>{column}</Typography.Text>
-            </span>
-          ))}
-          <span>必须全部对上。</span>
-        </div>
-      )}
+      <div className="semantic-condition-line">{care.conditionSummary}</div>
     </div>
   );
 }

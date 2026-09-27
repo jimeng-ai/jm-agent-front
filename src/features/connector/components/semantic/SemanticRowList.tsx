@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Button, Empty, Pagination, Tag, Tooltip } from 'antd';
 import { EyeOutlined, UserOutlined, WarningOutlined } from '@ant-design/icons';
 import {
@@ -46,6 +46,7 @@ export default function SemanticRowList({
   onOpenInspector,
 }: Props) {
   const [page, setPage] = useState(1);
+  const titleId = useId();
   const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_THRESHOLD));
 
   useEffect(() => {
@@ -76,11 +77,15 @@ export default function SemanticRowList({
   };
 
   return (
-    <main className="semantic-row-list" data-testid="semantic-row-list">
+    <section
+      className="semantic-row-list"
+      data-testid="semantic-row-list"
+      aria-labelledby={titleId}
+    >
       <div className="semantic-list-head">
         <div>
           <div className="semantic-eyebrow">ASSERTION LEDGER</div>
-          <h2>{title}</h2>
+          <h2 id={titleId}>{title}</h2>
           <p>{subtitle}</p>
         </div>
         <div className="semantic-list-actions">
@@ -191,6 +196,6 @@ export default function SemanticRowList({
           />
         </div>
       )}
-    </main>
+    </section>
   );
 }

@@ -92,6 +92,190 @@ const semanticRows = [
     detail: { value_domain: { complete: true, values: ['北区', '南区'] } },
   },
   {
+    id: 'semantic-ordinary-value-domain',
+    scope: 'FIELD',
+    objectName: 'orders',
+    fieldName: 'channel_code',
+    gloss: '普通字段的渠道代码',
+    source: 'IMPORTED',
+    evidence: 'COMMENT',
+    verified: 'NONE',
+    status: 'CONFIRMED',
+    detail: {
+      value_domain: {
+        complete: true,
+        values: ['WEB', 'STORE'],
+        distinct_count: '2',
+        note: 'fixture 渠道值域已采全',
+      },
+    },
+  },
+  {
+    id: 'semantic-stale-value-domain',
+    scope: 'FIELD',
+    objectName: 'orders',
+    fieldName: 'legacy_channel_code',
+    gloss: '结构已变的渠道代码',
+    source: 'IMPORTED',
+    evidence: 'COMMENT',
+    verified: 'NONE',
+    status: 'STALE',
+    detail: {
+      value_domain: {
+        complete: true,
+        values: ['OLD_WEB', 'OLD_STORE'],
+        distinct_count: '2',
+        note: 'fixture 旧结构值域',
+      },
+    },
+  },
+  {
+    id: 'semantic-outcome-value-domain',
+    scope: 'FIELD',
+    objectName: 'orders',
+    fieldName: 'contact_hint',
+    gloss: '可能包含个人信息的字段',
+    source: 'IMPORTED',
+    evidence: 'COMMENT',
+    verified: 'NONE',
+    status: 'CONFIRMED',
+    detail: {
+      value_domain: {
+        complete: false,
+        outcome: 'PII_BLOCKED',
+      },
+    },
+  },
+  {
+    id: 'semantic-join-valid',
+    scope: 'JOIN',
+    objectName: 'orders',
+    fieldName: 'customer_id',
+    gloss: '这句 relation gloss 只留库，不是 conn_describe 的注入事实',
+    source: 'INFERRED',
+    evidence: 'DATA',
+    confidence: '93',
+    verified: 'confirmed',
+    status: 'CONFIRMED',
+    detail: {
+      to_object: 'customers',
+      to_column: 'id',
+      cardinality: 'N:1',
+      auto_joinable: true,
+      basis: 'fixture 关系实测通过',
+    },
+  },
+  {
+    id: 'semantic-join-rejected-lowercase',
+    scope: 'JOIN',
+    objectName: 'orders',
+    fieldName: 'rejected_customer_id',
+    gloss: 'lowercase rejected 也绝不能冒充可注入关系',
+    source: 'INFERRED',
+    evidence: 'DATA',
+    verified: 'rejected',
+    status: 'CONFIRMED',
+    detail: { to_object: 'customers', to_column: 'id' },
+  },
+  {
+    id: 'semantic-join-unknown-verified',
+    scope: 'JOIN',
+    objectName: 'orders',
+    fieldName: 'future_customer_id',
+    gloss: '未知验证枚举不能默认放行',
+    source: 'INFERRED',
+    evidence: 'DATA',
+    verified: 'FUTURE_VERDICT',
+    status: 'CONFIRMED',
+    detail: { to_object: 'customers', to_column: 'id' },
+  },
+  {
+    id: 'semantic-join-missing-endpoint',
+    scope: 'JOIN',
+    objectName: 'orders',
+    fieldName: 'missing_column_id',
+    gloss: '缺完整 endpoint 的关系不能注入',
+    source: 'INFERRED',
+    evidence: 'NAME',
+    verified: 'NONE',
+    status: 'DRAFT',
+    detail: { to_object: 'customers' },
+  },
+  {
+    id: 'semantic-join-probed-secret',
+    scope: 'JOIN',
+    objectName: 'orders',
+    fieldName: 'probed_target_id',
+    gloss: '曾按样本值探查但没留判别值',
+    source: 'INFERRED',
+    evidence: 'DATA',
+    verified: 'UNDECIDABLE',
+    status: 'CONFIRMED',
+    detail: {
+      to_object: 'targets',
+      to_column: 'id',
+      join_kind: 'POLYMORPHIC',
+      discriminator_column: 'target_type',
+      probed_with_sample_values: true,
+      care_reason: "target_type = 'VIP_SECRET' 时才指向 targets",
+    },
+  },
+  {
+    id: 'semantic-join-null-secret',
+    scope: 'JOIN',
+    objectName: 'orders',
+    fieldName: 'cleared_target_id',
+    gloss: '判别值键仍在但值已清空',
+    source: 'INFERRED',
+    evidence: 'DATA',
+    verified: 'UNDECIDABLE',
+    status: 'CONFIRMED',
+    detail: {
+      to_object: 'targets',
+      to_column: 'id',
+      join_kind: 'POLYMORPHIC',
+      discriminator_column: 'target_type',
+      discriminator_value: null,
+      probed_with_sample_values: false,
+      care_reason: "target_type = 'NULL_KEY_SECRET' 时才指向 targets",
+    },
+  },
+  {
+    id: 'semantic-join-composite',
+    scope: 'JOIN',
+    objectName: 'orders',
+    fieldName: 'partitioned_customer_id',
+    gloss: '目标端使用复合唯一键的关系',
+    source: 'INFERRED',
+    evidence: 'DATA',
+    verified: 'WEAK',
+    status: 'CONFIRMED',
+    detail: {
+      to_object: 'customers_p',
+      to_column: 'id',
+      join_kind: 'COMPOSITE',
+      composite_columns: ['id', 'created_at'],
+    },
+  },
+  {
+    id: 'semantic-join-weak-simple',
+    scope: 'JOIN',
+    objectName: 'orders',
+    fieldName: 'weak_customer_id',
+    gloss: '默认 SIMPLE 但只有部分取值命中的关系',
+    source: 'INFERRED',
+    evidence: 'DATA',
+    verified: 'WEAK',
+    status: 'CONFIRMED',
+    detail: {
+      to_object: 'customers',
+      to_column: 'id',
+      sample_n: '10',
+      match_n: '4',
+      containment: '0.4',
+    },
+  },
+  {
     id: 'semantic-human-metric',
     scope: 'METRIC',
     objectName: '',
@@ -138,11 +322,19 @@ export default async function run() {
   let deriveRequests = 0;
   let deriveDetailReads = 0;
   let deriveTracking = false;
+  let deriveMode = 'terminal';
+  let terminalRowsPublished = false;
+  let terminalSemanticReads = 0;
   const deriveObservedStatuses = [];
   let deleteRequests = 0;
+  const unexpectedWrites = [];
 
   try {
     await login(page);
+    await page.addInitScript(() => {
+      // 生产仍用 90 秒；fixture 只把状态机时钟压短，避免测试真的等 90 秒。
+      window.__JM_SEMANTIC_CLAIM_WAIT_TIMEOUT_MS__ = 30_000;
+    });
 
     await page.route('**/data/admin/connectors', async (route) => {
       if (route.request().method() === 'GET') {
@@ -150,6 +342,16 @@ export default async function run() {
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify(envelope([connector])),
+        });
+        return;
+      }
+      const request = route.request();
+      if (request.method() !== 'GET') {
+        unexpectedWrites.push(`${request.method()} ${new URL(request.url()).pathname}`);
+        await route.fulfill({
+          status: 418,
+          contentType: 'application/json',
+          body: JSON.stringify(failedEnvelope('fixture 拒绝未声明的写请求')),
         });
         return;
       }
@@ -164,13 +366,23 @@ export default async function run() {
 
       if (pathname === `${SEMANTIC_PATH}/derive` && method === 'POST') {
         deriveRequests += 1;
-        deriveDetailReads = 0;
-        deriveTracking = true;
-        deriveObservedStatuses.length = 0;
+        if (deriveMode === 'terminal') {
+          deriveDetailReads = 0;
+          deriveTracking = true;
+          terminalRowsPublished = false;
+          terminalSemanticReads = 0;
+          deriveObservedStatuses.length = 0;
+        }
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify(envelope({ started: true })),
+          body: JSON.stringify(
+            envelope(
+              deriveMode === 'not-started'
+                ? { started: false, note: 'fixture 后台没有接受任务', error: '队列已关闭' }
+                : { started: true },
+            ),
+          ),
         });
         return;
       }
@@ -204,12 +416,22 @@ export default async function run() {
       }
 
       if (pathname === SEMANTIC_PATH && method === 'GET') {
+        if (terminalRowsPublished) terminalSemanticReads += 1;
+        const semanticPayload = terminalRowsPublished
+          ? rows.map((row) =>
+              row.id === 'semantic-row-1'
+                ? { ...row, gloss: '终态刷新后的字段 1 业务含义' }
+                : row,
+            )
+          : rows;
         await route.fulfill({
           // data-service 的业务异常仍走 HTTP 200，由非成功信封触发 client.ts 的 BizError。
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify(
-            semanticFails ? failedEnvelope('fixture 语义层读取失败') : envelope(rows),
+            semanticFails
+              ? failedEnvelope('fixture 语义层读取失败')
+              : envelope(semanticPayload),
           ),
         });
         return;
@@ -225,7 +447,7 @@ export default async function run() {
               semanticStatus: 'READY',
               semanticNote: `已进入队列，前面还有 ${4 - deriveDetailReads} 个任务`,
             };
-          } else {
+          } else if (deriveDetailReads <= 5) {
             connector = {
               ...connector,
               semanticStatus: 'RUNNING',
@@ -233,6 +455,16 @@ export default async function run() {
               semanticNote: '正在生成语义层……',
             };
             detailData = connector;
+          } else {
+            connector = {
+              ...connector,
+              semanticStatus: 'READY',
+              semanticSyncedAt: '2026-09-27T11:31:00+08:00',
+              semanticClaimAt: '2026-09-27T11:30:00+08:00',
+              semanticNote: 'fixture 终态已发布',
+            };
+            detailData = connector;
+            terminalRowsPublished = true;
             deriveTracking = false;
           }
           deriveObservedStatuses.push(detailData.semanticStatus);
@@ -251,6 +483,15 @@ export default async function run() {
         return;
       }
 
+      if (method !== 'GET') {
+        unexpectedWrites.push(`${method} ${pathname}`);
+        await route.fulfill({
+          status: 418,
+          contentType: 'application/json',
+          body: JSON.stringify(failedEnvelope('fixture 拒绝未声明的写请求')),
+        });
+        return;
+      }
       await route.fallback();
     });
 
@@ -265,6 +506,7 @@ export default async function run() {
     await page.screenshot({ path: shot('semantic-workbench.png'), fullPage: true });
 
     r.ok('独立语义工作台可深链直达', await page.getByTestId('semantic-workbench').isVisible());
+    r.ok('语义列表使用 labelled section，不产生嵌套 main', (await page.locator('main main').count()) === 0);
     r.ok(
       '连接级状态与 coverage 是两个独立区域',
       (await page.getByTestId('semantic-status').count()) === 1 &&
@@ -364,6 +606,152 @@ export default async function run() {
       ),
     );
 
+    await page.locator('.semantic-pagination .ant-pagination-next button').click();
+    const ordinaryValueCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: '普通字段的渠道代码' });
+    await ordinaryValueCard.click();
+    const liveInspector = page.locator('[data-testid="semantic-inspector"]:visible').first();
+    const ordinaryValueCurrent =
+      (await liveInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+    r.ok(
+      '普通 FIELD 在 SAMPLE_VALUES 投影真实 values / distinct / note',
+      ['实际取值WEB、STORE', '去重取值数2', '采集说明fixture 渠道值域已采全'].every(
+        (label) => ordinaryValueCurrent.includes(label),
+      ),
+      ordinaryValueCurrent,
+    );
+
+    const staleValueCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: '结构已变的渠道代码' });
+    await staleValueCard.click();
+    const staleValueCurrent =
+      (await liveInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+    const staleValueRetained =
+      (await liveInspector.locator('.semantic-inspector-section.is-retained').textContent()) ?? '';
+    r.ok(
+      'STALE FIELD 不把旧值域冒充当前注入，真实片段进入 retained',
+      staleValueCurrent.includes('结构已经变过') &&
+        !staleValueCurrent.includes('OLD_WEB') &&
+        staleValueRetained.includes('OLD_WEB、OLD_STORE') &&
+        staleValueRetained.includes('fixture 旧结构值域'),
+      `${staleValueCurrent} | ${staleValueRetained}`,
+    );
+
+    const outcomeValueCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: '可能包含个人信息的字段' });
+    await outcomeValueCard.click();
+    const outcomeValueCurrent =
+      (await liveInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+    r.ok(
+      '普通 FIELD 的 value_domain.note 缺失时按 outcome 还原真实模型说明',
+      outcomeValueCurrent.includes('该列疑似个人信息，平台【不采集】它的取值。') &&
+        !outcomeValueCurrent.includes('需要时应查询或向用户确认'),
+      outcomeValueCurrent,
+    );
+
+    await page.locator('.semantic-scope-option').filter({ hasText: '表关系' }).click();
+    const validJoinCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: '这句 relation gloss' });
+    await validJoinCard.click();
+    const validJoinCurrent =
+      (await liveInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+    const validJoinRetained =
+      (await liveInspector.locator('.semantic-inspector-section.is-retained').textContent()) ?? '';
+    r.ok(
+      '合法 JOIN 规范化 verified 并只展示 structured relation facts',
+      ['关系端点orders.customer_id → customers.id', '验证结论CONFIRMED', '基数N:1'].every(
+        (label) => validJoinCurrent.includes(label),
+      ) &&
+        !validJoinCurrent.includes('这句 relation gloss') &&
+        validJoinRetained.includes('这句 relation gloss'),
+      `${validJoinCurrent} | ${validJoinRetained}`,
+    );
+
+    const rejectedJoinCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: 'lowercase rejected' });
+    await rejectedJoinCard.click();
+    const rejectedJoinCurrent =
+      (await liveInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+    const rejectedJoinRetained =
+      (await liveInspector.locator('.semantic-inspector-section.is-retained').textContent()) ?? '';
+    r.ok(
+      'lowercase rejected JOIN 按后端归一后整条 withheld',
+      !rejectedJoinCurrent.includes('customers.id') &&
+        rejectedJoinRetained.includes('lowercase rejected') &&
+        rejectedJoinRetained.includes('REJECTED'),
+      `${rejectedJoinCurrent} | ${rejectedJoinRetained}`,
+    );
+
+    const unknownJoinCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: '未知验证枚举' });
+    await unknownJoinCard.click();
+    const unknownJoinCurrent =
+      (await liveInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+    const unknownJoinRetained =
+      (await liveInspector.locator('.semantic-inspector-section.is-retained').textContent()) ?? '';
+    r.ok(
+      '未知 verified JOIN fail-closed 并解释 retained 原因',
+      !unknownJoinCurrent.includes('customers.id') &&
+        unknownJoinRetained.includes('FUTURE_VERDICT') &&
+        unknownJoinRetained.includes('未识别'),
+      `${unknownJoinCurrent} | ${unknownJoinRetained}`,
+    );
+
+    const incompleteJoinCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: '缺完整 endpoint' });
+    await incompleteJoinCard.click();
+    const incompleteJoinCurrent =
+      (await liveInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+    const incompleteJoinRetained =
+      (await liveInspector.locator('.semantic-inspector-section.is-retained').textContent()) ?? '';
+    r.ok(
+      '缺 to_column 的 JOIN 不注入并说明 endpoint 不完整',
+      !incompleteJoinCurrent.includes('关系端点orders.') &&
+        incompleteJoinRetained.includes('to_column') &&
+        incompleteJoinRetained.includes('不完整'),
+      `${incompleteJoinCurrent} | ${incompleteJoinRetained}`,
+    );
+
+    const compositeJoinCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: '目标端使用复合唯一键的关系' });
+    await compositeJoinCard.click();
+    const compositeJoinCurrent =
+      (await liveInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+    r.ok(
+      'COMPOSITE 展示后端先核唯一性的 condition，不臆造同名列必须全部对上',
+      compositeJoinCurrent.includes(
+        '平台只确认了 本表 partitioned_customer_id → customers_p.id 这一对',
+      ) &&
+        compositeJoinCurrent.includes('不要按同名列去配') &&
+        compositeJoinCurrent.includes('COUNT(*)') &&
+        !compositeJoinCurrent.includes('必须全部对上'),
+      compositeJoinCurrent,
+    );
+
+    const weakSimpleJoinCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: '默认 SIMPLE 但只有部分取值命中的关系' });
+    await weakSimpleJoinCard.click();
+    const weakSimpleJoinCurrent =
+      (await liveInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+    r.ok(
+      '缺 join_kind 的 SIMPLE + WEAK 展示后端 unreliable care / condition',
+      weakSimpleJoinCurrent.includes('采样验证只有一部分取值能在对面找到') &&
+        weakSimpleJoinCurrent.includes('采样 10 个取值，命中 4（包含率 40.0%）') &&
+        weakSimpleJoinCurrent.includes('常见成因是多态外键或复合键') &&
+        weakSimpleJoinCurrent.includes('自己跑 COUNT 核对') &&
+        !weakSimpleJoinCurrent.includes('必须全部对上'),
+      weakSimpleJoinCurrent,
+    );
+
     connector = {
       ...baseConnector,
       semanticDataTier: 'DERIVED_STATS',
@@ -401,6 +789,47 @@ export default async function run() {
         legacyRetained.includes('旧版值域补写：北区、南区'),
     );
 
+    const lowerTierOrdinaryCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: '普通字段的渠道代码' });
+    await lowerTierOrdinaryCard.click();
+    const lowerTierOrdinaryCurrent =
+      (await valueProfileInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+    const lowerTierOrdinaryRetained =
+      (await valueProfileInspector.locator('.semantic-inspector-section.is-retained').textContent()) ?? '';
+    r.ok(
+      '普通 FIELD 降档后保留 gloss，但真实值域只进 retained',
+      lowerTierOrdinaryCurrent.includes('普通字段的渠道代码') &&
+        lowerTierOrdinaryCurrent.includes('没有确认开放第 3 档') &&
+        !lowerTierOrdinaryCurrent.includes('WEB、STORE') &&
+        !lowerTierOrdinaryCurrent.includes('fixture 渠道值域已采全') &&
+        lowerTierOrdinaryRetained.includes('WEB、STORE') &&
+        lowerTierOrdinaryRetained.includes('fixture 渠道值域已采全'),
+      `${lowerTierOrdinaryCurrent} | ${lowerTierOrdinaryRetained}`,
+    );
+
+    await page.locator('.semantic-scope-option').filter({ hasText: '表关系' }).click();
+    for (const [cardText, secret] of [
+      ['曾按样本值探查但没留判别值', 'VIP_SECRET'],
+      ['判别值键仍在但值已清空', 'NULL_KEY_SECRET'],
+    ]) {
+      await page.locator('button.semantic-row-card').filter({ hasText: cardText }).click();
+      const current =
+        (await valueProfileInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+      const retained =
+        (await valueProfileInspector.locator('.semantic-inspector-section.is-retained').textContent()) ?? '';
+      r.ok(
+        `DERIVED_STATS 对 ${cardText} 的旧 care_reason fail-closed`,
+        !current.includes(secret) &&
+          current.includes('疑似多态外键') &&
+          current.includes('每个取值都指向 targets 时它只是分类列，不要加这个条件') &&
+          !current.includes('需要 target_type 的类型条件') &&
+          retained.includes(secret) &&
+          retained.includes('当前档位不提供给模型'),
+        `${current} | ${retained}`,
+      );
+    }
+
     connector = { ...baseConnector };
     await page.reload({ waitUntil: 'domcontentloaded' });
     const attentionListText = (await page.getByTestId('semantic-row-list').textContent()) ?? '';
@@ -437,8 +866,11 @@ export default async function run() {
     const deriveModal = page.locator('.ant-modal-content:visible');
     const deriveCopy = (await deriveModal.textContent()) ?? '';
     r.ok(
-      '重跑确认完整说明 INFERRED、代价与异步语义',
-      ['INFERRED', '代价看结构快照在不在', '这是异步派发'].every((label) => deriveCopy.includes(label)),
+      '重跑确认保守说明多分片/fallback、结构读取与条件采样',
+      ['INFERRED', '多分片模型调用', '单次', '结构元数据', '视图与过程定义', '档位', '阶段', '这是异步派发'].every(
+        (label) => deriveCopy.includes(label),
+      ) && !deriveCopy.includes('一次模型调用，对客户系统零访问'),
+      deriveCopy,
     );
     await page.getByRole('button', { name: '开始生成', exact: true }).last().click();
     const claimWaitVisible = await isVisible(page.getByTestId('semantic-derive-claim-wait'), 3_000);
@@ -455,15 +887,98 @@ export default async function run() {
         deriveObservedStatuses.slice(0, 3).every((status) => status === 'READY') &&
         deriveObservedStatuses.includes('RUNNING') &&
         deriveRequests === 1,
-      JSON.stringify({ deriveObservedStatuses, deriveRequests }),
+      JSON.stringify({ runningObserved, deriveObservedStatuses, deriveRequests }),
+    );
+
+    const terminalReadyObserved = await isVisible(
+      page.getByTestId('semantic-status').getByText('已生成', { exact: true }),
+      15_000,
+    );
+    await page.locator('.semantic-scope-option').filter({ hasText: '字段含义' }).click();
+    const terminalPrev = page.locator('.semantic-pagination .ant-pagination-prev button');
+    if (await terminalPrev.isEnabled().catch(() => false)) await terminalPrev.click();
+    const terminalRowUpdated = await isVisible(
+      page.getByText('终态刷新后的字段 1 业务含义', { exact: true }).first(),
+      15_000,
+    );
+    r.ok(
+      'RUNNING→READY 停轮询前 terminal rows 强制 refetch exactly once',
+      terminalReadyObserved && terminalRowUpdated && terminalSemanticReads === 1,
+      JSON.stringify({
+        terminalReadyObserved,
+        terminalRowUpdated,
+        terminalSemanticReads,
+      }),
+    );
+
+    deriveMode = 'not-started';
+    await headerDeriveButton.click();
+    await page.getByRole('button', { name: '开始生成', exact: true }).last().click();
+    const notStartedNotice = page.getByTestId('semantic-derive-not-started');
+    r.ok(
+      'started=false 展示后端 note/error 且不创建 claimWait',
+      (await isVisible(notStartedNotice, 3_000)) &&
+        ((await notStartedNotice.textContent()) ?? '').includes('fixture 后台没有接受任务') &&
+        ((await notStartedNotice.textContent()) ?? '').includes('队列已关闭') &&
+        !(await isVisible(page.getByTestId('semantic-derive-claim-wait'), 300)) &&
+        !(await headerDeriveButton.isDisabled()),
+    );
+
+    deriveMode = 'stuck';
+    const timeoutOverrideApplied = await page.evaluate(() => {
+      window.__JM_SEMANTIC_CLAIM_WAIT_TIMEOUT_MS__ = 250;
+      return window.__JM_SEMANTIC_CLAIM_WAIT_TIMEOUT_MS__ === 250;
+    });
+    await headerDeriveButton.click();
+    await page.getByRole('button', { name: '开始生成', exact: true }).last().click();
+    const timeoutAction = page.getByRole('button', {
+      name: '停止等待并重新提交',
+      exact: true,
+    });
+    const timeoutReached = await isVisible(timeoutAction, 10_000);
+    if (timeoutReached) await timeoutAction.click();
+    const retryModal = page.locator('.ant-modal-content:visible');
+    const retryModalVisible = timeoutReached && (await isVisible(retryModal, 5_000));
+    const claimWaitCleared = await page
+      .getByTestId('semantic-derive-claim-wait')
+      .waitFor({ state: 'hidden', timeout: 3_000 })
+      .then(() => true)
+      .catch(() => false);
+    r.ok(
+      '90s 超时状态机可停止等待、清锁并重新打开提交确认',
+      timeoutOverrideApplied && timeoutReached && retryModalVisible && claimWaitCleared,
+      JSON.stringify({ timeoutOverrideApplied, timeoutReached, retryModalVisible, claimWaitCleared }),
+    );
+    if (await retryModal.isVisible().catch(() => false)) await page.keyboard.press('Escape');
+
+    r.ok('重跑请求被 fixture 拦截，未访问真实后端', deriveRequests === 3);
+
+    await page
+      .locator('[data-testid="semantic-inspector"]:visible .ant-btn-dangerous')
+      .first()
+      .click();
+    const deleteModal = page.locator('.ant-modal-content:visible');
+    const deleteCopy = (await deleteModal.textContent()) ?? '';
+    r.ok(
+      '删除确认保留不可恢复、INFERRED 回来、HUMAN 历史丢失',
+      ['物理删除，不可恢复', '下次重新生成会再推一遍', '连同覆盖历史一起消失'].every(
+        (label) => deleteCopy.includes(label),
+      ),
     );
     semanticFails = true;
     detailFails = true;
+    await deleteModal.locator('.ant-btn-primary.ant-btn-dangerous').click();
+    await page.waitForTimeout(150);
+    r.ok('删除请求被 fixture 拦截，未写入真实后端', deleteRequests === 1);
+    r.ok(
+      'removed=0 如实提示已经不在',
+      await isVisible(page.getByText('这一行已经不在了（可能刚被别人删掉），本次没有删除任何内容。'), 2_000),
+    );
+
     const backgroundSemanticRetry = page.getByRole('button', { name: '重试语义层', exact: true });
     const backgroundDetailRetry = page.getByRole('button', { name: '重试连接详情', exact: true });
     const semanticRefreshFailed = await isVisible(backgroundSemanticRetry, 10_000);
     const detailRefreshFailed = await isVisible(backgroundDetailRetry, 10_000);
-    r.ok('重跑请求被 fixture 拦截，未访问真实后端', deriveRequests === 1);
     r.ok(
       '成功内容后的语义刷新失败保留旧条目与重试',
       semanticRefreshFailed &&
@@ -486,26 +1001,6 @@ export default async function run() {
     await page
       .getByText('fixture 连接详情读取失败', { exact: true })
       .waitFor({ state: 'hidden' });
-
-    await page
-      .locator('[data-testid="semantic-inspector"]:visible .ant-btn-dangerous')
-      .first()
-      .click();
-    const deleteModal = page.locator('.ant-modal-content:visible');
-    const deleteCopy = (await deleteModal.textContent()) ?? '';
-    r.ok(
-      '删除确认保留不可恢复、INFERRED 回来、HUMAN 历史丢失',
-      ['物理删除，不可恢复', '下次重新生成会再推一遍', '连同覆盖历史一起消失'].every(
-        (label) => deleteCopy.includes(label),
-      ),
-    );
-    await deleteModal.locator('.ant-btn-primary.ant-btn-dangerous').click();
-    await page.waitForTimeout(150);
-    r.ok('删除请求被 fixture 拦截，未写入真实后端', deleteRequests === 1);
-    r.ok(
-      'removed=0 如实提示已经不在',
-      await isVisible(page.getByText('这一行已经不在了（可能刚被别人删掉），本次没有删除任何内容。'), 2_000),
-    );
 
     connector = { ...baseConnector, semanticCoverage: 'FUTURE_COVERAGE', semanticGaps: [] };
     await page.reload({ waitUntil: 'domcontentloaded' });
@@ -698,6 +1193,44 @@ export default async function run() {
         editUrl.searchParams.get('section') === 'semantic' &&
         (await tierCombobox.isVisible()) &&
         (await tierCombobox.isEnabled()),
+    );
+
+    connector = {
+      ...baseConnector,
+      semanticStatus: 'FAILED',
+      semanticSyncedAt: '2026-09-27T10:00:00+08:00',
+      semanticCoverage: 'COMPLETE',
+      semanticGaps: [],
+    };
+    await page.goto(`${CONFIG.baseUrl}/console/connectors`, { waitUntil: 'domcontentloaded' });
+    const failedConnectorCard = page
+      .getByTestId('connector-card')
+      .filter({ hasText: '语义工作台 Fixture' });
+    await failedConnectorCard.waitFor({ state: 'visible', timeout: 10_000 });
+    const failedWithHistoryCardText = (await failedConnectorCard.textContent()) ?? '';
+    r.ok(
+      'FAILED 连接卡有成功时间戳时保守说明旧内容仍按行级规则生效',
+      failedWithHistoryCardText.includes('最近一次成功说明') &&
+        failedWithHistoryCardText.includes('每条状态') &&
+        !failedWithHistoryCardText.includes('只能凭结构名称'),
+      failedWithHistoryCardText,
+    );
+
+    connector = { ...connector, semanticSyncedAt: null };
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await failedConnectorCard.waitFor({ state: 'visible', timeout: 10_000 });
+    const failedWithoutHistoryCardText = (await failedConnectorCard.textContent()) ?? '';
+    r.ok(
+      'FAILED 连接卡无成功时间戳时不臆断旧内容或只靠结构名',
+      failedWithoutHistoryCardText.includes('无法确认') &&
+        !failedWithoutHistoryCardText.includes('最近一次成功说明仍') &&
+        !failedWithoutHistoryCardText.includes('只能凭结构名称'),
+      failedWithoutHistoryCardText,
+    );
+    r.ok(
+      '全程未声明写请求 fail-closed，fixture 没有放行真实后端写入',
+      unexpectedWrites.length === 0,
+      unexpectedWrites.join(', '),
     );
   } finally {
     await browser.close();

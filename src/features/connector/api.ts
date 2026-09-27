@@ -97,7 +97,8 @@ export const connectorApi = {
   /**
    * 语义层：手工重新推导。
    *
-   * ★ **异步**：后端把任务扔进线程池就返回 `{started:true}`，这不代表推导完成。
+   * ★ **异步**：`started:true` 只表示生成器接受了任务，不代表推导完成；`started:false`
+   * 表示本次没有接单（例如已有任务或提交失败），调用方必须展示 note，且不能进入等待状态。
    * 真实进度写在连接详情的 semanticStatus / semanticNote 上，调用方要回去刷那一行，
    * 不能拿这次返回当「已生成」。
    *

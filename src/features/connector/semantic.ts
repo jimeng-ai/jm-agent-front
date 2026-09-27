@@ -398,6 +398,23 @@ const VERIFIED_META: Record<SemanticVerified, TagMeta> = {
   NONE: { label: '未验证', hint: '没有做过采样验证。' },
 };
 
+const KNOWN_VERIFIED = new Set<SemanticVerified>([
+  'CONFIRMED',
+  'WEAK',
+  'REJECTED',
+  'UNDECIDABLE',
+  'NONE',
+]);
+
+/** 与 ConnectorToolExecutor.normalizedVerified 完全同向：空值是 NONE，已知值忽略大小写，未知值拒绝。 */
+export function normalizeSemanticVerified(raw: unknown): SemanticVerified | null {
+  if (raw === null || raw === undefined) return 'NONE';
+  const text = String(raw).trim();
+  if (!text) return 'NONE';
+  const normalized = text.toUpperCase() as SemanticVerified;
+  return KNOWN_VERIFIED.has(normalized) ? normalized : null;
+}
+
 /**
  * 验证结论。
  *
@@ -409,21 +426,23 @@ const VERIFIED_META: Record<SemanticVerified, TagMeta> = {
  * 但解释里必须补一句——否则一个绿色的「数据已验证」会把一条漏了类型条件就串表的关系说成可以放心用。
  */
 export function verifiedMeta(r: ConnectorSemanticRow): TagMeta {
-  const v = r.verified ?? 'NONE';
+  const raw = r.verified;
+  const normalized = normalizeSemanticVerified(raw);
+  const v = normalized ?? (raw ? String(raw) : 'NONE');
   let meta: TagMeta;
-  if (r.scope === 'JOIN' && v === 'NONE') {
+  if (r.scope === 'JOIN' && normalized === 'NONE') {
     meta = {
       label: '未经数据验证',
       color: 'orange',
       hint: '没有用数据核过（数据出库档位不允许、采样预算用完、或还没轮到），只是按命名推出来的推测。join 之前请先看该列的取值分布。',
     };
   } else {
-    const hit: TagMeta | undefined = VERIFIED_META[v as SemanticVerified];
+    const hit: TagMeta | undefined = normalized ? VERIFIED_META[normalized] : undefined;
     meta = hit ?? { label: `未知（${v}）`, hint: '本页还不认识这个 verified 取值。' };
   }
   // 这里只要形态的名字，不要条件——所以走 joinKindMeta，不牵扯档位（条件里的取值给不给模型才看档位）。
   const kind = joinKindMeta(r);
-  if (kind && v !== 'REJECTED') {
+  if (kind && normalized !== 'REJECTED') {
     return {
       ...meta,
       hint: `${meta.hint} 另外这是一条「${kind.label}」关系：即使数据核过，也只作为需要带条件的关系提供给模型，不当普通 join 用。`,
@@ -493,10 +512,9 @@ export function rowAnchor(r: ConnectorSemanticRow): string {
 export function joinTarget(r: ConnectorSemanticRow): string | null {
   const d = r.detail;
   if (!d) return null;
-  const obj = typeof d.to_object === 'string' ? d.to_object : null;
-  if (!obj) return null;
-  const col = typeof d.to_column === 'string' ? d.to_column : null;
-  return col ? `${obj}.${col}` : obj;
+  const obj = typeof d.to_object === 'string' ? d.to_object.trim() : '';
+  const col = typeof d.to_column === 'string' ? d.to_column.trim() : '';
+  return obj && col ? `${obj}.${col}` : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -560,15 +578,19 @@ export type JoinCondition =
       withheldValue: string | null;
       valuesAllowed: boolean;
     }
-  /** 复合键：目标表的这几列都要对上。 */
+  /** 复合键：这里只记录目标端的键列；不能据此猜本表同名列就是对应列。 */
   | { type: 'COMPOSITE'; target: string | null; columns: string[] };
 
 export interface JoinCare {
   label: string;
-  /** 这种关系形态一般意味着什么（后端没给理由、或理由被档位挡下时兜底显示它）。 */
+  /** 这种关系形态一般意味着什么；只用于标签悬停，不冒充模型实际收到的字段。 */
   hint: string;
-  /** 模型此刻读得到的那句人话理由：为什么这条关系要当心。null = 没有，或被档位挡下了（见 careReasonWithheld）。 */
-  careReason: string | null;
+  /** ConnectorToolExecutor 此刻实际写进 care_reason 的内容。 */
+  careReason: string;
+  /** ConnectorToolExecutor 此刻实际写进 condition 的内容。 */
+  modelCondition: string;
+  /** 卡片上的短版，不改变 condition 的「已确认 / 先核验」分支含义。 */
+  conditionSummary: string;
   /**
    * 后端记下的理由被档位挡下了。
    *
@@ -583,7 +605,7 @@ export interface JoinCare {
 const JOIN_KIND_META: Record<Exclude<JoinKind, 'SIMPLE'>, { label: string; hint: string }> = {
   POLYMORPHIC: {
     label: '多态关联',
-    hint: '这一列按另一列（判别列）的取值指向不同的表，比如 target_type + target_id。不加类型条件直接 join，指向别的表的行也会被连进来——不报错，数字串了。',
+    hint: '这一列可能按判别列的取值指向不同表。只有验证确认后才直接要求类型条件；未确认时要先核各取值是否其实都指向同一张表。',
   },
   COMPOSITE: {
     label: '复合键',
@@ -592,15 +614,23 @@ const JOIN_KIND_META: Record<Exclude<JoinKind, 'SIMPLE'>, { label: string; hint:
 };
 
 /**
- * JOIN 行的关系形态叫什么、一般意味着什么。非 JOIN、SIMPLE、存量行（没有 join_kind）返回 null。
- * 只要名字、不要条件的地方用它（验证列的悬停说明、分组标题上的计数），不牵扯档位。
+ * JOIN 行的关系形态叫什么、一般意味着什么。普通 SIMPLE 不画；只有后端会放进
+ * unreliable_relations 的 SIMPLE + WEAK 保留提醒。只要名字、不要条件的地方用它，不牵扯档位。
  */
 function joinKindMeta(
   r: ConnectorSemanticRow,
 ): { kind: string; label: string; hint: string } | null {
   if (r.scope !== 'JOIN' || !r.detail) return null;
-  const kind = strOf(r.detail.join_kind);
-  if (!kind || kind === 'SIMPLE') return null;
+  const rawKind = strOf(r.detail.join_kind);
+  const kind = rawKind?.toUpperCase() ?? 'SIMPLE';
+  if (kind === 'SIMPLE') {
+    if (normalizeSemanticVerified(r.verified) !== 'WEAK') return null;
+    return {
+      kind,
+      label: '单列弱关系',
+      hint: '真实数据只支持部分取值命中；后端把它放在不可靠关系里，要求先排查多态外键或复合键，再自行 COUNT 核对。',
+    };
+  }
   if (kind === 'POLYMORPHIC' || kind === 'COMPOSITE') return { kind, ...JOIN_KIND_META[kind] };
   // 认不出来的形态不能当 SIMPLE 放过去：后端特意标出来的，就不是普通关联。
   return {
@@ -613,15 +643,171 @@ function joinKindMeta(
 /**
  * 这一行存着的判别值（以及嵌着它写的那句 care_reason）此刻被档位挡下、**不给模型**。
  *
- * 与给模型的工具同一条判据：多态关联 + 存着判别值 + 连接当前档位没开放样本值。
- * 不看判别列在不在——工具挡理由时也不看。joinCare 与 detailEntries 都走这里，两处不许各写一份。
+ * 与给模型的工具同一条判据：多态关联 + 第 3 档探查可能跑过（或判别值键仍存在）+
+ * 连接当前档位没开放样本值。值即使已清成 null，也不能据此断言旧 care_reason 没嵌过真实取值；
+ * joinCare 与 detailEntries 都走这里，两处不许各写一份。
  */
 function storedValueWithheld(r: ConnectorSemanticRow, tier: string | null | undefined): boolean {
   if (r.scope !== 'JOIN' || !r.detail) return false;
+  const probed = r.detail.probed_with_sample_values;
+  const probeMayHaveRun =
+    probed !== null && probed !== undefined && booleanOf(probed) !== false;
+  const storedCareMayHoldValues =
+    probeMayHaveRun || Object.prototype.hasOwnProperty.call(r.detail, 'discriminator_value');
   return (
-    strOf(r.detail.join_kind) === 'POLYMORPHIC' &&
-    strOf(r.detail.discriminator_value) !== null &&
+    strOf(r.detail.join_kind)?.toUpperCase() === 'POLYMORPHIC' &&
+    storedCareMayHoldValues &&
     !sampleValuesAllowed(tier)
+  );
+}
+
+function lenientStringListOf(v: unknown): string[] {
+  const single = strOf(v);
+  if (single !== null) return [single];
+  return strListOf(v);
+}
+
+function compositeFromCareReason(
+  careReason: string | null,
+  toObject: string,
+  toColumn: string,
+): string[] | null {
+  if (!careReason) return null;
+  const marker = `${toObject}.${toColumn} 只是组合唯一键 (`;
+  const at = careReason.toLowerCase().lastIndexOf(marker.toLowerCase());
+  if (at < 0) return null;
+  const open = at + marker.length;
+  const close = careReason.indexOf(')', open);
+  if (close < 0) return [];
+  const columns = careReason
+    .slice(open, close)
+    .split(',')
+    .map((column) => column.trim());
+  return columns.every((column) => /^[A-Za-z0-9_$]{1,64}$/.test(column)) ? columns : [];
+}
+
+/** 与 ConnectorToolExecutor.compositeOf 同向：null=不是组合键，空数组=是，但完整键列未知。 */
+function compositeColumnsOf(
+  detail: Record<string, unknown>,
+  kind: string,
+  toObject: string,
+  toColumn: string,
+): string[] | null {
+  if (kind !== 'POLYMORPHIC' && kind !== 'COMPOSITE') return null;
+  const stored = lenientStringListOf(detail.composite_columns);
+  if (stored.length > 0) return stored;
+  const fromReason = compositeFromCareReason(strOf(detail.care_reason), toObject, toColumn);
+  if (fromReason !== null) return fromReason;
+  return kind === 'COMPOSITE' ? [] : null;
+}
+
+function namedCompositeKey(columns: string[], toColumn: string): string[] | null {
+  if (columns.length < 2) return null;
+  return columns.some((column) => column.toLowerCase() === toColumn.toLowerCase()) ? columns : null;
+}
+
+function compositeCare(columns: string[], toObject: string, toColumn: string): string {
+  const target = `${toObject}.${toColumn}`;
+  const key = namedCompositeKey(columns, toColumn);
+  return (
+    (key === null
+      ? `${target} 只是某个多列唯一键的一部分（平台没记下完整的键列）`
+      : `${target} 只是组合唯一键 (${key.join(', ')}) 的一部分`) +
+    '，单独没有唯一约束：只按这一列关联，可能一行连出对面多行，SUM / COUNT 被放大且不报错'
+  );
+}
+
+function compositeCondition(
+  fromColumn: string | null,
+  columns: string[],
+  toObject: string,
+  toColumn: string,
+): string {
+  const target = `${toObject}.${toColumn}`;
+  const pair = `${fromColumn ? `本表 ${fromColumn}` : '本表这一列'} → ${target}`;
+  const key = namedCompositeKey(columns, toColumn);
+  const known =
+    key === null
+      ? `${target} 只是某个多列唯一键的一部分（平台没记下完整的键列），单独没有唯一约束。` +
+        `平台只确认了 ${pair} 这一对；键里其余的列是哪几列、在本表对应哪一列，平台都不知道。`
+      : `${target} 只是组合唯一键 (${key.join(', ')}) 的一部分，单独没有唯一约束。` +
+        `平台只确认了 ${pair} 这一对；其余键列 ${key
+          .filter((column) => column.toLowerCase() !== toColumn.toLowerCase())
+          .join(', ')} 在本表对应哪一列，平台不知道。`;
+  return (
+    known +
+    '不要按同名列去配，也不要没确认就把它们写进关联条件：同名列不一定是同一件事' +
+    '（分区表被迫放进主键的时间列，在本表往往是本表自己的时间，照着连会把行静默连丢）。' +
+    `要用先查 ${toObject} 的 COUNT(*) 与 COUNT(DISTINCT ${toColumn})：` +
+    `相等说明 ${toColumn} 实际一行一个，可以只按这一对关联；` +
+    '不相等时只按这一对关联会一行连出多行、SUM / COUNT 被放大，' +
+    '要先向用户确认其余键列在本表对应哪一列，确认不了就不要用'
+  );
+}
+
+function sqlLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function longOf(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? Math.trunc(value) : null;
+  if (typeof value !== 'string' || !/^[+-]?\d+$/.test(value.trim())) return null;
+  const parsed = Number(value.trim());
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+function measuredSentence(detail: Record<string, unknown>): string | null {
+  const sample = longOf(detail.sample_n);
+  const match = longOf(detail.match_n);
+  if (sample === null || match === null) return null;
+  const containment = countOf(detail.containment);
+  return (
+    `采样 ${sample} 个取值，命中 ${match}` +
+    (containment === null ? '' : `（包含率 ${(containment * 100).toFixed(1)}%）`)
+  );
+}
+
+function polymorphicCondition(
+  fromColumn: string | null,
+  detail: Record<string, unknown>,
+  toObject: string,
+  valuesAllowed: boolean,
+  confirmed: boolean,
+): string {
+  const from = fromColumn ?? '这一列';
+  const discriminatorColumn = strOf(detail.discriminator_column);
+  const discriminatorValue =
+    discriminatorColumn && valuesAllowed ? strOf(detail.discriminator_value) : null;
+  if (discriminatorValue !== null) {
+    return (
+      `必须同时加上 ${discriminatorColumn} = ${sqlLiteral(discriminatorValue)} 条件。只按 ${from} ` +
+      '一列 join，别的类型里恰好同号的行也会被连上，数不报错但是错的'
+    );
+  }
+  if (discriminatorColumn && !confirmed) {
+    const why = valuesAllowed
+      ? '平台没有记下它的取值'
+      : '这条连接当前没有确认开放第 3 档（样本值），平台不提供判别列的取值';
+    return (
+      `疑似多态外键：${from} 指向哪张表可能由判别列 ${discriminatorColumn} 决定，平台没有确认；${why}。` +
+      `要用就先查出 ${discriminatorColumn} 有哪些取值、各自代表什么（不要拿 join 连不连得上来判断，几张表的自增 id 常常重叠）：` +
+      `只有其中一个取值对应 ${toObject} 时，才必须加上这个取值的条件，否则别的类型里恰好同号的行也会被连上；` +
+      `每个取值都指向 ${toObject} 时它只是分类列，不要加这个条件，加了会把其余取值的行静默漏掉。` +
+      '拿不准就问用户，不要猜'
+    );
+  }
+  if (discriminatorColumn) {
+    const why = valuesAllowed
+      ? `平台没有记下哪个取值对应 ${toObject}`
+      : '这条连接当前没有确认开放第 3 档（样本值），平台不提供判别列的取值';
+    return (
+      `存在判别列 ${discriminatorColumn}，不加它的条件就 join 会匹配到别的类型的行；${why}。` +
+      `要用就先查出 ${discriminatorColumn} 有哪些取值，哪一个对应 ${toObject} 拿不准就问用户，不要猜`
+    );
+  }
+  return (
+    '这是多态外键，但平台没记下判别列是哪一列：不加类型条件就 join 会匹配到别的类型的行。' +
+    `先从本表结构里找出类型列、确认哪个取值对应 ${toObject}，确认不了就不要用`
   );
 }
 
@@ -641,15 +827,57 @@ export function joinCare(
   const d = r.detail;
   const { label, hint } = km;
   const storedReason = strOf(d.care_reason);
+  const toObject = strOf(d.to_object) ?? '目标表';
+  const toColumn = strOf(d.to_column) ?? '目标列';
+  const fromColumn = strOf(r.fieldName);
+  const verified = normalizeSemanticVerified(r.verified);
+  const confirmed = verified === 'CONFIRMED';
+  const composite = compositeColumnsOf(d, km.kind, toObject, toColumn);
+  if (km.kind === 'SIMPLE') {
+    const measured = measuredSentence(d);
+    return {
+      label,
+      hint,
+      careReason: storedReason ?? '采样验证只有一部分取值能在对面找到',
+      modelCondition:
+        `${measured ?? '采样只有一部分取值对得上'}：数据只部分支持，常见成因是多态外键或复合键。` +
+        '那两种情况下按单列 join 连上的行本身就可能是错的，不是「少连了一部分」。' +
+        `要用先查清本表有没有类型列、${toObject} 是不是复合键，带上完整条件再自己跑 COUNT 核对；查不清就不要用`,
+      conditionSummary: '先排查本表类型列与目标表复合键，带完整条件后再自行 COUNT 核对。',
+      careReasonWithheld: false,
+      condition: null,
+    };
+  }
   if (km.kind === 'POLYMORPHIC') {
     const column = strOf(d.discriminator_column);
     const stored = strOf(d.discriminator_value);
     const allowed = sampleValuesAllowed(tier);
     const withheld = storedValueWithheld(r, tier);
+    const genericReason = confirmed
+      ? '多态外键：这一列按另一列的类型取值指向不同的表。包含率只能说明这个 id 在对面存在，说明不了连上的是不是同一类行'
+      : '疑似多态外键：这一列指向哪张表可能由另一列的类型取值决定，平台没有确认——那一列也可能只是分类列，每个取值都指向同一张表。包含率只能说明这个 id 在对面存在，说明不了连上的是不是同一类行';
+    const baseReason = storedReason && !withheld ? storedReason : genericReason;
+    const modelCondition = polymorphicCondition(fromColumn, d, toObject, allowed, confirmed);
+    const fullCondition =
+      composite === null
+        ? modelCondition
+        : `${modelCondition}。另外，${compositeCondition(fromColumn, composite, toObject, toColumn)}`;
     return {
       label,
       hint,
-      careReason: withheld ? null : storedReason,
+      careReason:
+        composite === null
+          ? baseReason
+          : `${baseReason}。另外，${compositeCare(composite, toObject, toColumn)}`,
+      modelCondition: fullCondition,
+      conditionSummary:
+        column && stored && allowed
+          ? `必须加上 ${column} = ${sqlLiteral(stored)} 的类型条件。`
+          : column && !confirmed
+            ? `先核 ${column} 的各个取值是否都指向 ${toObject}，再决定是否加类型条件。`
+            : column
+              ? `先查明 ${column} 中哪个取值对应 ${toObject}，再加类型条件。`
+              : '先找出判别列和对应取值；确认不了就不要使用这条关系。',
       careReasonWithheld: withheld && storedReason !== null,
       condition: column
         ? {
@@ -663,16 +891,26 @@ export function joinCare(
     };
   }
   if (km.kind === 'COMPOSITE') {
-    const columns = strListOf(d.composite_columns);
+    const columns = composite ?? [];
     return {
       label,
       hint,
-      careReason: storedReason,
+      careReason: storedReason ?? compositeCare(columns, toObject, toColumn),
+      modelCondition: compositeCondition(fromColumn, columns, toObject, toColumn),
+      conditionSummary: `平台只确认 ${fromColumn ?? '本表这一列'} → ${toObject}.${toColumn}；先核目标列是否一行一个，勿按同名列补条件。`,
       careReasonWithheld: false,
-      condition: columns.length ? { type: 'COMPOSITE', target: strOf(d.to_object), columns } : null,
+      condition: { type: 'COMPOSITE', target: strOf(d.to_object), columns },
     };
   }
-  return { label, hint, careReason: storedReason, careReasonWithheld: false, condition: null };
+  return {
+    label,
+    hint,
+    careReason: storedReason ?? '平台给这条关系标了本版本认不出的形态',
+    modelCondition: `平台给这条关系标了本版本认不出的形态（${km.kind}），不能当成普通的单列关联直接 join；要用先查清它还缺什么条件，查不清就不要用`,
+    conditionSummary: '先查清这条关系缺少的条件；查不清就不要使用。',
+    careReasonWithheld: false,
+    condition: null,
+  };
 }
 
 const TABLE_SHAPE_META: Record<TableShape, TagMeta> = {
@@ -790,6 +1028,7 @@ const DETAIL_LABEL: Record<string, string> = {
   care_reason: '为什么要当心',
   discriminator_column: '类型判别列',
   discriminator_value: '判别值',
+  probed_with_sample_values: '曾以样本值分组探查',
   composite_columns: '目标表的复合键列',
   table_shape: '表形态',
   table_shape_source: '形态怎么定的',
@@ -854,8 +1093,13 @@ function measurementText(v: unknown): string | null {
 }
 
 function booleanOf(v: unknown): boolean | null {
-  if (v === true || v === 'true') return true;
-  if (v === false || v === 'false') return false;
+  if (v === true) return true;
+  if (v === false) return false;
+  if (typeof v === 'string') {
+    const normalized = v.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
   return null;
 }
 
@@ -1107,13 +1351,21 @@ export function semanticAttentionReasons(
     add({ code: 'STALE', label: stale.label, hint: stale.hint, tone: 'danger' });
   }
 
-  if (r.verified === 'REJECTED') {
+  const normalizedVerified = normalizeSemanticVerified(r.verified);
+  if (r.scope === 'JOIN' && normalizedVerified === null) {
+    add({
+      code: 'UNKNOWN_VERIFIED',
+      label: '未知验证结论',
+      hint: `verified=${String(r.verified)} 不在已知枚举中；后端不会注入这条关系。`,
+      tone: 'danger',
+    });
+  } else if (normalizedVerified === 'REJECTED') {
     const rejected = verifiedMeta(r);
     add({ code: 'REJECTED', label: rejected.label, hint: rejected.hint, tone: 'danger' });
-  } else if (r.verified === 'WEAK' || r.verified === 'UNDECIDABLE') {
+  } else if (normalizedVerified === 'WEAK' || normalizedVerified === 'UNDECIDABLE') {
     const weak = verifiedMeta(r);
-    add({ code: `VERIFIED_${r.verified}`, label: weak.label, hint: weak.hint, tone: 'warning' });
-  } else if (r.scope === 'JOIN' && (r.verified ?? 'NONE') === 'NONE') {
+    add({ code: `VERIFIED_${normalizedVerified}`, label: weak.label, hint: weak.hint, tone: 'warning' });
+  } else if (r.scope === 'JOIN' && normalizedVerified === 'NONE') {
     const unverified = verifiedMeta(r);
     add({
       code: 'JOIN_UNVERIFIED',
@@ -1124,7 +1376,7 @@ export function semanticAttentionReasons(
   }
 
   const care = joinCare(r, tier);
-  if (care && r.verified !== 'REJECTED') {
+  if (care && normalizedVerified !== 'REJECTED') {
     add({ code: 'JOIN_CARE', label: care.label, hint: care.hint, tone: 'warning' });
     if (care.careReasonWithheld || care.condition?.type === 'DISCRIMINATOR') {
       const condition = care.condition?.type === 'DISCRIMINATOR' ? care.condition : null;
@@ -1227,6 +1479,119 @@ export function semanticTierVisibility(tier?: string | null): SemanticTierVisibi
   };
 }
 
+interface JoinInjectionDecision {
+  verified: SemanticVerified | null;
+  toObject: string | null;
+  toColumn: string | null;
+  hiddenReason: string | null;
+}
+
+/**
+ * 与 ConnectorToolExecutor.relationPayload 的三道入口闸一致：verified 必须是已知枚举且不能是
+ * REJECTED，右端表/列必须同时存在。任一不满足，关系整条不进入 joins / unreliable_relations。
+ */
+function joinInjectionDecision(r: ConnectorSemanticRow): JoinInjectionDecision {
+  const rawVerified = r.verified;
+  const verified = normalizeSemanticVerified(rawVerified);
+  const toObject = strOf(r.detail?.to_object);
+  const toColumn = strOf(r.detail?.to_column);
+  let hiddenReason: string | null = null;
+
+  if (verified === null) {
+    hiddenReason = `verified=${String(rawVerified)} 未识别；后端对未知验证结论 fail-closed，这条关系不注入。`;
+  } else if (verified === 'REJECTED') {
+    hiddenReason = 'verified 已归一为 REJECTED；真实数据不支持这条关系，后端明确不注入。';
+  } else if (!toObject || !toColumn) {
+    const missing = [!toObject ? 'to_object' : null, !toColumn ? 'to_column' : null]
+      .filter(Boolean)
+      .join('、');
+    hiddenReason = `关系端点不完整：缺少 ${missing}；后端不会拿残缺端点拼 JOIN。`;
+  }
+  return { verified, toObject, toColumn, hiddenReason };
+}
+
+function valueDomainFragment(r: ConnectorSemanticRow): Record<string, unknown> | null {
+  if (r.scope !== 'FIELD' || !r.detail) return null;
+  const raw = r.detail.value_domain;
+  return raw && typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw).length > 0
+    ? (raw as Record<string, unknown>)
+    : null;
+}
+
+function valueDomainValues(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((value) => value !== null && value !== undefined).map(String);
+}
+
+function storedValueDomainFacts(fragment: Record<string, unknown>): SemanticVisibilityFact[] {
+  const facts: SemanticVisibilityFact[] = [];
+  const values = valueDomainValues(fragment.values);
+  const distinct = countOf(fragment.distinct_count);
+  const note = strOf(fragment.note);
+  if (values.length > 0) {
+    facts.push({ key: 'value-domain-values', label: '实际取值', value: values.join('、') });
+  }
+  if (distinct !== null) {
+    facts.push({ key: 'value-domain-distinct', label: '去重取值数', value: String(distinct) });
+  }
+  if (note) {
+    facts.push({ key: 'value-domain-note', label: '采集说明', value: note });
+  }
+  return facts;
+}
+
+const VALUE_DOMAIN_STALE_VISIBILITY =
+  '这一列的结构已经变过，平台此前采集到的取值集合属于旧的列形状，已经不再展示。' +
+  '这不等于这一列没有枚举值——需要确切取值时自己查一次，或向用户确认。';
+const VALUE_DOMAIN_BROKEN_VISIBILITY =
+  '平台这一列的取值记录不完整（标着已采全，却没有取值），按【没有拿到】处理。' +
+  '不要假设这一列只有某几个取值。';
+const VALUE_DOMAIN_COMPLETE_VISIBILITY =
+  '以下是该列在客户库中的全部实际取值。平台【不知道】每个取值代表什么业务含义，' +
+  '也不会去猜——需要用到含义时请向用户确认。';
+const VALUE_DOMAIN_UNKNOWN_VISIBILITY =
+  '平台没有这一列的完整取值集合。这不等于它没有枚举值——不要据此写死查询条件，' +
+  '需要确切取值时自己查一次，或向用户确认。';
+const VALUE_DOMAIN_WITHHELD_VISIBILITY =
+  '这条连接当前没有确认开放第 3 档（样本值），平台记下的这一列取值不向你展示。' +
+  '这不等于这一列没有枚举值——不要据此写死查询条件，需要确切取值时自己查一次，或向用户确认。';
+const VALUE_DOMAIN_TIER_DISABLED_VISIBILITY =
+  '未启用样本值采集（数据出库档位第 3 档默认关闭），平台【没有去查】这一列的取值集合。' +
+  '这不等于这一列没有枚举值——不要据此写死查询条件。';
+
+/** 与 SemanticValueProfiler.Outcome.modelNote() 同表；未知 outcome 不猜，走通用兜底。 */
+const VALUE_DOMAIN_OUTCOME_VISIBILITY: Record<string, string> = {
+  ENUMERATED: VALUE_DOMAIN_COMPLETE_VISIBILITY,
+  EMPTY: '该列当前一条非空取值都没有。这不等于它没有枚举值，只说明此刻是空的。',
+  HIGH_CARDINALITY:
+    '该列取值种类过多，平台【没有】采集它的取值集合。不要假设它只有某几个取值。',
+  CARDINALITY_UNKNOWN:
+    '平台没能测出该列有多少种取值（查询超时或失败），因此【没有】采集它的取值集合。' +
+    '不要假设它只有某几个取值。',
+  INCOMPLETE:
+    '采集过程中该列的取值集合发生了变化，平台拿到的不是完整集合，因此【不采用】。' +
+    '不要把它当成全集。',
+  PII_BLOCKED: '该列疑似个人信息，平台【不采集】它的取值。',
+  NOT_ELIGIBLE: '该列的类型或结构决定了它不会有有意义的枚举取值，平台【没有】去查。',
+  TIER_DISABLED: VALUE_DOMAIN_TIER_DISABLED_VISIBILITY,
+  FAILED: '采集该列取值时查询失败，平台【没有】拿到取值集合。不要假设它只有某几个取值。',
+};
+
+function valueDomainModelNote(
+  fragment: Record<string, unknown>,
+  claimsComplete: boolean,
+  complete: boolean,
+): string {
+  if (claimsComplete !== complete) return VALUE_DOMAIN_BROKEN_VISIBILITY;
+  const stored = strOf(fragment.note);
+  if (stored) return stored;
+  const outcome = strOf(fragment.outcome);
+  if (outcome && VALUE_DOMAIN_OUTCOME_VISIBILITY[outcome]) {
+    return VALUE_DOMAIN_OUTCOME_VISIBILITY[outcome];
+  }
+  return complete ? VALUE_DOMAIN_COMPLETE_VISIBILITY : VALUE_DOMAIN_UNKNOWN_VISIBILITY;
+}
+
 /**
  * 一条语义在「平台存着」与「模型此刻收到」之间的边界。
  *
@@ -1241,9 +1606,12 @@ export function semanticModelVisibility(
   answeredTerms?: ReadonlySet<string>,
 ): SemanticModelVisibilityView {
   let hiddenReason: string | null = null;
+  const joinDecision = r.scope === 'JOIN' ? joinInjectionDecision(r) : null;
   if (r.status === 'STALE' && r.scope === 'METRIC') {
     hiddenReason = rowStatusMeta(r.status, r.scope).hint;
-  } else if (r.verified === 'REJECTED') {
+  } else if (joinDecision?.hiddenReason) {
+    hiddenReason = joinDecision.hiddenReason;
+  } else if (normalizeSemanticVerified(r.verified) === 'REJECTED') {
     hiddenReason = verifiedMeta(r).hint;
   } else if (isAnsweredCaveat(r, answeredTerms)) {
     hiddenReason = '已有口径回答同名词条；这条待澄清问题仍留作审计，但不再提供给模型。';
@@ -1257,24 +1625,97 @@ export function semanticModelVisibility(
   const allowedMissing: SemanticVisibilityFact[] = [];
   const put = (fact: SemanticVisibilityFact) => (visible ? current : retained).push(fact);
 
-  if (r.gloss) put({ key: 'gloss', label: '说明', value: r.gloss });
+  if (r.scope === 'JOIN') {
+    if (r.gloss) {
+      retained.push({
+        key: 'join-gloss-retained',
+        label: '关系说明（平台留存，不作为注入事实）',
+        value: r.gloss,
+      });
+    }
+    if (joinDecision?.hiddenReason) {
+      retained.push({
+        key: 'join-withheld-reason',
+        label: '关系未注入',
+        value: joinDecision.hiddenReason,
+      });
+      const endpointParts = [
+        r.fieldName ? `${r.objectName || '—'}.${r.fieldName}` : null,
+        joinDecision.toObject || joinDecision.toColumn
+          ? `${joinDecision.toObject || '缺 to_object'}.${joinDecision.toColumn || '缺 to_column'}`
+          : null,
+      ].filter(Boolean);
+      if (endpointParts.length > 0) {
+        retained.push({
+          key: 'join-endpoint-retained',
+          label: '留存端点',
+          value: endpointParts.join(' → '),
+        });
+      }
+      retained.push({
+        key: 'join-verified-retained',
+        label: '留存 verified',
+        value: r.verified === null || r.verified === undefined || String(r.verified).trim() === ''
+          ? 'NONE'
+          : String(r.verified),
+      });
+    } else if (joinDecision?.toObject && joinDecision.toColumn && joinDecision.verified) {
+      current.push({
+        key: 'join-endpoint',
+        label: '关系端点',
+        value: `${r.objectName || '—'}.${r.fieldName || '—'} → ${joinDecision.toObject}.${joinDecision.toColumn}`,
+      });
+      current.push({
+        key: 'join-verified',
+        label: '验证结论',
+        value: joinDecision.verified,
+      });
+      const cardinality = strOf(r.detail?.cardinality);
+      if (cardinality) current.push({ key: 'join-cardinality', label: '基数', value: cardinality });
+      const autoJoinable = booleanOf(r.detail?.auto_joinable);
+      if (autoJoinable !== null) {
+        current.push({
+          key: 'join-auto-joinable',
+          label: '目标端唯一性',
+          value: autoJoinable ? '已确认可直接 join' : '未确认唯一，直接 join 可能放大行数',
+        });
+      }
+      const confidence = confidenceOf(r);
+      if (confidence !== null) {
+        current.push({ key: 'join-confidence', label: '置信度', value: String(confidence) });
+      }
+      current.push({
+        key: 'join-basis',
+        label: '依据',
+        value: `${evidenceMeta(r).label}；${verifiedMeta(r).label}`,
+      });
+      if (r.status === 'STALE') {
+        current.push({
+          key: 'join-stale-note',
+          label: '结构漂移',
+          value: '结构已变；模型会被要求以本次实时结构为准。',
+        });
+      }
+    }
+  } else if (r.gloss) {
+    put({ key: 'gloss', label: '说明', value: r.gloss });
+  }
 
   const care = joinCare(r, tier);
   if (care) {
     put({
       key: 'join-care',
       label: care.label,
-      value: care.careReason ?? care.hint,
+      value: care.careReason,
+    });
+    put({
+      key: 'join-condition',
+      label: '使用条件（真实注入）',
+      value: care.modelCondition,
     });
     const condition = care.condition;
     if (condition?.type === 'DISCRIMINATOR') {
-      if (condition.value !== null) {
-        put({
-          key: 'join-condition',
-          label: 'join 条件',
-          value: `${condition.column} = ${condition.value}`,
-        });
-      } else if (condition.withheldValue !== null) {
+      if (condition.withheldValue !== null) {
         retained.push({
           key: 'withheld-value',
           label: '判别值（当前档位不提供）',
@@ -1286,23 +1727,52 @@ export function semanticModelVisibility(
           label: '允许但未取得判别值',
           value: `${condition.column} 的安全取值尚未取得；模型会被要求先查、拿不准就问人。`,
         });
-      } else {
-        put({
-          key: 'join-condition-column',
-          label: 'join 条件',
-          value: `需要 ${condition.column} 的类型条件；当前档位不提供具体取值。`,
-        });
       }
-    } else if (condition?.type === 'COMPOSITE') {
-      put({
-        key: 'join-condition',
-        label: 'join 条件',
-        value: `${condition.target ? `${condition.target} 的 ` : ''}${condition.columns.join(' + ')} 必须全部对上`,
-      });
     }
     if (care.careReasonWithheld) {
       const storedReason = detailEntries(r, tier).find((entry) => entry.key === 'care_reason');
       if (storedReason) retained.push(storedReason);
+    }
+  }
+
+  const valueDomain = valueDomainFragment(r);
+  if (valueDomain) {
+    const storedFacts = storedValueDomainFacts(valueDomain);
+    if (r.status === 'STALE') {
+      current.push({
+        key: 'value-domain-state',
+        label: '值域状态',
+        value: VALUE_DOMAIN_STALE_VISIBILITY,
+      });
+      retained.push(...storedFacts.map((fact) => ({ ...fact, key: `retained-${fact.key}` })));
+    } else if (!sampleValuesAllowed(tier)) {
+      current.push({
+        key: 'value-domain-state',
+        label: '值域状态',
+        value: VALUE_DOMAIN_WITHHELD_VISIBILITY,
+      });
+      retained.push(...storedFacts.map((fact) => ({ ...fact, key: `retained-${fact.key}` })));
+    } else {
+      const values = valueDomainValues(valueDomain.values);
+      const claimsComplete = valueDomain.complete === true;
+      const complete = claimsComplete && values.length > 0;
+      const distinct = countOf(valueDomain.distinct_count);
+      current.push({
+        key: 'value-domain-complete',
+        label: '值域完整性',
+        value: complete ? '已取得完整集合' : '没有取得完整集合',
+      });
+      if (complete) {
+        current.push({ key: 'value-domain-values', label: '实际取值', value: values.join('、') });
+      }
+      if (distinct !== null) {
+        current.push({ key: 'value-domain-distinct', label: '去重取值数', value: String(distinct) });
+      }
+      current.push({
+        key: 'value-domain-note',
+        label: '采集说明',
+        value: valueDomainModelNote(valueDomain, claimsComplete, complete),
+      });
     }
   }
 

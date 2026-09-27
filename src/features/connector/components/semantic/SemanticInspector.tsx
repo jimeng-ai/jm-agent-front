@@ -106,7 +106,7 @@ export default function SemanticInspector({
         {visibility && !visibility.visible && (
           <div className="semantic-inspector-warning">
             <WarningOutlined />
-            整条不注入：{visibility.hiddenReason}
+            语义断言不注入：{visibility.hiddenReason}
           </div>
         )}
         <FactList

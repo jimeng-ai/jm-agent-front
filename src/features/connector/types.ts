@@ -674,6 +674,12 @@ export interface ConnectorSemanticRow {
 /** 手工重跑的返回。★ 它只代表「已派发」，不代表「已生成」——真实进度在 ConnectorView.semanticStatus 上。 */
 export interface SemanticDeriveStarted {
   started: boolean;
+  /** 后端是否接单的说明；started=false 时必须原样展示，不能伪报“已提交”。 */
+  note?: string | null;
+  /** 兼容旧服务或代理层附带的错误摘要。 */
+  error?: string | null;
+  generator?: string | null;
+  generationId?: string | null;
 }
 
 /**

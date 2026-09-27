@@ -258,7 +258,9 @@ export function connectorAttentionIssues(connector: ConnectorView): ConnectorAtt
     issues.push({
       key: 'semantic-failed',
       title: '语义说明生成失败',
-      consequence: '模型只能凭结构名称理解数据，可能给出看似正常的错误口径。',
+      consequence: connector.semanticSyncedAt
+        ? '本次生成失败；最近一次成功说明仍可能按每条状态、验证结论与当前档位参与模型上下文，不能把它当成本轮新结果。'
+        : '本次生成失败，且无法确认是否留有一次成功生成的说明；实际可见内容仍取决于留存行、每条状态与当前档位。',
       nextStep: '打开语义工作台查看失败说明并重跑。',
     });
   }

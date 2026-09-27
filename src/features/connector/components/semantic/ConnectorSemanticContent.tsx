@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App, Button, Drawer, Spin, Tag, Typography } from 'antd';
 import { connectorApi } from '@/features/connector/api';
@@ -31,6 +31,18 @@ interface Props {
 
 const CLAIM_WAIT_INTERVAL_MS = 2_000;
 const CLAIM_WAIT_TIMEOUT_MS = 90_000;
+const TERMINAL_SEMANTIC_STATUSES = new Set(['READY', 'FAILED', 'NOT_APPLICABLE']);
+
+interface SemanticRuntimeWindow extends Window {
+  /** 仅供本地 E2E 加速 90 秒状态机；生产页面不设置它。 */
+  __JM_SEMANTIC_CLAIM_WAIT_TIMEOUT_MS__?: number;
+}
+
+function claimWaitTimeoutMs(): number {
+  if (!import.meta.env.DEV) return CLAIM_WAIT_TIMEOUT_MS;
+  const override = Number((window as SemanticRuntimeWindow).__JM_SEMANTIC_CLAIM_WAIT_TIMEOUT_MS__);
+  return Number.isFinite(override) && override > 0 ? override : CLAIM_WAIT_TIMEOUT_MS;
+}
 
 interface DeriveBaseline {
   status: string | null;
@@ -49,6 +61,17 @@ interface DeriveClaimWait {
   deadline: number;
 }
 
+interface SemanticProgressMarker {
+  status: string | null;
+  syncedAt: string | null;
+  claimAt: string | null;
+}
+
+interface DeriveNotice {
+  note: string;
+  error: string | null;
+}
+
 export default function ConnectorSemanticContent({ connector, onBack }: Props) {
   const { message, modal } = App.useApp();
   const queryClient = useQueryClient();
@@ -56,6 +79,9 @@ export default function ConnectorSemanticContent({ connector, onBack }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [claimWait, setClaimWait] = useState<DeriveClaimWait | null>(null);
+  const [deriveNotice, setDeriveNotice] = useState<DeriveNotice | null>(null);
+  const progressRef = useRef<{ connectorId: string; marker: SemanticProgressMarker } | null>(null);
+  const terminalRefreshKeyRef = useRef<string | null>(null);
   const running = connector.semanticStatus === 'RUNNING';
   const tier = connector.semanticDataTier;
   const tierText = connector.semanticDataTierLabel || connector.semanticDataTier || '未知档位';
@@ -73,28 +99,90 @@ export default function ConnectorSemanticContent({ connector, onBack }: Props) {
     storedRowsPresent: rows.length > 0,
   };
 
-  const refresh = useCallback(
+  const refreshConnectorState = useCallback(
     (connectorId: string) => {
       void queryClient.invalidateQueries({ queryKey: ['connector', 'list'] });
       void queryClient.invalidateQueries({ queryKey: ['connector', 'detail', connectorId] });
-      void queryClient.invalidateQueries({ queryKey: ['connector', 'semantic', connectorId] });
     },
     [queryClient],
   );
 
+  const refresh = useCallback(
+    (connectorId: string) => {
+      refreshConnectorState(connectorId);
+      void queryClient.invalidateQueries({ queryKey: ['connector', 'semantic', connectorId] });
+    },
+    [queryClient, refreshConnectorState],
+  );
+
   const deriveMutation = useMutation({
     mutationFn: ({ connectorId }: DeriveRequest) => connectorApi.deriveSemantic(connectorId),
-    onSuccess: (_result, request) => {
+    onSuccess: (result, request) => {
+      if (result?.started !== true) {
+        const note = result?.note?.trim() || '后台没有确认接受这次任务。';
+        const error = result?.error?.trim() || null;
+        setClaimWait(null);
+        setDeriveNotice({ note, error });
+        message.error([note, error].filter(Boolean).join('：'));
+        return;
+      }
+      setDeriveNotice(null);
       message.info('已提交。推导在后台异步跑，这次点击只是把任务派发出去——进度看上方的状态。');
       setClaimWait({
         baseline: request.baseline,
         phase: 'WATCHING',
-        deadline: Date.now() + CLAIM_WAIT_TIMEOUT_MS,
+        deadline: Date.now() + claimWaitTimeoutMs(),
       });
-      refresh(request.connectorId);
+      // 派发后只刷连接状态。语义行等终态信号出现后再强制抓一次，避免旧行竞态覆盖终态行。
+      refreshConnectorState(request.connectorId);
     },
     onError: (error: Error) => message.error(error.message),
   });
+
+  // RUNNING 的最后一次详情轮询拿到终态后，row query 的定时器会随 render 停止。此处按终态标记
+  // 去重并强制 refetch 一次；先取消尚未完成的旧 rows 请求，避免它晚到后把终态结果覆盖回去。
+  useEffect(() => {
+    const marker: SemanticProgressMarker = {
+      status: connector.semanticStatus ?? null,
+      syncedAt: connector.semanticSyncedAt ?? null,
+      claimAt: connector.semanticClaimAt ?? null,
+    };
+    const previousState = progressRef.current;
+    if (!previousState || previousState.connectorId !== connector.id) {
+      progressRef.current = { connectorId: connector.id, marker };
+      terminalRefreshKeyRef.current = null;
+      return;
+    }
+
+    const previous = previousState.marker;
+    progressRef.current = { connectorId: connector.id, marker };
+    const terminal = TERMINAL_SEMANTIC_STATUSES.has(marker.status ?? '');
+    const leftRunning = previous.status === 'RUNNING' && terminal;
+    const terminalTimestampChanged =
+      terminal &&
+      ((marker.syncedAt !== null && marker.syncedAt !== previous.syncedAt) ||
+        (marker.claimAt !== null && marker.claimAt !== previous.claimAt));
+    if (!leftRunning && !terminalTimestampChanged) return;
+
+    const refreshKey = [connector.id, marker.status, marker.syncedAt, marker.claimAt].join('|');
+    if (terminalRefreshKeyRef.current === refreshKey) return;
+    terminalRefreshKeyRef.current = refreshKey;
+    void (async () => {
+      await queryClient.cancelQueries({
+        queryKey: ['connector', 'semantic', connector.id],
+        exact: true,
+      });
+      try {
+        await queryClient.fetchQuery({
+          queryKey: ['connector', 'semantic', connector.id],
+          queryFn: () => connectorApi.semantic(connector.id),
+          staleTime: 0,
+        });
+      } catch {
+        // fetchQuery 已把 error 写回同一个 query；由下方保留旧内容 + 重试的 Alert 呈现。
+      }
+    })();
+  }, [connector.id, connector.semanticClaimAt, connector.semanticStatus, connector.semanticSyncedAt, queryClient]);
 
   // POST 只说明任务进了队列。后台真正认领前，详情会连续多次保持旧 READY/FAILED；这段短轮询专门跨过该窗口。
   useEffect(() => {
@@ -135,18 +223,19 @@ export default function ConnectorSemanticContent({ connector, onBack }: Props) {
       sawNewClaim && ['READY', 'FAILED', 'NOT_APPLICABLE'].includes(status ?? '');
     if (!sawRunning && !sawNewSuccess && !sawClaimedTerminal) return;
     setClaimWait(null);
-    refresh(connector.id);
+    refreshConnectorState(connector.id);
   }, [
     claimWait,
     connector.id,
     connector.semanticClaimAt,
     connector.semanticStatus,
     connector.semanticSyncedAt,
-    refresh,
+    refreshConnectorState,
   ]);
 
   useEffect(() => {
     setClaimWait(null);
+    setDeriveNotice(null);
   }, [connector.id]);
 
   const continueClaimCheck = () => {
@@ -155,7 +244,7 @@ export default function ConnectorSemanticContent({ connector, onBack }: Props) {
         ? {
             ...current,
             phase: 'WATCHING',
-            deadline: Date.now() + CLAIM_WAIT_TIMEOUT_MS,
+            deadline: Date.now() + claimWaitTimeoutMs(),
           }
         : current,
     );
@@ -183,9 +272,13 @@ export default function ConnectorSemanticContent({ connector, onBack }: Props) {
             <Typography.Text code>source = &apos;INFERRED&apos;</Typography.Text> 条件。
           </p>
           <p>
-            <b>代价看结构快照在不在。</b>已有快照时，只读平台自己的库 +
-            一次模型调用，对客户系统零访问； 快照为空时，会先访问客户库补拉一次结构：1 次目录查询 +
-            最多 200 次表结构查询。
+            <b>模型调用次数不固定。</b>
+            当前生成器可能走多分片模型调用；资源不足、兼容路径或生成器回落时，也可能改走单次模型调用。
+          </p>
+          <p>
+            <b>可能读取客户系统的结构信息。</b>
+            生成可能读取结构元数据；对象是视图或存储过程时，还可能读取视图与过程定义。
+            是否继续采样真实数据取决于当前出库档位与实际推导阶段，不能据此承诺零客户系统访问。
           </p>
           <p>
             <b>这是异步派发。</b>
@@ -301,6 +394,19 @@ export default function ConnectorSemanticContent({ connector, onBack }: Props) {
       />
       <SemanticCoverageStrip connector={connector} />
 
+      {deriveNotice && (
+        <Alert
+          className="semantic-load-alert"
+          data-testid="semantic-derive-not-started"
+          type="error"
+          showIcon
+          message="后台没有接受这次生成任务"
+          description={[deriveNotice.note, deriveNotice.error].filter(Boolean).join('；')}
+          closable
+          onClose={() => setDeriveNotice(null)}
+        />
+      )}
+
       {claimWait && (
         <Alert
           className="semantic-load-alert"
@@ -315,13 +421,25 @@ export default function ConnectorSemanticContent({ connector, onBack }: Props) {
           description={
             claimWait.phase === 'WATCHING'
               ? '队列等待期间，连接详情可能仍显示上一次的 READY / FAILED；观察到本次 RUNNING、新成功时间或新终态后会自动结束等待。'
-              : '没有再次派发任务，以免产生重复作业。可以继续检查同一次任务的状态。'
+              : '没有再次派发任务，以免产生重复作业。你可以继续检查，或停止等待后重新提交；停止等待不会取消后台可能仍在运行的作业。'
           }
           action={
             claimWait.phase === 'TIMED_OUT' ? (
-              <Button size="small" onClick={continueClaimCheck}>
-                继续检查
-              </Button>
+              <div className="semantic-claim-actions">
+                <Button size="small" onClick={continueClaimCheck}>
+                  继续检查
+                </Button>
+                <Button
+                  size="small"
+                  danger
+                  onClick={() => {
+                    setClaimWait(null);
+                    window.setTimeout(confirmDerive, 0);
+                  }}
+                >
+                  停止等待并重新提交
+                </Button>
+              </div>
             ) : undefined
           }
         />

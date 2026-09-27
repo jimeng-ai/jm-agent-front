@@ -291,6 +291,12 @@
   margin: 14px 28px 0;
 }
 
+.semantic-claim-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .semantic-error-state {
   display: grid;
   gap: 5px;
