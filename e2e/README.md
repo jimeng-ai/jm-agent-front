@@ -40,7 +40,7 @@ npm run test:workbench
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `E2E_BASE_URL` | `http://localhost:8082` | 前端地址 |
+| `E2E_BASE_URL` | chat：`http://localhost:8082`；workbench：`http://localhost:5173` | 前端地址；两个工作台直跑脚本要求显式传入 |
 | `E2E_USERNAME` | `test` | 企业端登录账号 |
 | `E2E_PASSWORD` | `test123` | 登录密码（本机 dev 账号；换环境请用环境变量覆盖，勿提交真实密码） |
 | `E2E_AGENT_ID` | `2063267418759462913` | 已发布的 RAG 对话 Agent id（**换租户/环境必须改**） |

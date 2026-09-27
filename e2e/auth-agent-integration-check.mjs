@@ -660,6 +660,48 @@ export default async function run() {
     state.delayedRefresh = null;
   }
 
+  const sameTokenRefresh = {
+    sourceToken: tokenARotatedNear,
+    started: deferred(),
+    release: deferred(),
+    finished: deferred(),
+  };
+  try {
+    // 旧 refresh 与新登录复用同一 token 字符串，只能靠 generation 区分。
+    // 先安装 deferred 再登录，让 started 成为续期已在途的明确同步点。
+    state.refreshTokenBySource[tokenARotatedNear] = tokenARefreshed;
+    state.delayedRefresh = sameTokenRefresh;
+    await replaceSessionThroughUi(page, state, tokenARotatedNear);
+    await withTimeout(sameTokenRefresh.started.promise, 'same-token refresh start');
+
+    await openUserMenu(page);
+    await page.waitForURL(/\/login/);
+    await loginAsFixture(page, 'admin-a');
+    const marker = 'same-token-new-generation-survives-stale-refresh';
+    await mutateQueryClient(page, 'seed', marker);
+
+    sameTokenRefresh.release.resolve();
+    await withTimeout(sameTokenRefresh.finished.promise, 'same-token stale refresh finish');
+    // 避免后续正常请求再次换发干扰断言；旧响应已在 finished 之前读取到 ARefreshed。
+    delete state.refreshTokenBySource[tokenARotatedNear];
+    await nextBrowserFrame(page);
+    r.ok(
+      '同一 token 退出再登录后，旧 generation 的 refresh 不会改写新会话或清缓存',
+      (await persistedToken(page)) === tokenARotatedNear &&
+        (await mutateQueryClient(page, 'inspect', marker)) === true,
+    );
+  } catch (error) {
+    r.ok(
+      '同 token refresh generation 栅栏夹具执行',
+      false,
+      error instanceof Error ? error.message : String(error),
+    );
+  } finally {
+    sameTokenRefresh.release.resolve();
+    delete state.refreshTokenBySource[tokenARotatedNear];
+    state.delayedRefresh = null;
+  }
+
   const stale401Page = page;
   stale401Page.setDefaultTimeout(5000);
   const delayed401 = {
@@ -753,7 +795,9 @@ export default async function run() {
     // 独立调用 production auth store，避免外层 source fence 掩盖 renewToken 自身的身份约束。
     const clientCalibrationMarker = 'renew-probe-shares-app-query-client';
     await mutateQueryClient(page, 'seed', clientCalibrationMarker);
-    await setRenewProbeAuth(page, tokenA);
+    // 用长效 A token 隔离 renewToken 本体；否则页面活跃查询会同时启动自动 refresh，
+    // 把探针的同步断言变成与后台续期抢时序的测试。
+    await setRenewProbeAuth(page, tokenALong);
     const usesAppQueryClient =
       (await mutateQueryClient(page, 'inspect', clientCalibrationMarker)) === false;
     const rotationMarker = 'same-identity-refresh-keeps-cache';
@@ -778,18 +822,21 @@ export default async function run() {
   }
 
   try {
-    await setRenewProbeAuth(page, tokenA);
+    await setRenewProbeAuth(page, tokenALong);
     const rejectedRotationMarker = 'cross-identity-refresh-keeps-cache';
     await mutateQueryClient(page, 'seed', rejectedRotationMarker);
     const rejectedRotation = await runRenewProbe(page, tokenB);
+    const rejectedRotationCachePreserved =
+      (await mutateQueryClient(page, 'inspect', rejectedRotationMarker)) === true;
     r.ok(
       'renewToken 拒绝 A→B 跨身份 refresh token 且保留 token/cache/身份',
       rejectedRotation.accepted === false &&
-        rejectedRotation.token === tokenA &&
+        rejectedRotation.token === tokenALong &&
         rejectedRotation.tenantId === userA.tenantId &&
         rejectedRotation.userId === userA.id &&
         rejectedRotation.generationUnchanged &&
-        (await mutateQueryClient(page, 'inspect', rejectedRotationMarker)) === true,
+        rejectedRotationCachePreserved,
+      JSON.stringify({ ...rejectedRotation, cachePreserved: rejectedRotationCachePreserved }),
     );
   } catch (error) {
     r.ok(
@@ -797,6 +844,97 @@ export default async function run() {
       false,
       error instanceof Error ? error.message : String(error),
     );
+  }
+
+  const preRotation401 = {
+    sourceToken: tokenARotatedNear,
+    started: deferred(),
+    release: deferred(),
+    finished: deferred(),
+  };
+  const inFlightRotation = {
+    sourceToken: tokenARotatedNear,
+    started: deferred(),
+    release: deferred(),
+    finished: deferred(),
+  };
+  try {
+    // T1 的业务请求和 refresh 同时在途；先放行 refresh 得到 T2，再放行 T1 的 401。
+    // 这条走真实 request interceptor + maybeRenewToken，不用测试探针改写 auth store。
+    state.refreshTokenBySource[tokenARotatedNear] = tokenARefreshed;
+    state.delayedRefresh = inFlightRotation;
+    await replaceSessionThroughUi(page, state, tokenARotatedNear);
+    await withTimeout(inFlightRotation.started.promise, 'T1 refresh start');
+
+    state.delayedConnector401 = preRotation401;
+    await page.getByText('数据连接', { exact: true }).click();
+    await withTimeout(preRotation401.started.promise, 'T1 connector request start');
+
+    inFlightRotation.release.resolve();
+    await withTimeout(inFlightRotation.finished.promise, 'T1→T2 refresh finish');
+    await page.waitForFunction(
+      (expected) =>
+        JSON.parse(localStorage.getItem('jm-agent-auth') ?? '{}')?.state?.token === expected,
+      tokenARefreshed,
+      { timeout: 5000 },
+    );
+    state.delayedRefresh = null;
+    const marker = 'rotated-session-survives-pre-rotation-401';
+    await mutateQueryClient(page, 'seed', marker);
+    preRotation401.release.resolve();
+    await withTimeout(preRotation401.finished.promise, 'T1 stale 401 finish');
+    await nextBrowserFrame(page);
+    r.ok(
+      'T1 请求在途时合法轮换到 T2，迟到的 T1 401 不会登出 T2',
+      (await persistedToken(page)) === tokenARefreshed &&
+        !page.url().includes('/login') &&
+        (await mutateQueryClient(page, 'inspect', marker)) === true,
+      page.url(),
+    );
+  } catch (error) {
+    r.ok(
+      'T1→T2 后迟到 T1 401 夹具执行',
+      false,
+      error instanceof Error ? error.message : String(error),
+    );
+  } finally {
+    inFlightRotation.release.resolve();
+    preRotation401.release.resolve();
+    delete state.refreshTokenBySource[tokenARotatedNear];
+    state.delayedRefresh = null;
+    state.delayedConnector401 = null;
+  }
+
+  const currentRotation401 = {
+    sourceToken: tokenARefreshed,
+    started: deferred(),
+    release: deferred(),
+    finished: deferred(),
+  };
+  try {
+    await replaceSessionThroughUi(page, state, tokenALong);
+    const rotation = await runRenewProbe(page, tokenARefreshed);
+    await page.goto(`${BASE}/console/agents`, { waitUntil: 'domcontentloaded' });
+    state.delayedConnector401 = currentRotation401;
+    await page.getByText('数据连接', { exact: true }).click();
+    await withTimeout(currentRotation401.started.promise, 'current T2 request start');
+    currentRotation401.release.resolve();
+    await withTimeout(currentRotation401.finished.promise, 'current T2 401 finish');
+    await page.waitForURL(/\/login/, { timeout: 5000 });
+    await page.locator('#username').waitFor({ state: 'visible', timeout: 5000 });
+    r.ok(
+      '合法轮换后的当前 T2 请求收到 401 仍会强制登出',
+      rotation.accepted === true && (await persistedToken(page)) == null,
+    );
+  } catch (error) {
+    r.ok(
+      '当前 T2 401 夹具执行',
+      false,
+      error instanceof Error ? error.message : String(error),
+    );
+  } finally {
+    currentRotation401.release.resolve();
+    state.delayedConnector401 = null;
   }
 
   for (const status of [401, 403]) {
