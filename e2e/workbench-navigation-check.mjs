@@ -44,30 +44,47 @@ export default async function run() {
     await page.waitForTimeout(500);
     r.ok('未知路由仍显示 404', (await page.textContent('body')).includes('404'));
 
-    // 不加生产 test-only 路由：直接拦截尚未加载的真实 lazy chunk，验证 Data Router errorElement。
-    const skillModule = '**/src/pages/console/skill/SkillListPage.tsx*';
-    const failLazyChunk = (route) => route.abort('failed');
-    await page.route(skillModule, failLazyChunk);
-    await page.goto(`${CONFIG.baseUrl}/console/skills`, { waitUntil: 'domcontentloaded' });
-    const localizedError = await page
-      .getByText('页面加载失败', { exact: true })
-      .waitFor({ state: 'visible', timeout: 7000 })
-      .then(() => true)
-      .catch(() => false);
-    const errorBody = (await page.textContent('body')) ?? '';
+    // 关闭已加载过各工作台的页面，再用隔离 context 打开新页面，保证 dynamic import 不在
+    // document module map 中，也避免复用上一页的 sessionStorage 登录态导致登录页竞态跳转。
+    await page.close();
+    const errorContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const errorPage = await errorContext.newPage();
+    const skillModule = /(?:\/src\/pages\/console\/skill\/SkillListPage\.tsx(?:\?.*)?|\/assets\/SkillListPage-[^/?]+\.js(?:\?.*)?)$/;
+    const supportedLazyUrls = [
+      'http://localhost:5173/src/pages/console/skill/SkillListPage.tsx?t=123',
+      'https://example.test/assets/SkillListPage-AbC123.js',
+    ];
     r.ok(
-      '真实 lazy chunk 失败进入中文路由恢复页',
-      localizedError && !errorBody.includes('Unexpected Application Error'),
+      'lazy chunk 拦截器同时覆盖 Vite 源模块与生产构建资源',
+      supportedLazyUrls.every((url) => skillModule.test(url)),
     );
+    const failLazyChunk = (route) => route.abort('failed');
+    try {
+      await errorPage.route(skillModule, failLazyChunk);
+      await login(errorPage);
+      await errorPage.goto(`${CONFIG.baseUrl}/console/skills`, { waitUntil: 'domcontentloaded' });
+      const localizedError = await errorPage
+        .getByText('页面加载失败', { exact: true })
+        .waitFor({ state: 'visible', timeout: 7000 })
+        .then(() => true)
+        .catch(() => false);
+      const errorBody = (await errorPage.textContent('body')) ?? '';
+      r.ok(
+        '真实 lazy chunk 失败进入中文路由恢复页',
+        localizedError && !errorBody.includes('Unexpected Application Error'),
+      );
 
-    await page.unroute(skillModule, failLazyChunk);
-    await page.getByRole('button', { name: '重新加载页面' }).click();
-    const recovered = await page
-      .getByRole('heading', { name: '技能 Skills', exact: true })
-      .waitFor({ state: 'visible', timeout: 7000 })
-      .then(() => true)
-      .catch(() => false);
-    r.ok('路由恢复页可重新加载并回到原页面', recovered);
+      await errorPage.unroute(skillModule, failLazyChunk);
+      await errorPage.getByRole('button', { name: '重新加载页面' }).click();
+      const recovered = await errorPage
+        .getByRole('heading', { name: '技能 Skills', exact: true })
+        .waitFor({ state: 'visible', timeout: 7000 })
+        .then(() => true)
+        .catch(() => false);
+      r.ok('路由恢复页可重新加载并回到原页面', recovered);
+    } finally {
+      await errorContext.close();
+    }
   } finally {
     await browser.close();
   }

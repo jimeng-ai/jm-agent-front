@@ -29,8 +29,18 @@ function isWhitelisted(url: string | undefined): boolean {
 const RENEW_BEFORE_MS = 6 * 60 * 60 * 1000;
 const REFRESH_URL = '/admin/auth/refresh';
 
+type SessionTrackedConfig = (AxiosRequestConfig | InternalAxiosRequestConfig) & {
+  __jmAuthToken?: string | null;
+  __jmAuthGeneration?: number;
+};
+
 let renewing: Promise<void> | null = null;
-function maybeRenewToken(payload: JwtPayload, url: string) {
+function maybeRenewToken(
+  payload: JwtPayload,
+  url: string,
+  sourceToken: string,
+  sourceGeneration: number,
+) {
   if (renewing) return; // 已有续期在途，避免并发重复换发
   if (url.includes(REFRESH_URL)) return; // 别让 refresh 请求自身再触发续期（防递归）
   if (typeof payload.exp !== 'number') return;
@@ -41,7 +51,14 @@ function maybeRenewToken(payload: JwtPayload, url: string) {
     .post<LoginResult>(REFRESH_URL)
     .then((r) => {
       const next = r.data?.token;
-      if (next) useAuthStore.getState().renewToken(next);
+      const current = useAuthStore.getState();
+      if (
+        next &&
+        current.token === sourceToken &&
+        current.sessionGeneration === sourceGeneration
+      ) {
+        current.renewToken(next);
+      }
     })
     .catch(() => {
       // 续期失败不打断业务请求；token 真到期时自然会走 401 → 跳登录
@@ -52,7 +69,10 @@ function maybeRenewToken(payload: JwtPayload, url: string) {
 }
 
 httpClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-  const { token, tenantId } = useAuthStore.getState();
+  const { token, tenantId, sessionGeneration } = useAuthStore.getState();
+  const trackedConfig = config as SessionTrackedConfig;
+  trackedConfig.__jmAuthToken = token;
+  trackedConfig.__jmAuthGeneration = sessionGeneration;
   const url = config.url ?? '';
   if (token && !isWhitelisted(url)) {
     const payload = decodeJwt(token);
@@ -64,7 +84,7 @@ httpClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     }
     // Backend contract (LoginResponse#token): raw JWT, no "Bearer " prefix.
     config.headers.set('Authorization', token);
-    maybeRenewToken(payload, url); // 临近过期则后台静默续期，不阻塞当前请求
+    maybeRenewToken(payload, url, token, sessionGeneration); // 临近过期则后台静默续期，不阻塞当前请求
   } else if (token) {
     config.headers.set('Authorization', token);
   }
@@ -103,6 +123,33 @@ function isAuthError(status: number | undefined, respMsg: string | undefined): b
   return false;
 }
 
+function requestAuthorization(config: SessionTrackedConfig | undefined): string | null {
+  if (!config?.headers) return null;
+  const headers = config.headers as {
+    get?: (name: string) => unknown;
+    Authorization?: unknown;
+    authorization?: unknown;
+  };
+  const value =
+    typeof headers.get === 'function'
+      ? headers.get('Authorization')
+      : (headers.Authorization ?? headers.authorization);
+  return typeof value === 'string' ? value : null;
+}
+
+/**
+ * 只有发起请求时和现在仍属于同一段会话，401/403 才能清理登录态。
+ * token 比较覆盖同代内的滑动续期，generation 比较覆盖 logout 后又登录同一账号/同一 token。
+ */
+function requestBelongsToCurrentSession(config: SessionTrackedConfig | undefined): boolean {
+  if (typeof config?.__jmAuthGeneration !== 'number') return false;
+  const current = useAuthStore.getState();
+  const requestToken = requestAuthorization(config) ?? config.__jmAuthToken ?? null;
+  return (
+    config.__jmAuthGeneration === current.sessionGeneration && requestToken === current.token
+  );
+}
+
 httpClient.interceptors.response.use(
   (response) => {
     const body = response.data as ApiResponse;
@@ -115,7 +162,11 @@ httpClient.interceptors.response.use(
     }
     // 白名单接口（如登录）本就不携带会话，其失败一律是业务错误：后端把
     // “用户名或密码错误”也用 4001 返回，与会话过期的 4001 撞码 —— 绝不能据此跳登录。
-    if (!isWhitelisted(response.config?.url) && isAuthError(response.status, body.respMsg)) {
+    if (
+      !isWhitelisted(response.config?.url) &&
+      isAuthError(response.status, body.respMsg) &&
+      requestBelongsToCurrentSession(response.config as SessionTrackedConfig)
+    ) {
       redirectToLogin('登录已过期，请重新登录');
       throw new BizError(body.respCode, body.respMsg);
     }
@@ -131,7 +182,11 @@ httpClient.interceptors.response.use(
       respBody && typeof respBody === 'object' && 'respMsg' in respBody
         ? respBody.respMsg
         : undefined;
-    if (!isWhitelisted(error.config?.url) && isAuthError(error.response?.status, respMsg)) {
+    if (
+      !isWhitelisted(error.config?.url) &&
+      isAuthError(error.response?.status, respMsg) &&
+      requestBelongsToCurrentSession(error.config as SessionTrackedConfig | undefined)
+    ) {
       redirectToLogin('未授权，请登录');
       return Promise.reject(new BizError(respCode ?? RESP_CODE.UNAUTHORIZED, respMsg ?? '未授权'));
     }

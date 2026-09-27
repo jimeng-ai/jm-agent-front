@@ -6,49 +6,66 @@ const BASE = CONFIG.baseUrl;
 const AGENT_ID = 'auth-guard-agent';
 const ok = (data) => ({ success: true, respCode: '200', respMsg: 'ok', data });
 
-function tokenFor(id, tenantId) {
+function tokenFor(id, tenantId, { expiresIn = 3600, nonce = '' } = {}) {
   const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
   return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({
     id,
     tenant_id: tenantId,
-    exp: Math.floor(Date.now() / 1000) + 3600,
+    exp: Math.floor(Date.now() / 1000) + expiresIn,
+    nonce,
   })}.fixture`;
 }
 
-const tokenA = tokenFor('user-a', 'tenant-a');
-const tokenB = tokenFor('user-b', 'tenant-b');
+const tokenA = tokenFor('user-a', 'tenant-a', { nonce: 'a-near-expiry' });
+const tokenARefreshed = tokenFor('user-a', 'tenant-a', {
+  expiresIn: 12 * 60 * 60,
+  nonce: 'a-refreshed',
+});
+const tokenALong = tokenFor('user-a', 'tenant-a', {
+  expiresIn: 12 * 60 * 60,
+  nonce: 'a-long',
+});
+const tokenB = tokenFor('user-b', 'tenant-b', { nonce: 'b-near-expiry' });
+const userA = {
+  id: 'user-a',
+  tenantId: 'tenant-a',
+  username: 'admin-a',
+  displayName: 'A 超管',
+  userType: 'SUPER_ADMIN',
+};
+const userB = {
+  id: 'user-b',
+  tenantId: 'tenant-b',
+  username: 'member-b',
+  displayName: 'B 成员',
+  userType: 'MEMBER',
+};
 const users = {
-  [tokenA]: {
-    id: 'user-a',
-    tenantId: 'tenant-a',
-    username: 'admin-a',
-    displayName: 'A 超管',
-    userType: 'SUPER_ADMIN',
-  },
-  [tokenB]: {
-    id: 'user-b',
-    tenantId: 'tenant-b',
-    username: 'member-b',
-    displayName: 'B 成员',
-    userType: 'MEMBER',
-  },
+  [tokenA]: userA,
+  [tokenARefreshed]: userA,
+  [tokenALong]: userA,
+  [tokenB]: userB,
 };
 
+const permissionA = {
+  superAdmin: true,
+  userType: 'SUPER_ADMIN',
+  modules: ['AGENT_MODULE'],
+  agentIds: [],
+  knowledgeBaseIds: [],
+};
+const permissionB = {
+  superAdmin: false,
+  userType: 'MEMBER',
+  modules: ['AGENT_MODULE'],
+  agentIds: [AGENT_ID],
+  knowledgeBaseIds: [],
+};
 const permissions = {
-  [tokenA]: {
-    superAdmin: true,
-    userType: 'SUPER_ADMIN',
-    modules: ['AGENT_MODULE'],
-    agentIds: [],
-    knowledgeBaseIds: [],
-  },
-  [tokenB]: {
-    superAdmin: false,
-    userType: 'MEMBER',
-    modules: ['AGENT_MODULE'],
-    agentIds: [AGENT_ID],
-    knowledgeBaseIds: [],
-  },
+  [tokenA]: permissionA,
+  [tokenARefreshed]: permissionA,
+  [tokenALong]: permissionA,
+  [tokenB]: permissionB,
 };
 
 const connectorA = {
@@ -101,8 +118,44 @@ async function installAuth(page, token) {
   );
 }
 
+async function replacePersistedAuth(page, token) {
+  await page.evaluate(
+    ({ auth }) => {
+      localStorage.setItem('jm-agent-auth', auth);
+    },
+    { auth: persistedAuth(token) },
+  );
+}
+
 function authorization(request) {
   return request.headers().authorization ?? '';
+}
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+function withTimeout(promise, label, timeout = 5000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} timed out after ${timeout}ms`)), timeout);
+    }),
+  ]);
+}
+
+async function waitForState(predicate, label, timeout = 5000) {
+  const startedAt = Date.now();
+  while (!predicate()) {
+    if (Date.now() - startedAt >= timeout) {
+      throw new Error(`${label} timed out after ${timeout}ms`);
+    }
+    await sleep(25);
+  }
 }
 
 function createHandler(state) {
@@ -122,6 +175,18 @@ function createHandler(state) {
     if (method === 'POST' && path === '/data/admin/auth/login') {
       return fulfill(route, { token: state.loginToken, user: users[state.loginToken] });
     }
+    if (method === 'POST' && path === '/data/admin/auth/refresh') {
+      state.refreshReads.push(auth);
+      const delayed = state.delayedRefresh;
+      if (delayed?.sourceToken === auth) {
+        delayed.started.resolve();
+        await delayed.release.promise;
+      }
+      const nextToken = state.refreshTokenBySource[auth] ?? auth;
+      await fulfill(route, { token: nextToken, user: users[auth] ?? userA });
+      delayed?.finished.resolve();
+      return;
+    }
     if (method === 'GET' && path === '/data/admin/auth/me') {
       return fulfill(route, users[auth] ?? users[tokenA]);
     }
@@ -134,6 +199,18 @@ function createHandler(state) {
     }
     if (method === 'GET' && path === '/data/admin/connectors') {
       state.connectorReads.push(auth);
+      const delayed401 = state.delayedConnector401;
+      if (delayed401?.sourceToken === auth) {
+        delayed401.started.resolve();
+        await delayed401.release.promise;
+        await fulfill(
+          route,
+          { success: false, respCode: '4001', respMsg: 'fixture stale session', data: null },
+          401,
+        );
+        delayed401.finished.resolve();
+        return;
+      }
       if (auth === tokenB) await sleep(900);
       return fulfill(route, auth === tokenA ? [connectorA] : []);
     }
@@ -150,10 +227,12 @@ function createHandler(state) {
       }
       if (state.saveDelay) await sleep(state.saveDelay);
       const body = request.postDataJSON();
+      state.agentWrites.push(body);
       state.agent = { ...state.agent, ...body, hasUnpublishedChanges: true };
       return fulfill(route, state.agent);
     }
     if (method === 'POST' && path === `/data/admin/agent/agents/${AGENT_ID}/publish`) {
+      state.publishRequests += 1;
       return fulfill(route, { ...state.agent, status: 'PUBLISHED', hasUnpublishedChanges: false });
     }
     if (
@@ -213,6 +292,9 @@ async function mutateQueryClient(page, operation, marker) {
             });
             return true;
           }
+          if (action === 'pending-count') {
+            return cache.getAll().filter((mutation) => mutation.state.status === 'pending').length;
+          }
           return cache
             .getAll()
             .some((mutation) => JSON.stringify(mutation.options.mutationKey).includes(value));
@@ -234,8 +316,14 @@ export default async function run() {
     loginToken: tokenB,
     permissionReads: [],
     connectorReads: [],
+    refreshReads: [],
+    refreshTokenBySource: {},
+    delayedRefresh: null,
+    delayedConnector401: null,
     saveDelay: 0,
     forceSave401: false,
+    agentWrites: [],
+    publishRequests: 0,
     agent: { ...fixtureAgent },
   };
   await installAuth(page, tokenA);
@@ -315,6 +403,37 @@ export default async function run() {
         .catch(() => false),
     );
 
+    const writesBeforeSave = state.agentWrites.length;
+    await editorPage.getByLabel('保存 Agent 草稿').click();
+    await editorPage
+      .getByText('已保存草稿（调试台生效）', { exact: true })
+      .waitFor({ timeout: 5000 });
+    const savedBody = state.agentWrites.at(-1);
+    r.ok(
+      '切换 section 后保存 PUT 仍提交已卸载的名称字段',
+      state.agentWrites.length === writesBeforeSave + 1 &&
+        savedBody?.name === '跨分区待发布名称' &&
+        savedBody?.code === fixtureAgent.code,
+      JSON.stringify(savedBody),
+    );
+
+    await editorPage.getByLabel('保存并发布 Agent').click();
+    await editorPage
+      .getByText('已发布（对话端已更新为当前内容）', { exact: true })
+      .waitFor({ timeout: 5000 });
+    const publishedBody = state.agentWrites.at(-1);
+    r.ok(
+      '切换 section 后发布前 PUT 同样提交完整草稿',
+      publishedBody?.name === '跨分区待发布名称' && state.publishRequests === 1,
+      JSON.stringify(publishedBody),
+    );
+
+    await editorPage
+      .locator('.agent-editor-nav')
+      .getByRole('button', { name: '基础信息', exact: true })
+      .click();
+    await editorPage.getByLabel('描述', { exact: true }).fill('dirty logout fixture');
+
     // dirty 时主动退出必须先确认；取消不能清 auth。
     await openUserMenu(editorPage);
     const dirtyDialog = editorPage
@@ -355,6 +474,7 @@ export default async function run() {
         .querySelector('[aria-label="保存 Agent 草稿"]')
         ?.classList.contains('ant-btn-loading'),
     );
+    const pendingBeforeLogout = await mutateQueryClient(editorPage, 'pending-count', '');
     await openUserMenu(editorPage);
     const busyDialog = editorPage
       .locator('.ant-modal-confirm:visible')
@@ -377,7 +497,12 @@ export default async function run() {
       .getByRole('button', { name: '仍要退出' })
       .click();
     await editorPage.waitForURL(/\/login/);
-    r.ok('saving 退出确认后才清登录态并离开', true);
+    const pendingAfterLogout = await mutateQueryClient(editorPage, 'pending-count', '');
+    r.ok(
+      'saving 退出确认后才清登录态并移除真实 pending mutation',
+      pendingBeforeLogout > 0 && pendingAfterLogout === 0,
+      `before=${pendingBeforeLogout}, after=${pendingAfterLogout}`,
+    );
 
     // 服务端强制失效不是用户主动退出，不能再被本地 dirty/busy guard 阻挡。
     state.saveDelay = 0;
@@ -410,8 +535,112 @@ export default async function run() {
       `${error instanceof Error ? error.message : String(error)} · ${body}`,
     );
   } finally {
-    await browser.close();
+    await editorPage.close();
   }
+
+  const refreshRacePage = page;
+  refreshRacePage.setDefaultTimeout(5000);
+  try {
+    // 先完成一次普通加载，避免把未 resolve 的 route 作为顶层 navigation 依赖；
+    // 再通过 SPA 导航触发需要被延迟的业务请求与静默续期。
+    delete state.refreshTokenBySource[tokenA];
+    state.delayedRefresh = null;
+    const initialRefreshCount = state.refreshReads.length;
+    await replacePersistedAuth(refreshRacePage, tokenA);
+    await refreshRacePage.goto(`${BASE}/console/agents`, { waitUntil: 'domcontentloaded' });
+    await waitForState(
+      () => state.refreshReads.length > initialRefreshCount,
+      'initial A refresh',
+    );
+    await sleep(50);
+
+    const delayedRefresh = {
+      sourceToken: tokenA,
+      started: deferred(),
+      release: deferred(),
+      finished: deferred(),
+    };
+    state.loginToken = tokenB;
+    state.refreshTokenBySource[tokenA] = tokenARefreshed;
+    state.delayedRefresh = delayedRefresh;
+
+    await refreshRacePage.getByText('数据连接', { exact: true }).click();
+    await withTimeout(delayedRefresh.started.promise, 'A refresh start');
+    await openUserMenu(refreshRacePage);
+    await refreshRacePage.waitForURL(/\/login/);
+    await loginAsFixture(refreshRacePage);
+    const bCacheMarker = 'tenant-b-cache-survives-stale-refresh';
+    await mutateQueryClient(refreshRacePage, 'seed', bCacheMarker);
+
+    delayedRefresh.release.resolve();
+    await withTimeout(delayedRefresh.finished.promise, 'A refresh finish');
+    await sleep(150);
+    const tokenAfterStaleRefresh = await refreshRacePage.evaluate(() =>
+      JSON.parse(localStorage.getItem('jm-agent-auth') ?? '{}')?.state?.token,
+    );
+    r.ok(
+      'A 延迟 refresh 在 B 登录后返回不会恢复 A 或清 B 缓存',
+      tokenAfterStaleRefresh === tokenB &&
+        (await mutateQueryClient(refreshRacePage, 'inspect', bCacheMarker)) === true,
+    );
+  } catch (error) {
+    r.ok(
+      '延迟 refresh 会话竞态夹具执行',
+      false,
+      error instanceof Error ? error.message : String(error),
+    );
+  } finally {
+    state.delayedRefresh = null;
+  }
+
+  const stale401Page = page;
+  stale401Page.setDefaultTimeout(5000);
+  try {
+    state.delayedConnector401 = null;
+    await replacePersistedAuth(stale401Page, tokenALong);
+    await stale401Page.goto(`${BASE}/console/agents`, { waitUntil: 'domcontentloaded' });
+
+    const delayed401 = {
+      sourceToken: tokenALong,
+      started: deferred(),
+      release: deferred(),
+      finished: deferred(),
+    };
+    state.loginToken = tokenB;
+    state.delayedConnector401 = delayed401;
+
+    await stale401Page.getByText('数据连接', { exact: true }).click();
+    await withTimeout(delayed401.started.promise, 'A connector request start');
+    await openUserMenu(stale401Page);
+    await stale401Page.waitForURL(/\/login/);
+    await loginAsFixture(stale401Page);
+    const b401Marker = 'tenant-b-cache-survives-stale-401';
+    await mutateQueryClient(stale401Page, 'seed', b401Marker);
+
+    delayed401.release.resolve();
+    await withTimeout(delayed401.finished.promise, 'A connector 401 finish');
+    await sleep(250);
+    const tokenAfterStale401 = await stale401Page.evaluate(() =>
+      JSON.parse(localStorage.getItem('jm-agent-auth') ?? '{}')?.state?.token,
+    );
+    r.ok(
+      'A 延迟请求在 B 登录后返回 401 不会登出 B 或清 B 缓存',
+      tokenAfterStale401 === tokenB &&
+        !stale401Page.url().includes('/login') &&
+        (await mutateQueryClient(stale401Page, 'inspect', b401Marker)) === true,
+      stale401Page.url(),
+    );
+  } catch (error) {
+    r.ok(
+      '延迟 401 会话竞态夹具执行',
+      false,
+      error instanceof Error ? error.message : String(error),
+    );
+  } finally {
+    state.delayedConnector401 = null;
+  }
+
+  await browser.close();
 
   return r.summary();
 }

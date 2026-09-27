@@ -50,9 +50,11 @@ interface AuthState {
   token: string | null;
   tenantId: string | null;
   user: AdminUser | null;
+  /** 每次登录、退出或身份切换都会递增，用于拒绝上一段会话迟到的异步结果。 */
+  sessionGeneration: number;
   setAuth: (payload: { token: string; user?: AdminUser }) => void;
   /** 滑动续期：仅替换 token，保留现有 user / tenantId（不可复用 setAuth，它会把 user 置空）。 */
-  renewToken: (token: string) => void;
+  renewToken: (token: string) => boolean;
   setUser: (user: AdminUser) => void;
   logout: () => void;
 }
@@ -72,6 +74,7 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       tenantId: null,
       user: null,
+      sessionGeneration: 0,
       setAuth: ({ token, user }) => {
         // 登录成功也要清理：logout 后 store 虽已为空，QueryClient 仍可能留有上一账号的权限/业务数据。
         clearAccountScopedClientState();
@@ -80,34 +83,45 @@ export const useAuthStore = create<AuthState>()(
           token,
           tenantId: user?.tenantId ?? payload?.tenant_id ?? null,
           user: user ?? null,
+          sessionGeneration: get().sessionGeneration + 1,
         });
       },
       renewToken: (token) => {
         const current = get();
-        const identityChanged =
-          sessionIdentity(current.token, current.user) !== sessionIdentity(token);
-        if (identityChanged) {
-          clearAccountScopedClientState();
-          const payload = decodeJwt(token);
-          set({
-            token,
-            tenantId: typeof payload?.tenant_id === 'string' ? payload.tenant_id : null,
-            user: null,
-          });
-          return;
+        // refresh 只允许同一身份做 token rotation。身份切换只能走 setAuth，避免上一账号
+        // 的迟到 refresh 把当前账号恢复回去并顺带清空当前账号缓存。
+        if (
+          !current.token ||
+          sessionIdentity(current.token, current.user) !== sessionIdentity(token)
+        ) {
+          return false;
         }
         set({ token });
+        return true;
       },
       setUser: (user) => {
         const current = get();
-        if (sessionIdentity(current.token, current.user) !== sessionIdentity(current.token, user)) {
+        const identityChanged =
+          sessionIdentity(current.token, current.user) !== sessionIdentity(current.token, user);
+        if (identityChanged) {
           clearAccountScopedClientState();
         }
-        set({ user, tenantId: user.tenantId ?? null });
+        set({
+          user,
+          tenantId: user.tenantId ?? null,
+          sessionGeneration: identityChanged
+            ? current.sessionGeneration + 1
+            : current.sessionGeneration,
+        });
       },
       logout: () => {
         clearAccountScopedClientState();
-        set({ token: null, tenantId: null, user: null });
+        set((state) => ({
+          token: null,
+          tenantId: null,
+          user: null,
+          sessionGeneration: state.sessionGeneration + 1,
+        }));
       },
     }),
     {
