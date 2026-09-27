@@ -2,6 +2,12 @@
 // 全部请求由浏览器 fixture 拦截，不会触发真实写入。
 import { CONFIG, launchBrowser, reporter, sleep } from './lib.mjs';
 
+if (!process.env.E2E_BASE_URL) {
+  throw new Error(
+    'auth-agent-integration 必须显式设置 E2E_BASE_URL（例如 http://localhost:5173），拒绝回退到旧 :8082 包。',
+  );
+}
+
 const BASE = CONFIG.baseUrl;
 const AGENT_ID = 'auth-guard-agent';
 const ok = (data) => ({ success: true, respCode: '200', respMsg: 'ok', data });
@@ -20,6 +26,10 @@ const tokenA = tokenFor('user-a', 'tenant-a', { nonce: 'a-near-expiry' });
 const tokenARefreshed = tokenFor('user-a', 'tenant-a', {
   expiresIn: 12 * 60 * 60,
   nonce: 'a-refreshed',
+});
+const tokenARotatedNear = tokenFor('user-a', 'tenant-a', {
+  expiresIn: 2 * 60 * 60,
+  nonce: 'a-rotated-near-expiry',
 });
 const tokenALong = tokenFor('user-a', 'tenant-a', {
   expiresIn: 12 * 60 * 60,
@@ -42,6 +52,7 @@ const userB = {
 };
 const users = {
   [tokenA]: userA,
+  [tokenARotatedNear]: userA,
   [tokenARefreshed]: userA,
   [tokenALong]: userA,
   [tokenB]: userB,
@@ -63,6 +74,7 @@ const permissionB = {
 };
 const permissions = {
   [tokenA]: permissionA,
+  [tokenARotatedNear]: permissionA,
   [tokenARefreshed]: permissionA,
   [tokenALong]: permissionA,
   [tokenB]: permissionB,
@@ -140,22 +152,50 @@ function deferred() {
 }
 
 function withTimeout(promise, label, timeout = 5000) {
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeout}ms`)), timeout);
+  });
   return Promise.race([
     promise,
-    new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`${label} timed out after ${timeout}ms`)), timeout);
-    }),
-  ]);
+    timeoutPromise,
+  ]).finally(() => clearTimeout(timer));
 }
 
-async function waitForState(predicate, label, timeout = 5000) {
-  const startedAt = Date.now();
-  while (!predicate()) {
-    if (Date.now() - startedAt >= timeout) {
-      throw new Error(`${label} timed out after ${timeout}ms`);
-    }
-    await sleep(25);
-  }
+async function persistedToken(page) {
+  return page.evaluate(() =>
+    JSON.parse(localStorage.getItem('jm-agent-auth') ?? '{}')?.state?.token,
+  );
+}
+
+async function nextBrowserFrame(page) {
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve())));
+}
+
+async function setRenewProbeAuth(page, token) {
+  await page.evaluate(
+    async ({ currentToken, currentUser }) => {
+      const { useAuthStore } = await import('/src/stores/authStore.ts');
+      useAuthStore.getState().setAuth({ token: currentToken, user: currentUser });
+    },
+    { currentToken: token, currentUser: users[token] },
+  );
+}
+
+async function runRenewProbe(page, nextToken) {
+  return page.evaluate(async (candidate) => {
+    const { useAuthStore } = await import('/src/stores/authStore.ts');
+    const before = useAuthStore.getState();
+    const accepted = before.renewToken(candidate);
+    const after = useAuthStore.getState();
+    return {
+      accepted,
+      token: after.token,
+      tenantId: after.tenantId,
+      userId: after.user?.id ?? null,
+      generationUnchanged: after.sessionGeneration === before.sessionGeneration,
+    };
+  }, nextToken);
 }
 
 function createHandler(state) {
@@ -186,6 +226,20 @@ function createHandler(state) {
       await fulfill(route, { token: nextToken, user: users[auth] ?? userA });
       delayed?.finished.resolve();
       return;
+    }
+    if (method === 'POST' && path === '/data/fixture/auth-sse') {
+      const delayedSse = state.delayedSseAuth;
+      if (delayedSse?.sourceToken === auth) {
+        delayedSse.started.resolve();
+        await delayedSse.release.promise;
+        await fulfill(
+          route,
+          { success: false, respCode: '4001', respMsg: 'fixture stale SSE session', data: null },
+          delayedSse.status,
+        );
+        delayedSse.finished.resolve();
+        return;
+      }
     }
     if (method === 'GET' && path === '/data/admin/auth/me') {
       return fulfill(route, users[auth] ?? users[tokenA]);
@@ -269,6 +323,15 @@ async function loginAsFixture(page, username = 'member-b') {
   await page.waitForURL(/\/console(?:\/|$)/, { timeout: 5000 });
 }
 
+async function replaceSessionThroughUi(page, state, token, username = 'admin-a') {
+  if (!page.url().includes('/login')) {
+    await openUserMenu(page);
+    await page.waitForURL(/\/login/);
+  }
+  state.loginToken = token;
+  await loginAsFixture(page, username);
+}
+
 async function mutateQueryClient(page, operation, marker) {
   return page.evaluate(
     ({ action, value }) => {
@@ -320,6 +383,7 @@ export default async function run() {
     refreshTokenBySource: {},
     delayedRefresh: null,
     delayedConnector401: null,
+    delayedSseAuth: null,
     saveDelay: 0,
     forceSave401: false,
     agentWrites: [],
@@ -417,6 +481,7 @@ export default async function run() {
       JSON.stringify(savedBody),
     );
 
+    const writesBeforePublish = state.agentWrites.length;
     await editorPage.getByLabel('保存并发布 Agent').click();
     await editorPage
       .getByText('已发布（对话端已更新为当前内容）', { exact: true })
@@ -424,7 +489,9 @@ export default async function run() {
     const publishedBody = state.agentWrites.at(-1);
     r.ok(
       '切换 section 后发布前 PUT 同样提交完整草稿',
-      publishedBody?.name === '跨分区待发布名称' && state.publishRequests === 1,
+      state.agentWrites.length === writesBeforePublish + 1 &&
+        publishedBody?.name === '跨分区待发布名称' &&
+        state.publishRequests === 1,
       JSON.stringify(publishedBody),
     );
 
@@ -535,49 +602,48 @@ export default async function run() {
       `${error instanceof Error ? error.message : String(error)} · ${body}`,
     );
   } finally {
-    await editorPage.close();
+    await withTimeout(editorPage.close(), 'editor fixture page close').catch(() => undefined);
   }
 
   const refreshRacePage = page;
   refreshRacePage.setDefaultTimeout(5000);
+  refreshRacePage.setDefaultNavigationTimeout(5000);
+  const delayedRefresh = {
+    sourceToken: tokenARotatedNear,
+    started: deferred(),
+    release: deferred(),
+    finished: deferred(),
+  };
   try {
-    // 先完成一次普通加载，避免把未 resolve 的 route 作为顶层 navigation 依赖；
-    // 再通过 SPA 导航触发需要被延迟的业务请求与静默续期。
-    delete state.refreshTokenBySource[tokenA];
+    // 首次 refresh 明确 rotation 到另一枚仍临期的 A token；等 token 落库后再启动第二次
+    // delayed refresh，因此不靠固定 sleep 猜测全局 renewing 是否已释放。
+    state.refreshTokenBySource[tokenA] = tokenARotatedNear;
     state.delayedRefresh = null;
-    const initialRefreshCount = state.refreshReads.length;
     await replacePersistedAuth(refreshRacePage, tokenA);
     await refreshRacePage.goto(`${BASE}/console/agents`, { waitUntil: 'domcontentloaded' });
-    await waitForState(
-      () => state.refreshReads.length > initialRefreshCount,
-      'initial A refresh',
+    await refreshRacePage.waitForFunction(
+      (expected) =>
+        JSON.parse(localStorage.getItem('jm-agent-auth') ?? '{}')?.state?.token === expected,
+      tokenARotatedNear,
+      { timeout: 5000 },
     );
-    await sleep(50);
 
-    const delayedRefresh = {
-      sourceToken: tokenA,
-      started: deferred(),
-      release: deferred(),
-      finished: deferred(),
-    };
-    state.loginToken = tokenB;
-    state.refreshTokenBySource[tokenA] = tokenARefreshed;
+    state.refreshTokenBySource[tokenARotatedNear] = tokenARefreshed;
     state.delayedRefresh = delayedRefresh;
-
     await refreshRacePage.getByText('数据连接', { exact: true }).click();
     await withTimeout(delayedRefresh.started.promise, 'A refresh start');
+
     await openUserMenu(refreshRacePage);
     await refreshRacePage.waitForURL(/\/login/);
+    state.loginToken = tokenB;
     await loginAsFixture(refreshRacePage);
     const bCacheMarker = 'tenant-b-cache-survives-stale-refresh';
     await mutateQueryClient(refreshRacePage, 'seed', bCacheMarker);
 
     delayedRefresh.release.resolve();
     await withTimeout(delayedRefresh.finished.promise, 'A refresh finish');
-    await sleep(150);
-    const tokenAfterStaleRefresh = await refreshRacePage.evaluate(() =>
-      JSON.parse(localStorage.getItem('jm-agent-auth') ?? '{}')?.state?.token,
-    );
+    await nextBrowserFrame(refreshRacePage);
+    const tokenAfterStaleRefresh = await persistedToken(refreshRacePage);
     r.ok(
       'A 延迟 refresh 在 B 登录后返回不会恢复 A 或清 B 缓存',
       tokenAfterStaleRefresh === tokenB &&
@@ -590,22 +656,23 @@ export default async function run() {
       error instanceof Error ? error.message : String(error),
     );
   } finally {
+    delayedRefresh.release.resolve();
     state.delayedRefresh = null;
   }
 
   const stale401Page = page;
   stale401Page.setDefaultTimeout(5000);
+  const delayed401 = {
+    sourceToken: tokenALong,
+    started: deferred(),
+    release: deferred(),
+    finished: deferred(),
+  };
   try {
     state.delayedConnector401 = null;
     await replacePersistedAuth(stale401Page, tokenALong);
     await stale401Page.goto(`${BASE}/console/agents`, { waitUntil: 'domcontentloaded' });
 
-    const delayed401 = {
-      sourceToken: tokenALong,
-      started: deferred(),
-      release: deferred(),
-      finished: deferred(),
-    };
     state.loginToken = tokenB;
     state.delayedConnector401 = delayed401;
 
@@ -619,10 +686,8 @@ export default async function run() {
 
     delayed401.release.resolve();
     await withTimeout(delayed401.finished.promise, 'A connector 401 finish');
-    await sleep(250);
-    const tokenAfterStale401 = await stale401Page.evaluate(() =>
-      JSON.parse(localStorage.getItem('jm-agent-auth') ?? '{}')?.state?.token,
-    );
+    await nextBrowserFrame(stale401Page);
+    const tokenAfterStale401 = await persistedToken(stale401Page);
     r.ok(
       'A 延迟请求在 B 登录后返回 401 不会登出 B 或清 B 缓存',
       tokenAfterStale401 === tokenB &&
@@ -637,7 +702,176 @@ export default async function run() {
       error instanceof Error ? error.message : String(error),
     );
   } finally {
+    delayed401.release.resolve();
     state.delayedConnector401 = null;
+  }
+
+  const sameToken401 = {
+    sourceToken: tokenALong,
+    started: deferred(),
+    release: deferred(),
+    finished: deferred(),
+  };
+  try {
+    // token 字符串相同，只让 logout/login 推进 generation；若实现只有 token fence，这条会失败。
+    await openUserMenu(page);
+    await page.waitForURL(/\/login/);
+    state.loginToken = tokenALong;
+    await loginAsFixture(page, 'admin-a');
+
+    state.delayedConnector401 = sameToken401;
+    await page.getByText('数据连接', { exact: true }).click();
+    await withTimeout(sameToken401.started.promise, 'same-token A connector request start');
+    await openUserMenu(page);
+    await page.waitForURL(/\/login/);
+    await loginAsFixture(page, 'admin-a');
+    const generationMarker = 'same-token-new-generation-cache';
+    await mutateQueryClient(page, 'seed', generationMarker);
+
+    sameToken401.release.resolve();
+    await withTimeout(sameToken401.finished.promise, 'same-token stale 401 finish');
+    await nextBrowserFrame(page);
+    r.ok(
+      '同一 token 退出再登录后，旧 generation 的 401 不会清理新会话',
+      (await persistedToken(page)) === tokenALong &&
+        !page.url().includes('/login') &&
+        (await mutateQueryClient(page, 'inspect', generationMarker)) === true,
+      page.url(),
+    );
+  } catch (error) {
+    r.ok(
+      '同 token generation 栅栏夹具执行',
+      false,
+      error instanceof Error ? error.message : String(error),
+    );
+  } finally {
+    sameToken401.release.resolve();
+    state.delayedConnector401 = null;
+  }
+
+  try {
+    // 独立调用 production auth store，避免外层 source fence 掩盖 renewToken 自身的身份约束。
+    const clientCalibrationMarker = 'renew-probe-shares-app-query-client';
+    await mutateQueryClient(page, 'seed', clientCalibrationMarker);
+    await setRenewProbeAuth(page, tokenA);
+    const usesAppQueryClient =
+      (await mutateQueryClient(page, 'inspect', clientCalibrationMarker)) === false;
+    const rotationMarker = 'same-identity-refresh-keeps-cache';
+    await mutateQueryClient(page, 'seed', rotationMarker);
+    const rotation = await runRenewProbe(page, tokenARefreshed);
+    r.ok(
+      'renewToken 接受同身份 A→ARefreshed rotation 且保留账号缓存与身份',
+      usesAppQueryClient &&
+        rotation.accepted === true &&
+        rotation.token === tokenARefreshed &&
+        rotation.tenantId === userA.tenantId &&
+        rotation.userId === userA.id &&
+        rotation.generationUnchanged &&
+        (await mutateQueryClient(page, 'inspect', rotationMarker)) === true,
+    );
+  } catch (error) {
+    r.ok(
+      'renewToken 同身份 rotation 夹具执行',
+      false,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  try {
+    await setRenewProbeAuth(page, tokenA);
+    const rejectedRotationMarker = 'cross-identity-refresh-keeps-cache';
+    await mutateQueryClient(page, 'seed', rejectedRotationMarker);
+    const rejectedRotation = await runRenewProbe(page, tokenB);
+    r.ok(
+      'renewToken 拒绝 A→B 跨身份 refresh token 且保留 token/cache/身份',
+      rejectedRotation.accepted === false &&
+        rejectedRotation.token === tokenA &&
+        rejectedRotation.tenantId === userA.tenantId &&
+        rejectedRotation.userId === userA.id &&
+        rejectedRotation.generationUnchanged &&
+        (await mutateQueryClient(page, 'inspect', rejectedRotationMarker)) === true,
+    );
+  } catch (error) {
+    r.ok(
+      'renewToken 跨身份拒绝夹具执行',
+      false,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  for (const status of [401, 403]) {
+    const staleSse = {
+      sourceToken: tokenALong,
+      status,
+      started: deferred(),
+      release: deferred(),
+      finished: deferred(),
+    };
+    try {
+      await replaceSessionThroughUi(page, state, tokenALong);
+      state.delayedSseAuth = staleSse;
+      await page.evaluate(() => {
+        void import('/src/api/sse.ts').then(({ streamSse }) => {
+          void streamSse('/fixture/auth-sse', {}, { onError: () => undefined });
+        });
+      });
+      await withTimeout(staleSse.started.promise, `A SSE ${status} request start`);
+
+      await replaceSessionThroughUi(page, state, tokenB, 'member-b');
+      const marker = `tenant-b-cache-survives-stale-sse-${status}`;
+      await mutateQueryClient(page, 'seed', marker);
+      staleSse.release.resolve();
+      await withTimeout(staleSse.finished.promise, `A SSE ${status} finish`);
+      await nextBrowserFrame(page);
+      r.ok(
+        `A 延迟 SSE 在 B 登录后返回 ${status} 不会登出 B 或清 B 缓存`,
+        (await persistedToken(page)) === tokenB &&
+          !page.url().includes('/login') &&
+          (await mutateQueryClient(page, 'inspect', marker)) === true,
+        page.url(),
+      );
+    } catch (error) {
+      r.ok(
+        `延迟 SSE ${status} 会话竞态夹具执行`,
+        false,
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      staleSse.release.resolve();
+      state.delayedSseAuth = null;
+    }
+  }
+
+  const currentSse401 = {
+    sourceToken: tokenALong,
+    status: 401,
+    started: deferred(),
+    release: deferred(),
+    finished: deferred(),
+  };
+  try {
+    await replaceSessionThroughUi(page, state, tokenALong);
+    state.delayedSseAuth = currentSse401;
+    await page.evaluate(() => {
+      void import('/src/api/sse.ts').then(({ streamSse }) => {
+        void streamSse('/fixture/auth-sse', {}, { onError: () => undefined });
+      });
+    });
+    await withTimeout(currentSse401.started.promise, 'current SSE 401 request start');
+    currentSse401.release.resolve();
+    await withTimeout(currentSse401.finished.promise, 'current SSE 401 finish');
+    await page.waitForURL(/\/login/, { timeout: 5000 });
+    await page.locator('#username').waitFor({ state: 'visible', timeout: 5000 });
+    r.ok('当前会话 SSE 401 仍会强制登出', (await persistedToken(page)) == null);
+  } catch (error) {
+    r.ok(
+      '当前会话 SSE 401 夹具执行',
+      false,
+      error instanceof Error ? error.message : String(error),
+    );
+  } finally {
+    currentSse401.release.resolve();
+    state.delayedSseAuth = null;
   }
 
   await browser.close();

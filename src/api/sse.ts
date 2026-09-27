@@ -1,4 +1,4 @@
-import { useAuthStore } from '@/stores/authStore';
+import { isCurrentAuthSession, useAuthStore } from '@/stores/authStore';
 import { redirectToLogin } from '@/api/client';
 
 const baseURL = import.meta.env.VITE_API_BASE || '/data';
@@ -57,7 +57,7 @@ export async function streamSse(
   body: unknown,
   opts: StreamOptions = {},
 ): Promise<void> {
-  const { token, tenantId } = useAuthStore.getState();
+  const { token, tenantId, sessionGeneration } = useAuthStore.getState();
   const fullUrl = url.startsWith('http') ? url : `${baseURL}${url}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -66,6 +66,7 @@ export async function streamSse(
   };
   if (token) headers['Authorization'] = token;
   if (tenantId) headers['X-Tenant-Id'] = tenantId;
+  const requestToken = headers.Authorization ?? null;
 
   let response: Response;
   try {
@@ -87,7 +88,10 @@ export async function streamSse(
   if (!response.ok || !response.body) {
     // 流式接口走原始 fetch，不经 axios 拦截器；这里手动复用同一套登出逻辑，
     // 让被禁用 / 掉线的成员在纯 SSE 场景也会被踢回登录页（与 client.ts 拦截器一致）。
-    if (response.status === 401 || response.status === 403) {
+    if (
+      (response.status === 401 || response.status === 403) &&
+      isCurrentAuthSession(requestToken, sessionGeneration)
+    ) {
       redirectToLogin('登录已过期，请重新登录');
     }
     opts.onError?.(new Error(`SSE 请求失败 HTTP ${response.status}`));

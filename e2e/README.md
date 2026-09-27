@@ -29,6 +29,11 @@ cd ..
 npm run test:workbench
 ```
 
+`test:workbench` 未设置 `E2E_BASE_URL` 时明确使用当前 Vite 默认地址
+`http://localhost:5173`，不会回退到可能仍运行旧构建的 `:8082`。单独运行新增的
+`workbench-navigation-check.mjs` 或 `auth-agent-integration-check.mjs` 时必须显式传入
+`E2E_BASE_URL`，缺失会直接失败，避免误把旧包结果当成当前源码验证。
+
 截图落在 `e2e/shots/`（已 gitignore），失败时按 `PASS/FAIL` 行定位。
 
 ## 配置（环境变量，均有本机 dev 默认值）

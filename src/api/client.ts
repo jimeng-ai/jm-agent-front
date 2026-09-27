@@ -5,7 +5,7 @@ import axios, {
   type InternalAxiosRequestConfig,
 } from 'axios';
 import { message } from 'antd';
-import { useAuthStore } from '@/stores/authStore';
+import { isCurrentAuthSession, useAuthStore } from '@/stores/authStore';
 import { decodeJwt, type JwtPayload } from '@/utils/jwt';
 import { bypassGuardedExit } from '@/features/navigation/guardedExit';
 import { type ApiResponse, type LoginResult, BizError, RESP_CODE, isCode } from './types';
@@ -51,13 +51,8 @@ function maybeRenewToken(
     .post<LoginResult>(REFRESH_URL)
     .then((r) => {
       const next = r.data?.token;
-      const current = useAuthStore.getState();
-      if (
-        next &&
-        current.token === sourceToken &&
-        current.sessionGeneration === sourceGeneration
-      ) {
-        current.renewToken(next);
+      if (next && isCurrentAuthSession(sourceToken, sourceGeneration)) {
+        useAuthStore.getState().renewToken(next);
       }
     })
     .catch(() => {
@@ -143,11 +138,8 @@ function requestAuthorization(config: SessionTrackedConfig | undefined): string 
  */
 function requestBelongsToCurrentSession(config: SessionTrackedConfig | undefined): boolean {
   if (typeof config?.__jmAuthGeneration !== 'number') return false;
-  const current = useAuthStore.getState();
   const requestToken = requestAuthorization(config) ?? config.__jmAuthToken ?? null;
-  return (
-    config.__jmAuthGeneration === current.sessionGeneration && requestToken === current.token
-  );
+  return isCurrentAuthSession(requestToken, config.__jmAuthGeneration);
 }
 
 httpClient.interceptors.response.use(

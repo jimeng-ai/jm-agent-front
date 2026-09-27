@@ -135,3 +135,9 @@ export const useAuthStore = create<AuthState>()(
     },
   ),
 );
+
+/** Axios、SSE 等异步链路统一使用这一会话栅栏，避免任一路径遗漏旧响应隔离。 */
+export function isCurrentAuthSession(token: string | null, generation: number): boolean {
+  const current = useAuthStore.getState();
+  return current.token === token && current.sessionGeneration === generation;
+}

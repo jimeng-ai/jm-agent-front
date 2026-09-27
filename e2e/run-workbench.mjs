@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
+const workbenchBaseUrl = process.env.E2E_BASE_URL || 'http://localhost:5173';
 const suites = [
   ['navigation', 'workbench-navigation-check.mjs'],
   ['auth-agent-integration', 'auth-agent-integration-check.mjs'],
@@ -18,7 +19,7 @@ const suites = [
 function runScript(file) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [join(here, file)], {
-      env: process.env,
+      env: { ...process.env, E2E_BASE_URL: workbenchBaseUrl },
       stdio: 'inherit',
     });
     child.on('error', (error) => {
@@ -33,6 +34,7 @@ function runScript(file) {
 }
 
 let allPassed = true;
+console.log(`工作台前端：${workbenchBaseUrl}`);
 for (const [name, file] of suites) {
   console.log(`\n##### workbench / ${name} #####`);
   allPassed = (await runScript(file)) && allPassed;

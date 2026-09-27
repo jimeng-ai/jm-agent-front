@@ -1,6 +1,12 @@
 // 工作台导航与路由基础烟测：只读，不创建或修改业务数据。
 import { CONFIG, launchBrowser, login, reporter } from './lib.mjs';
 
+if (!process.env.E2E_BASE_URL) {
+  throw new Error(
+    'workbench-navigation 必须显式设置 E2E_BASE_URL；请指向当前 Vite/preview，而不是旧 :8082 包。',
+  );
+}
+
 export default async function run() {
   const r = reporter('workbench-navigation');
   const { browser, page } = await launchBrowser();
