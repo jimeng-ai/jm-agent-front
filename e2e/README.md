@@ -23,6 +23,10 @@ npm run test:resilient # 主流程：流式/列表指示/切走重连/停止/断
 npm run test:multiwindow
 npm run test:dot       # 生成中右侧转圈 → 完成红点 → 查看清除
 npm run test:menu      # 红点跨 SPA 菜单切换保留（曾经的回归点）
+
+# 在仓库根目录运行工作台 UI/UX 回归（Agents / 数据连接 / 语义层 / 权限隔离）
+cd ..
+npm run test:workbench
 ```
 
 截图落在 `e2e/shots/`（已 gitignore），失败时按 `PASS/FAIL` 行定位。
@@ -55,3 +59,9 @@ npm run test:menu      # 红点跨 SPA 菜单切换保留（曾经的回归点�
 | `multi-window` | 同一会话两个独立窗口同时实时看同一份流 |
 | `unread-dot` | 生成中右侧转圈、完成右上角红点、点击查看后红点消失 |
 | `menu-persistence` | 红点跨 SPA 菜单切换保留；在别的菜单时完成的会话回来也出红点 |
+
+`run-all.mjs` 只聚合会产生真实对话与 LLM 调用的 chat 回归；工作台套件独立由
+`run-workbench.mjs` 聚合，避免 `npm test` 的历史语义被 UI fixture 回归改变。
+工作台聚合器也会运行现有的连接结构/探测/写策略实跑，其中结构套件会短暂修改本地
+`dev-mysql` 的 `demo_shop` 后再幂等清理；只应对本地开发栈运行。新增的权限/退出保护套件
+则全部使用浏览器 fixture，不会向后端发真实写请求。

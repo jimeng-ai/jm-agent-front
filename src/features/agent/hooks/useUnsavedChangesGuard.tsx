@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { App } from 'antd';
 import { useBeforeUnload, useBlocker } from 'react-router-dom';
+import { registerGuardedExit } from '@/features/navigation/guardedExit';
 
 /**
  * 同时拦截 Data Router 内导航和浏览器刷新/关闭。
@@ -14,13 +15,82 @@ export default function useUnsavedChangesGuard(
 ) {
   const { modal } = App.useApp();
   const shouldBlock = dirty || busy !== null;
-  const blocker = useBlocker(shouldBlock);
+  const bypassNextExit = useRef(false);
+  const blocker = useBlocker(() => shouldBlock && !bypassNextExit.current);
   const promptOpen = useRef(false);
+
+  const openConfirmation = useCallback(
+    ({
+      context,
+      onConfirm,
+      onCancel,
+    }: {
+      context: 'navigation' | 'logout';
+      onConfirm: () => void;
+      onCancel: () => void;
+    }) => {
+      if (promptOpen.current) return;
+      promptOpen.current = true;
+      const action = busy === 'publishing' ? '发布' : busy === 'saving' ? '保存' : null;
+      const loggingOut = context === 'logout';
+      modal.confirm({
+        title: action
+          ? `Agent 正在${action}，确定${loggingOut ? '退出登录' : '离开'}？`
+          : loggingOut
+            ? '退出登录并放弃未保存的变更？'
+            : '离开并放弃未保存的变更？',
+        content: action
+          ? dirty
+            ? `Agent 正在${action}，且基础信息、Prompt、模型参数或知识库还有未保存内容。${loggingOut ? '退出' : '离开'}后新修改会丢失。`
+            : `Agent 正在${action}。操作完成前${loggingOut ? '退出' : '离开'}可能错过结果与界面状态同步。`
+          : '基础信息、Prompt、模型参数或知识库还有未保存内容。离开后这些更改会丢失。',
+        okText: action
+          ? loggingOut
+            ? '仍要退出'
+            : '仍要离开'
+          : loggingOut
+            ? '放弃并退出'
+            : '放弃并离开',
+        cancelText: action && loggingOut ? '继续等待' : '继续编辑',
+        okButtonProps: { danger: true },
+        onOk: () => {
+          promptOpen.current = false;
+          onConfirm();
+        },
+        onCancel: () => {
+          promptOpen.current = false;
+          onCancel();
+        },
+        afterClose: () => {
+          promptOpen.current = false;
+        },
+      });
+    },
+    [busy, dirty, modal],
+  );
+
+  useLayoutEffect(() => {
+    if (!shouldBlock) return;
+    return registerGuardedExit({
+      request: ({ proceed }) =>
+        openConfirmation({
+          context: 'logout',
+          onConfirm: () => {
+            bypassNextExit.current = true;
+            proceed();
+          },
+          onCancel: () => undefined,
+        }),
+      bypass: () => {
+        bypassNextExit.current = true;
+      },
+    });
+  }, [openConfirmation, shouldBlock]);
 
   useBeforeUnload(
     useCallback(
       (event) => {
-        if (!shouldBlock) return;
+        if (!shouldBlock || bypassNextExit.current) return;
         event.preventDefault();
         event.returnValue = '';
       },
@@ -30,29 +100,10 @@ export default function useUnsavedChangesGuard(
 
   useEffect(() => {
     if (blocker.state !== 'blocked' || promptOpen.current) return;
-    promptOpen.current = true;
-    const action = busy === 'publishing' ? '发布' : busy === 'saving' ? '保存' : null;
-    modal.confirm({
-      title: action ? `Agent 正在${action}，确定离开？` : '离开并放弃未保存的变更？',
-      content: action
-        ? dirty
-          ? `Agent 正在${action}，且基础信息、Prompt、模型参数或知识库还有未保存内容。离开后新修改会丢失。`
-          : `Agent 正在${action}。操作完成前离开可能错过结果与界面状态同步。`
-        : '基础信息、Prompt、模型参数或知识库还有未保存内容。离开后这些更改会丢失。',
-      okText: action ? '仍要离开' : '放弃并离开',
-      cancelText: '继续编辑',
-      okButtonProps: { danger: true },
-      onOk: () => {
-        promptOpen.current = false;
-        blocker.proceed();
-      },
-      onCancel: () => {
-        promptOpen.current = false;
-        blocker.reset();
-      },
-      afterClose: () => {
-        promptOpen.current = false;
-      },
+    openConfirmation({
+      context: 'navigation',
+      onConfirm: blocker.proceed,
+      onCancel: blocker.reset,
     });
-  }, [blocker, busy, dirty, modal]);
+  }, [blocker, openConfirmation]);
 }

@@ -138,9 +138,10 @@ export default function AgentEditorPage() {
     enabled: !!id,
   });
 
-  const selectedModel = Form.useWatch('model', form);
-  const watchedName = Form.useWatch('name', form);
-  const watchedValues = Form.useWatch([], form) as Partial<Agent> | undefined;
+  // section 切换会卸载对应 Form.Item；preserve 让 header / 发布摘要始终读取完整草稿快照。
+  const selectedModel = Form.useWatch('model', { form, preserve: true });
+  const watchedName = Form.useWatch('name', { form, preserve: true });
+  const watchedValues = Form.useWatch([], { form, preserve: true }) as Partial<Agent> | undefined;
   const maxTemp =
     modelOptions.find((model) => model.value === selectedModel)?.maxTemp ?? DEFAULT_MAX_TEMP;
 

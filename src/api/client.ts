@@ -7,6 +7,7 @@ import axios, {
 import { message } from 'antd';
 import { useAuthStore } from '@/stores/authStore';
 import { decodeJwt, type JwtPayload } from '@/utils/jwt';
+import { bypassGuardedExit } from '@/features/navigation/guardedExit';
 import { type ApiResponse, type LoginResult, BizError, RESP_CODE, isCode } from './types';
 
 const baseURL = import.meta.env.VITE_API_BASE || '/data';
@@ -79,6 +80,7 @@ export function redirectToLogin(reason: string) {
   if (window.location.pathname === '/login') return Promise.resolve();
   if (redirecting) return redirecting;
   redirecting = Promise.resolve().then(() => {
+    bypassGuardedExit();
     useAuthStore.getState().logout();
     message.error(reason);
     const here = window.location.pathname + window.location.search;

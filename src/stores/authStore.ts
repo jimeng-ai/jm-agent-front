@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
 import { decodeJwt } from '@/utils/jwt';
+import { clearAccountScopedClientState } from '@/queryClient';
 import type { AdminUser } from '@/api/types';
 
 const STORAGE_KEY = 'jm-agent-auth';
@@ -56,13 +57,24 @@ interface AuthState {
   logout: () => void;
 }
 
+function sessionIdentity(token: string | null, user?: AdminUser | null) {
+  if (!token) return null;
+  const payload = decodeJwt(token);
+  const userId = user?.id ?? (typeof payload?.id === 'string' ? payload.id : null);
+  const tenantId =
+    user?.tenantId ?? (typeof payload?.tenant_id === 'string' ? payload.tenant_id : null);
+  return userId || tenantId ? `${tenantId ?? ''}:${userId ?? ''}` : token;
+}
+
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       token: null,
       tenantId: null,
       user: null,
       setAuth: ({ token, user }) => {
+        // 登录成功也要清理：logout 后 store 虽已为空，QueryClient 仍可能留有上一账号的权限/业务数据。
+        clearAccountScopedClientState();
         const payload = decodeJwt(token);
         set({
           token,
@@ -70,9 +82,33 @@ export const useAuthStore = create<AuthState>()(
           user: user ?? null,
         });
       },
-      renewToken: (token) => set({ token }),
-      setUser: (user) => set({ user, tenantId: user.tenantId ?? null }),
-      logout: () => set({ token: null, tenantId: null, user: null }),
+      renewToken: (token) => {
+        const current = get();
+        const identityChanged =
+          sessionIdentity(current.token, current.user) !== sessionIdentity(token);
+        if (identityChanged) {
+          clearAccountScopedClientState();
+          const payload = decodeJwt(token);
+          set({
+            token,
+            tenantId: typeof payload?.tenant_id === 'string' ? payload.tenant_id : null,
+            user: null,
+          });
+          return;
+        }
+        set({ token });
+      },
+      setUser: (user) => {
+        const current = get();
+        if (sessionIdentity(current.token, current.user) !== sessionIdentity(current.token, user)) {
+          clearAccountScopedClientState();
+        }
+        set({ user, tenantId: user.tenantId ?? null });
+      },
+      logout: () => {
+        clearAccountScopedClientState();
+        set({ token: null, tenantId: null, user: null });
+      },
     }),
     {
       name: STORAGE_KEY,

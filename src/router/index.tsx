@@ -9,6 +9,7 @@ import ProtectedRoute from './ProtectedRoute';
 import ModuleRoute from './ModuleRoute';
 import SuperAdminRoute from './SuperAdminRoute';
 import RouteBoundary from './RouteBoundary';
+import RouteErrorPage from './RouteErrorPage';
 import ConsoleLayout from '@/layouts/ConsoleLayout';
 import ChatLayout from '@/layouts/ChatLayout';
 
@@ -36,7 +37,7 @@ const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 
 export const appRouter = createBrowserRouter(
   createRoutesFromElements(
-    <Route element={<RouteBoundary />}>
+    <Route element={<RouteBoundary />} errorElement={<RouteErrorPage />}>
       <Route path="/login" element={<LoginPage />} />
 
       <Route

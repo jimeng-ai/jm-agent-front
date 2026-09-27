@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { authApi } from '@/features/auth/api';
 import { ChevDownIcon, LogoutIcon } from '@/components/icons/AtlasIcons';
 import { WORKBENCH_NAV, DEBUG_NAV, type NavItem } from '@/components/atlas/workbenchNav';
+import { requestGuardedExit } from '@/features/navigation/guardedExit';
 
 export default function WorkbenchSidebar({ collapsed = false }: { collapsed?: boolean }) {
   const navigate = useNavigate();
@@ -33,8 +34,13 @@ export default function WorkbenchSidebar({ collapsed = false }: { collapsed?: bo
   };
 
   const onLogout = () => {
-    logout();
-    navigate('/login', { replace: true });
+    requestGuardedExit({
+      reason: 'logout',
+      proceed: () => {
+        logout();
+        navigate('/login', { replace: true });
+      },
+    });
   };
 
   const userName = user?.displayName || user?.username || '管理员';
