@@ -1,0 +1,711 @@
+// 语义层工作台回归：所有语义 API 都由 Playwright fixture 接管。
+// 重跑 / 删除会点到确认按钮以核对真实请求，但请求在浏览器内被拦截，不会写入后端。
+import { CONFIG, launchBrowser, login, reporter, shot } from './lib.mjs';
+
+const CONNECTOR_ID = 'semantic-workbench-fixture';
+const DETAIL_PATH = `/data/admin/connectors/${CONNECTOR_ID}`;
+const SEMANTIC_PATH = `${DETAIL_PATH}/semantic`;
+
+const envelope = (data) => ({ success: true, respCode: '200', respMsg: 'ok', data });
+const failedEnvelope = (message, respCode = '5000') => ({
+  success: false,
+  respCode,
+  respMsg: message,
+  data: null,
+});
+
+const baseConnector = {
+  id: CONNECTOR_ID,
+  name: 'semantic_fixture',
+  displayName: '语义工作台 Fixture',
+  kind: 'MYSQL',
+  kindLabel: 'MySQL',
+  params: {},
+  status: 'ACTIVE',
+  capabilities: ['QUERY', 'DESCRIBE'],
+  healthState: 'HEALTHY',
+  readonlyVerified: true,
+  writePolicy: 'FORBIDDEN',
+  writePolicyLabel: '只读',
+  semanticStatus: 'READY',
+  semanticSyncedAt: '2026-09-27T10:00:00+08:00',
+  semanticClaimAt: null,
+  semanticNote: 'fixture 生成详情',
+  semanticCoverage: 'PARTIAL',
+  semanticGaps: ['TABLES_MISSING', 'FUTURE_GAP'],
+  semanticDataTier: 'SAMPLE_VALUES',
+  semanticDataTierLabel: '第 3 档 · 样本值',
+  semanticDataTierEgress: '允许经过敏感信息筛查的样本值出库。',
+};
+
+const semanticRows = [
+  ...Array.from({ length: 21 }, (_, index) => ({
+    id: `semantic-row-${index + 1}`,
+    scope: 'FIELD',
+    objectName: 'orders',
+    fieldName: `field_${index + 1}`,
+    gloss: `字段 ${index + 1} 的业务含义`,
+    source: index === 0 ? 'HUMAN' : 'INFERRED',
+    evidence: index === 0 ? 'GUESS' : 'NAME',
+    verified: 'NONE',
+    status: index === 0 ? 'CONFIRMED' : 'DRAFT',
+    answeredName: index === 0 ? '业务负责人' : null,
+    answeredAt: index === 0 ? '2026-09-27T09:00:00+08:00' : null,
+    traceId: index === 0 ? 'trace-semantic-fixture' : null,
+    history:
+      index === 0
+        ? [
+            {
+              at: '2026-09-26T09:00:00+08:00',
+              by_name: '历史回答人',
+              from_gloss: '旧的字段含义',
+              trace_id: 'trace-semantic-history',
+            },
+          ]
+        : null,
+  })),
+  {
+    id: 'semantic-value-profile',
+    scope: 'FIELD',
+    objectName: 'orders',
+    fieldName: 'region_code',
+    gloss: '值域阶段补写：华东、华南',
+    source: 'INFERRED',
+    evidence: 'DATA',
+    verified: 'NONE',
+    status: 'DRAFT',
+    detail: {
+      origin: 'value_profile',
+      value_domain: { complete: true, values: ['华东', '华南'] },
+    },
+  },
+  {
+    id: 'semantic-value-profile-legacy',
+    scope: 'FIELD',
+    objectName: 'orders',
+    fieldName: 'legacy_region_code',
+    gloss: '旧版值域补写：北区、南区',
+    source: 'INFERRED',
+    evidence: 'DATA',
+    verified: 'NONE',
+    status: 'DRAFT',
+    detail: { value_domain: { complete: true, values: ['北区', '南区'] } },
+  },
+  {
+    id: 'semantic-human-metric',
+    scope: 'METRIC',
+    objectName: '',
+    fieldName: '',
+    term: ' ROI ',
+    gloss: 'ROI = 净收益 / 投入成本',
+    source: 'HUMAN',
+    evidence: 'GUESS',
+    verified: 'NONE',
+    status: 'CONFIRMED',
+    answeredName: '财务负责人',
+  },
+  {
+    id: 'semantic-answered-caveat',
+    scope: 'CAVEAT',
+    objectName: '',
+    fieldName: '',
+    term: 'roi',
+    gloss: 'ROI 到底按含税还是不含税计算？',
+    source: 'INFERRED',
+    evidence: null,
+    verified: 'NONE',
+    status: 'DRAFT',
+  },
+];
+
+const isVisible = (locator, timeout = 3_000) =>
+  locator
+    .waitFor({ state: 'visible', timeout })
+    .then(() => true)
+    .catch(() => false);
+
+const hasNoHorizontalOverflow = (locator) =>
+  locator.evaluate((element) => element.scrollWidth <= element.clientWidth + 1);
+
+export default async function run() {
+  const r = reporter('semantic-workbench');
+  const { browser, page } = await launchBrowser();
+  let connector = { ...baseConnector };
+  const rows = semanticRows;
+  let detailFails = false;
+  let detailNotFound = false;
+  let semanticFails = false;
+  let deriveRequests = 0;
+  let deriveDetailReads = 0;
+  let deriveTracking = false;
+  const deriveObservedStatuses = [];
+  let deleteRequests = 0;
+
+  try {
+    await login(page);
+
+    await page.route('**/data/admin/connectors', async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(envelope([connector])),
+        });
+        return;
+      }
+      await route.fallback();
+    });
+
+    await page.route('**/data/admin/connectors/**', async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      const { pathname } = url;
+      const method = request.method();
+
+      if (pathname === `${SEMANTIC_PATH}/derive` && method === 'POST') {
+        deriveRequests += 1;
+        deriveDetailReads = 0;
+        deriveTracking = true;
+        deriveObservedStatuses.length = 0;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(envelope({ started: true })),
+        });
+        return;
+      }
+
+      if (pathname === '/data/admin/connectors/kinds' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(
+            envelope([
+              {
+                kind: 'MYSQL',
+                displayName: 'MySQL',
+                capabilities: ['query', 'describe'],
+                fields: [],
+              },
+            ]),
+          ),
+        });
+        return;
+      }
+
+      if (pathname.startsWith(`${SEMANTIC_PATH}/`) && method === 'DELETE') {
+        deleteRequests += 1;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(envelope({ deleted: false, removed: '0' })),
+        });
+        return;
+      }
+
+      if (pathname === SEMANTIC_PATH && method === 'GET') {
+        await route.fulfill({
+          // data-service 的业务异常仍走 HTTP 200，由非成功信封触发 client.ts 的 BizError。
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(
+            semanticFails ? failedEnvelope('fixture 语义层读取失败') : envelope(rows),
+          ),
+        });
+        return;
+      }
+
+      if (pathname === DETAIL_PATH && method === 'GET') {
+        let detailData = connector;
+        if (!detailNotFound && !detailFails && deriveTracking) {
+          deriveDetailReads += 1;
+          if (deriveDetailReads <= 3) {
+            detailData = {
+              ...connector,
+              semanticStatus: 'READY',
+              semanticNote: `已进入队列，前面还有 ${4 - deriveDetailReads} 个任务`,
+            };
+          } else {
+            connector = {
+              ...connector,
+              semanticStatus: 'RUNNING',
+              semanticClaimAt: '2026-09-27T11:30:00+08:00',
+              semanticNote: '正在生成语义层……',
+            };
+            detailData = connector;
+            deriveTracking = false;
+          }
+          deriveObservedStatuses.push(detailData.semanticStatus);
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(
+            detailNotFound
+              ? failedEnvelope('连接不存在', '4004')
+              : detailFails
+                ? failedEnvelope('fixture 连接详情读取失败')
+                : envelope(detailData),
+          ),
+        });
+        return;
+      }
+
+      await route.fallback();
+    });
+
+    const openFixture = async () => {
+      await page.goto(`${CONFIG.baseUrl}/console/connectors/${CONNECTOR_ID}/semantic`, {
+        waitUntil: 'domcontentloaded',
+      });
+      await page.getByTestId('semantic-workbench').waitFor({ state: 'visible', timeout: 10_000 });
+    };
+
+    await openFixture();
+    await page.screenshot({ path: shot('semantic-workbench.png'), fullPage: true });
+
+    r.ok('独立语义工作台可深链直达', await page.getByTestId('semantic-workbench').isVisible());
+    r.ok(
+      '连接级状态与 coverage 是两个独立区域',
+      (await page.getByTestId('semantic-status').count()) === 1 &&
+        (await page.getByTestId('semantic-coverage').count()) === 1,
+    );
+    const coverageText = (await page.getByTestId('semantic-coverage').textContent()) ?? '';
+    r.ok(
+      'PARTIAL 同时保留已知与未知 gap',
+      coverageText.includes('有表没进说明书') && coverageText.includes('未知缺口（FUTURE_GAP）'),
+    );
+    const tierEditLink = page.getByRole('link', { name: '修改档位', exact: true });
+    r.ok(
+      '档位修改链接到连接编辑语义治理区',
+      (await tierEditLink.getAttribute('href')) ===
+        `/console/connectors?connector=${CONNECTOR_ID}&action=edit&section=semantic`,
+    );
+
+    const scopeRail = page.getByTestId('semantic-scope-rail');
+    const scopeText = (await scopeRail.textContent()) ?? '';
+    r.ok(
+      'scope 固定顺序完整且未知收尾',
+      ['业务口径', '待澄清的歧义', '表用途', '字段含义', '表关系', '未知分类'].every(
+        (label, index, labels) =>
+          scopeText.includes(label) &&
+          (index === 0 || scopeText.indexOf(label) > scopeText.indexOf(labels[index - 1])),
+      ),
+    );
+    r.ok('纯前端需关注筛选常驻', scopeText.includes('需关注'));
+
+    await page.locator('.semantic-scope-option').filter({ hasText: '字段含义' }).click();
+    await page.locator('button.semantic-row-card').first().click();
+    r.ok('20 条阈值后分页', await page.locator('.semantic-pagination').isVisible());
+    const renderedRows = await page.locator('button.semantic-row-card').count();
+    r.ok('首页只渲染 20 条', renderedRows === 20, String(renderedRows));
+
+    const firstRowCard = page.locator('button.semantic-row-card').first();
+    const accessibleRefs = await firstRowCard.evaluate((element) => {
+      const textOf = (attribute) =>
+        (element.getAttribute(attribute) ?? '')
+          .split(/\s+/)
+          .filter(Boolean)
+          .map((id) => document.getElementById(id)?.textContent ?? '')
+          .join(' ');
+      return {
+        ariaLabel: element.getAttribute('aria-label'),
+        labelled: textOf('aria-labelledby'),
+        described: textOf('aria-describedby'),
+      };
+    });
+    r.ok(
+      '行卡 accessible name 保留锚点与说明，可信链进入 description',
+      accessibleRefs.ariaLabel === null &&
+        accessibleRefs.labelled.includes('orders.field_1') &&
+        accessibleRefs.labelled.includes('字段 1 的业务含义') &&
+        ['人工确认', '人给的定义', '未验证', '已确认'].every((text) =>
+          accessibleRefs.described.includes(text),
+        ),
+      JSON.stringify(accessibleRefs),
+    );
+    const secondRowCard = page.locator('button.semantic-row-card').nth(1);
+    await secondRowCard.focus();
+    await page.keyboard.press('Enter');
+    r.ok(
+      '行卡保留原生键盘操作',
+      ((await page.locator('[data-testid="semantic-inspector"]:visible h2').first().textContent()) ?? '') ===
+        'orders.field_2',
+    );
+    await firstRowCard.click();
+
+    await page.locator('.semantic-pagination .ant-pagination-next button').click();
+    const pageTwoSelected = page.locator('button.semantic-row-card.is-selected');
+    r.ok(
+      '翻到下一页后 selection 与 Inspector 同步到新页首条',
+      (await pageTwoSelected.count()) === 1 &&
+        ((await pageTwoSelected.textContent()) ?? '').includes('orders.field_21') &&
+        ((await page.locator('[data-testid="semantic-inspector"]:visible h2').first().textContent()) ?? '') ===
+          'orders.field_21' &&
+        !((await page.locator('[data-testid="semantic-inspector"]:visible').first().textContent()) ?? '').includes(
+          '当前选中的是人工确认口径',
+        ),
+    );
+    await page.locator('.semantic-pagination .ant-pagination-prev button').click();
+    await page.locator('button.semantic-row-card.is-selected').first().waitFor({ state: 'visible' });
+
+    const inspector = page.locator('[data-testid="semantic-inspector"]:visible').first();
+    const inspectorText = (await inspector.textContent()) ?? '';
+    r.ok(
+      'Inspector 四区完整',
+      ['模型此刻读到', '平台留存但模型当前看不到', '信任与来源', '危险区'].every((label) =>
+        inspectorText.includes(label),
+      ),
+    );
+    r.ok(
+      'HUMAN 行保留回答人、时间、Trace 与覆盖历史',
+      ['业务负责人', 'trace-semantic-fixture', '口径覆盖历史'].every((label) =>
+        inspectorText.includes(label),
+      ),
+    );
+
+    connector = {
+      ...baseConnector,
+      semanticDataTier: 'DERIVED_STATS',
+      semanticDataTierLabel: '第 2 档 · 派生统计',
+      semanticDataTierEgress: '只允许派生统计出库。',
+    };
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('.semantic-scope-option').filter({ hasText: '字段含义' }).click();
+    await page.locator('.semantic-pagination .ant-pagination-next button').click();
+    const valueProfileCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: '值域阶段补写：华东、华南' });
+    await valueProfileCard.click();
+    const valueProfileInspector = page.locator('[data-testid="semantic-inspector"]:visible').first();
+    const valueProfileCurrent =
+      (await valueProfileInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+    const valueProfileRetained =
+      (await valueProfileInspector.locator('.semantic-inspector-section.is-retained').textContent()) ?? '';
+    const valueProfileWarning =
+      (await valueProfileInspector.locator('.semantic-inspector-warning').textContent().catch(() => '')) ?? '';
+    const legacyValueProfileCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: '旧版值域补写：北区、南区' });
+    await legacyValueProfileCard.click();
+    const legacyCurrent =
+      (await valueProfileInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+    const legacyRetained =
+      (await valueProfileInspector.locator('.semantic-inspector-section.is-retained').textContent()) ?? '';
+    r.ok(
+      'DERIVED_STATS 按后端 K-3 挡住 origin 与兼容旧值域行的 gloss',
+      !valueProfileCurrent.includes('值域阶段补写：华东、华南') &&
+        valueProfileRetained.includes('值域阶段补写：华东、华南') &&
+        valueProfileWarning.includes('第 3 档') &&
+        !legacyCurrent.includes('旧版值域补写：北区、南区') &&
+        legacyRetained.includes('旧版值域补写：北区、南区'),
+    );
+
+    connector = { ...baseConnector };
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    const attentionListText = (await page.getByTestId('semantic-row-list').textContent()) ?? '';
+    r.ok(
+      '已有非 STALE METRIC 的同 term CAVEAT 不再进入需关注',
+      !attentionListText.includes('ROI 到底按含税还是不含税计算？'),
+      attentionListText,
+    );
+    await page.locator('.semantic-scope-option').filter({ hasText: '待澄清的歧义' }).click();
+    const answeredCaveatCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: 'ROI 到底按含税还是不含税计算？' });
+    const answeredCaveatCardText = (await answeredCaveatCard.textContent()) ?? '';
+    await answeredCaveatCard.click();
+    const caveatInspector = page.locator('[data-testid="semantic-inspector"]:visible').first();
+    const caveatCurrent =
+      (await caveatInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+    const caveatRetained =
+      (await caveatInspector.locator('.semantic-inspector-section.is-retained').textContent()) ?? '';
+    r.ok(
+      '同 term CAVEAT 仍可审计但不再声称注入模型',
+      !answeredCaveatCardText.includes('等待业务方回答') &&
+        !caveatCurrent.includes('ROI 到底按含税还是不含税计算？') &&
+        caveatRetained.includes('ROI 到底按含税还是不含税计算？') &&
+        ((await caveatInspector.locator('.semantic-inspector-warning').textContent()) ?? '').includes(
+          '已有口径回答',
+        ),
+    );
+    await page.locator('.semantic-scope-option').filter({ hasText: '字段含义' }).click();
+    await page.locator('button.semantic-row-card').first().click();
+
+    const headerDeriveButton = page.locator('.semantic-header-topline .ant-btn-primary');
+    await headerDeriveButton.click();
+    const deriveModal = page.locator('.ant-modal-content:visible');
+    const deriveCopy = (await deriveModal.textContent()) ?? '';
+    r.ok(
+      '重跑确认完整说明 INFERRED、代价与异步语义',
+      ['INFERRED', '代价看结构快照在不在', '这是异步派发'].every((label) => deriveCopy.includes(label)),
+    );
+    await page.getByRole('button', { name: '开始生成', exact: true }).last().click();
+    const claimWaitVisible = await isVisible(page.getByTestId('semantic-derive-claim-wait'), 3_000);
+    const duplicateDispatchBlocked = await headerDeriveButton.isDisabled();
+    const runningObserved = await isVisible(
+      page.getByTestId('semantic-status').getByText('生成中', { exact: true }),
+      15_000,
+    );
+    r.ok(
+      '派发后跨多次旧 READY/queued 持续等待直到观察 RUNNING',
+      claimWaitVisible &&
+        duplicateDispatchBlocked &&
+        runningObserved &&
+        deriveObservedStatuses.slice(0, 3).every((status) => status === 'READY') &&
+        deriveObservedStatuses.includes('RUNNING') &&
+        deriveRequests === 1,
+      JSON.stringify({ deriveObservedStatuses, deriveRequests }),
+    );
+    semanticFails = true;
+    detailFails = true;
+    const backgroundSemanticRetry = page.getByRole('button', { name: '重试语义层', exact: true });
+    const backgroundDetailRetry = page.getByRole('button', { name: '重试连接详情', exact: true });
+    const semanticRefreshFailed = await isVisible(backgroundSemanticRetry, 10_000);
+    const detailRefreshFailed = await isVisible(backgroundDetailRetry, 10_000);
+    r.ok('重跑请求被 fixture 拦截，未访问真实后端', deriveRequests === 1);
+    r.ok(
+      '成功内容后的语义刷新失败保留旧条目与重试',
+      semanticRefreshFailed &&
+        (await page.locator('button.semantic-row-card').count()) === 20 &&
+        (await isVisible(page.getByText('fixture 语义层读取失败', { exact: true }))),
+    );
+    r.ok(
+      '成功内容后的连接详情刷新失败保留工作台与重试',
+      detailRefreshFailed &&
+        (await page.getByTestId('semantic-workbench').isVisible()) &&
+        (await isVisible(page.getByText('fixture 连接详情读取失败', { exact: true }))),
+    );
+    semanticFails = false;
+    detailFails = false;
+    if (semanticRefreshFailed) await backgroundSemanticRetry.click();
+    if (detailRefreshFailed) await backgroundDetailRetry.click();
+    await page
+      .getByText('fixture 语义层读取失败', { exact: true })
+      .waitFor({ state: 'hidden' });
+    await page
+      .getByText('fixture 连接详情读取失败', { exact: true })
+      .waitFor({ state: 'hidden' });
+
+    await page
+      .locator('[data-testid="semantic-inspector"]:visible .ant-btn-dangerous')
+      .first()
+      .click();
+    const deleteModal = page.locator('.ant-modal-content:visible');
+    const deleteCopy = (await deleteModal.textContent()) ?? '';
+    r.ok(
+      '删除确认保留不可恢复、INFERRED 回来、HUMAN 历史丢失',
+      ['物理删除，不可恢复', '下次重新生成会再推一遍', '连同覆盖历史一起消失'].every(
+        (label) => deleteCopy.includes(label),
+      ),
+    );
+    await deleteModal.locator('.ant-btn-primary.ant-btn-dangerous').click();
+    await page.waitForTimeout(150);
+    r.ok('删除请求被 fixture 拦截，未写入真实后端', deleteRequests === 1);
+    r.ok(
+      'removed=0 如实提示已经不在',
+      await isVisible(page.getByText('这一行已经不在了（可能刚被别人删掉），本次没有删除任何内容。'), 2_000),
+    );
+
+    connector = { ...baseConnector, semanticCoverage: 'FUTURE_COVERAGE', semanticGaps: [] };
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    const unknownCoverage = (await page.getByTestId('semantic-coverage').textContent()) ?? '';
+    r.ok(
+      '未知 coverage 显式保留原值',
+      unknownCoverage.includes('未知覆盖度（FUTURE_COVERAGE）'),
+      unknownCoverage,
+    );
+
+    connector = { ...baseConnector, semanticCoverage: null, semanticGaps: null };
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    const nullCoverage = (await page.getByTestId('semantic-coverage').textContent()) ?? '';
+    r.ok(
+      'null coverage 表示没跑过，不是残缺或未知枚举',
+      nullCoverage.includes('尚未成功生成过'),
+      nullCoverage,
+    );
+
+    const statusCases = [
+      ['NONE', '未生成', '开始生成', false],
+      ['RUNNING', '生成中', '重新生成', true],
+      ['READY', '已生成', '重新生成', false],
+      ['FAILED', '失败', '重新生成', false],
+      ['NOT_APPLICABLE', '不适用', '重新生成', true],
+      ['FUTURE_STATUS', '未知（FUTURE_STATUS）', '重新生成', false],
+    ];
+    for (const [status, label, action, disabled] of statusCases) {
+      connector = {
+        ...baseConnector,
+        semanticStatus: status,
+        semanticCoverage: status === 'NONE' ? null : 'COMPLETE',
+        semanticClaimAt: status === 'RUNNING' ? '2026-09-27T11:00:00+08:00' : null,
+      };
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.getByTestId('semantic-status').waitFor({ state: 'visible' });
+      const statusText = (await page.getByTestId('semantic-status').textContent()) ?? '';
+      const actionButton = page.locator('.semantic-header-topline .ant-btn-primary');
+      r.ok(
+        `${status} 状态、动作与禁用规则`,
+        statusText.includes(label) &&
+          ((await actionButton.textContent()) ?? '').trim() === action &&
+          (await actionButton.isDisabled()) === disabled,
+      );
+      if (status === 'FAILED') {
+        await page.locator('.semantic-scope-option').filter({ hasText: '字段含义' }).click();
+        await page.locator('button.semantic-row-card').first().click();
+        const failedInspectorText =
+          (await page.locator('[data-testid="semantic-inspector"]:visible').first().textContent()) ?? '';
+        r.ok(
+          'FAILED 明示保留旧成功内容且不再宣称只靠表列名',
+          statusText.includes('上一次成功内容仍保留') &&
+            !statusText.includes('只能靠表名和列名猜'),
+          statusText,
+        );
+        r.ok(
+          'FAILED Inspector 按行级规则说明旧内容的模型可见性',
+          failedInspectorText.includes('连接级 FAILED 不会隐藏这些旧行') &&
+            failedInspectorText.includes('仍由每条的状态、验证结论和当前档位决定'),
+          failedInspectorText,
+        );
+      }
+    }
+
+    connector = {
+      ...baseConnector,
+      semanticStatus: 'FAILED',
+      semanticSyncedAt: null,
+      semanticCoverage: 'COMPLETE',
+      semanticGaps: [],
+    };
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByTestId('semantic-status').waitFor({ state: 'visible' });
+    const failedWithoutHistoryText =
+      (await page.getByTestId('semantic-status').textContent()) ?? '';
+    await page.locator('.semantic-scope-option').filter({ hasText: '字段含义' }).click();
+    await page.locator('button.semantic-row-card').first().click();
+    const failedWithoutHistoryInspector =
+      (await page.locator('[data-testid="semantic-inspector"]:visible').first().textContent()) ?? '';
+    r.ok(
+      'FAILED 无成功时间戳时不声称存在上一版成功内容',
+      !failedWithoutHistoryText.includes('上一次成功内容仍保留') &&
+        failedWithoutHistoryText.includes('没有时间戳能证明它来自一次成功生成') &&
+        !failedWithoutHistoryInspector.includes('上一次成功内容仍保留') &&
+        failedWithoutHistoryInspector.includes('没有时间戳能证明它来自一次成功生成'),
+      `${failedWithoutHistoryText} | ${failedWithoutHistoryInspector}`,
+    );
+
+    connector = { ...baseConnector, semanticCoverage: 'COMPLETE', semanticGaps: [] };
+    semanticFails = true;
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    const semanticRetry = page.getByRole('button', { name: '重试语义层', exact: true });
+    const semanticRetryVisible = await isVisible(semanticRetry, 15_000);
+    r.ok('语义层首次读取失败提供重试', semanticRetryVisible);
+    semanticFails = false;
+    if (semanticRetryVisible) {
+      await semanticRetry.click();
+      r.ok('语义层重试后恢复内容', await isVisible(page.getByTestId('semantic-row-list'), 5_000));
+    }
+
+    detailFails = true;
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    const detailRetry = page.getByRole('button', { name: '重试连接详情', exact: true });
+    const detailRetryVisible = await isVisible(detailRetry, 15_000);
+    r.ok(
+      '连接详情首次读取失败保留原因、重试与返回入口',
+      detailRetryVisible &&
+        (await isVisible(page.getByText('fixture 连接详情读取失败', { exact: true }))) &&
+        (await isVisible(page.getByRole('button', { name: '返回数据连接', exact: true }))),
+    );
+    detailFails = false;
+    if (detailRetryVisible) {
+      await detailRetry.click();
+      r.ok('连接详情重试后恢复工作台', await isVisible(page.getByTestId('semantic-workbench'), 5_000));
+    } else {
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.getByTestId('semantic-workbench').waitFor({ state: 'visible' });
+    }
+
+    detailNotFound = true;
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    r.ok(
+      '真实 4004 非成功信封进入连接不存在分支并提供返回入口',
+      (await isVisible(page.getByText('连接不存在或已删除', { exact: true }), 15_000)) &&
+        (await isVisible(page.getByText('连接不存在', { exact: true }))) &&
+        (await isVisible(page.getByRole('button', { name: '返回数据连接', exact: true }))) &&
+        (await page.getByRole('button', { name: '重试连接详情', exact: true }).count()) === 0,
+    );
+    detailNotFound = false;
+    connector = { ...baseConnector, semanticCoverage: 'COMPLETE', semanticGaps: [] };
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByTestId('semantic-workbench').waitFor({ state: 'visible' });
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    r.ok(
+      '1280px 保留桌面三栏 Inspector',
+      await page.locator('.semantic-inspector-desktop').isVisible().catch(() => false),
+    );
+    r.ok(
+      '1280px 工作台与关键网格没有横向溢出',
+      (await hasNoHorizontalOverflow(page.getByTestId('semantic-workbench'))) &&
+        (await hasNoHorizontalOverflow(page.locator('.semantic-workbench-grid'))),
+    );
+
+    await page.setViewportSize({ width: 1024, height: 800 });
+    const inspectorTrigger = page.getByRole('button', { name: '查看所选详情' });
+    if (!(await inspectorTrigger.isEnabled().catch(() => false))) {
+      await page.locator('.semantic-scope-option').filter({ hasText: '字段含义' }).click();
+      await page.locator('button.semantic-row-card').first().click();
+    }
+    r.ok(
+      '1024px 收起桌面 Inspector 并保留真实按钮入口',
+      !(await page.locator('.semantic-inspector-desktop').isVisible()) &&
+        (await inspectorTrigger.isVisible().catch(() => false)),
+    );
+    r.ok(
+      '1024px 工作台与关键网格没有横向溢出',
+      (await hasNoHorizontalOverflow(page.getByTestId('semantic-workbench'))) &&
+        (await hasNoHorizontalOverflow(page.locator('.semantic-workbench-grid'))),
+    );
+    await inspectorTrigger.click();
+    const drawerWrapper = page.locator('.ant-drawer-content-wrapper:visible').last();
+    const drawerBox = await drawerWrapper.boundingBox();
+    r.ok('1024px 窄屏 Inspector 整页呈现', Boolean(drawerBox && drawerBox.width >= 1023), String(drawerBox?.width));
+    await page.locator('.semantic-inspector-drawer .ant-drawer-close').click();
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const transitionDuration = await page
+      .locator('.semantic-row-card')
+      .first()
+      .evaluate((element) => getComputedStyle(element).transitionDuration)
+      .catch(() => '0s');
+    const reduced = transitionDuration.split(',').every((duration) => {
+      const value = Number.parseFloat(duration);
+      return duration.trim().endsWith('ms') ? value <= 0.01 : value <= 0.00001;
+    });
+    r.ok('reduced-motion 会压低动效时长', reduced, transitionDuration);
+
+    await tierEditLink.click();
+    const formDrawer = page.getByTestId('connector-form-drawer');
+    await formDrawer.waitFor({ state: 'visible', timeout: 10_000 });
+    const tierField = page.getByTestId('connector-form-semantic-tier');
+    const tierCombobox = tierField.getByRole('combobox');
+    const editUrl = new URL(page.url());
+    r.ok(
+      '修改档位真实打开编辑 Drawer 的可编辑档位控件',
+      editUrl.pathname === '/console/connectors' &&
+        editUrl.searchParams.get('connector') === CONNECTOR_ID &&
+        editUrl.searchParams.get('action') === 'edit' &&
+        editUrl.searchParams.get('section') === 'semantic' &&
+        (await tierCombobox.isVisible()) &&
+        (await tierCombobox.isEnabled()),
+    );
+  } finally {
+    await browser.close();
+  }
+  return r.summary();
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const ok = await run();
+  process.exit(ok ? 0 : 1);
+}

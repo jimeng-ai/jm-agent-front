@@ -26,6 +26,9 @@ const SkillListPage = lazy(() => import('@/pages/console/skill/SkillListPage'));
 const SkillBuilderPage = lazy(() => import('@/pages/console/skill/SkillBuilderPage'));
 const ConnectionListPage = lazy(() => import('@/pages/console/connection/ConnectionListPage'));
 const ConnectorListPage = lazy(() => import('@/pages/console/connector/ConnectorListPage'));
+const SemanticWorkbenchPage = lazy(
+  () => import('@/pages/console/connector/SemanticWorkbenchPage'),
+);
 const PendingWritePage = lazy(() => import('@/pages/console/connector/PendingWritePage'));
 const ChatHomePage = lazy(() => import('@/pages/chat/ChatHomePage'));
 const ChatConversationPage = lazy(() => import('@/pages/chat/ConversationPage'));
@@ -111,6 +114,14 @@ export const appRouter = createBrowserRouter(
           element={
             <SuperAdminRoute>
               <ConnectorListPage />
+            </SuperAdminRoute>
+          }
+        />
+        <Route
+          path="connectors/:id/semantic"
+          element={
+            <SuperAdminRoute>
+              <SemanticWorkbenchPage />
             </SuperAdminRoute>
           }
         />

@@ -43,6 +43,33 @@ export interface SemanticStatusMeta {
   hint: string;
 }
 
+export interface SemanticFailedContext {
+  /** semantic_synced_at 能证明此前至少有一次成功生成。 */
+  previousSuccessKnown: boolean;
+  /** 当前语义查询确实返回了旧行。 */
+  storedRowsPresent: boolean;
+}
+
+const SEMANTIC_FAILED_PREFIX =
+  '连接本身照常可用——语义层是叠加上去的注解，不是连接的前置条件。';
+const SEMANTIC_FAILED_VISIBILITY_RULE =
+  '模型是否读取仍由每条的状态、验证结论和当前档位决定。';
+
+export function semanticFailedVisibilityContext(
+  context?: SemanticFailedContext,
+): string {
+  if (context?.previousSuccessKnown && context.storedRowsPresent) {
+    return `本次生成失败，上一次成功内容仍保留；连接级 FAILED 不会隐藏这些旧行。${SEMANTIC_FAILED_VISIBILITY_RULE}`;
+  }
+  if (context?.storedRowsPresent) {
+    return `本次生成失败；下方已有语义内容仍保留，但没有时间戳能证明它来自一次成功生成。连接级 FAILED 不会隐藏这些已有行。${SEMANTIC_FAILED_VISIBILITY_RULE}`;
+  }
+  if (context?.previousSuccessKnown) {
+    return `本次生成失败；此前有过成功生成，但当前没有可展示的语义条目。${SEMANTIC_FAILED_VISIBILITY_RULE}`;
+  }
+  return `本次生成失败。若此前已有成功内容，仍会保留；连接级 FAILED 本身不会隐藏旧行。${SEMANTIC_FAILED_VISIBILITY_RULE}`;
+}
+
 const STATUS_META: Record<SemanticStatus, SemanticStatusMeta> = {
   NONE: {
     label: '未生成',
@@ -65,7 +92,7 @@ const STATUS_META: Record<SemanticStatus, SemanticStatusMeta> = {
     label: '失败',
     color: 'red',
     alert: 'error',
-    hint: '推导没跑成。连接本身照常可用——语义层是叠加上去的注解，不是连接的前置条件；但模型此刻只能靠表名和列名猜。',
+    hint: `${SEMANTIC_FAILED_PREFIX}${semanticFailedVisibilityContext()}`,
   },
   // ★ 刻意不是红色，也刻意不是 error。这种连接器不提供结构自描述（今天的 HTTP 就是，
   //   它只声明 INVOKE / HEALTH），没有结构可推，重跑也不会变。
@@ -79,9 +106,20 @@ const STATUS_META: Record<SemanticStatus, SemanticStatusMeta> = {
 };
 
 /** 认不出来的值（含 undefined：后端比前端旧）一律退化成「未知」，绝不留空白。 */
-export function semanticStatusMeta(v?: string | null): SemanticStatusMeta {
+export function semanticStatusMeta(
+  v?: string | null,
+  failedContext?: SemanticFailedContext,
+): SemanticStatusMeta {
   const hit = v ? STATUS_META[v as SemanticStatus] : undefined;
-  if (hit) return hit;
+  if (hit) {
+    if (v === 'FAILED') {
+      return {
+        ...hit,
+        hint: `${SEMANTIC_FAILED_PREFIX}${semanticFailedVisibilityContext(failedContext)}`,
+      };
+    }
+    return hit;
+  }
   if (!v) {
     return {
       label: '未知',
@@ -173,6 +211,32 @@ export function semanticCoverageOf(c?: {
   return { partial: true, gaps: (c.semanticGaps ?? []).map(semanticGapMeta) };
 }
 
+export type SemanticCoverageDisplay =
+  | { kind: 'PARTIAL'; label: string; gaps: SemanticGapMeta[] }
+  | { kind: 'COMPLETE'; label: string; gaps: [] }
+  | { kind: 'EMPTY'; label: string; gaps: [] }
+  | { kind: 'UNKNOWN'; label: string; gaps: []; raw: string };
+
+/**
+ * coverage 的四种展示结果。null 是「没成功生成过」，未知原值是契约漂移，两者不得互相伪装。
+ */
+export function semanticCoverageDisplayOf(c?: {
+  semanticCoverage?: string | null;
+  semanticGaps?: string[] | null;
+}): SemanticCoverageDisplay {
+  const raw = c?.semanticCoverage;
+  if (raw === 'PARTIAL') {
+    return {
+      kind: 'PARTIAL',
+      label: 'PARTIAL · 不完整',
+      gaps: (c?.semanticGaps ?? []).map(semanticGapMeta),
+    };
+  }
+  if (raw === 'COMPLETE') return { kind: 'COMPLETE', label: 'COMPLETE · 完整', gaps: [] };
+  if (!raw) return { kind: 'EMPTY', label: '尚未成功生成过', gaps: [] };
+  return { kind: 'UNKNOWN', label: `未知覆盖度（${raw}）`, gaps: [], raw };
+}
+
 /**
  * 残缺意味着什么，一句话。列表悬停和抽屉横幅**共用这一句**——
  * 两处各写一份文案，迟早会漂成两种说法，而这句话正是这个标记存在的全部理由。
@@ -200,7 +264,10 @@ const SCOPE_META: Record<SemanticScope, ScopeMeta> = {
     desc: '推导时发现说不准的地方，模型下次遇到会主动问人。有人答了之后它会变成上面的「业务口径」。',
   },
   OBJECT: { label: '表用途', desc: '这张表是干什么的。' },
-  FIELD: { label: '字段含义', desc: '这一列是什么意思。★ 它是被模型当事实读的，错了没有任何地方看得出来。' },
+  FIELD: {
+    label: '字段含义',
+    desc: '这一列是什么意思。★ 它是被模型当事实读的，错了没有任何地方看得出来。',
+  },
   JOIN: {
     label: '表关系',
     desc: '两张表怎么连。★ 标「未经数据验证」的只是按命名推的；标「多态关联 / 复合键」的，join 时必须带上它写明的条件——漏了不报错，只会把数字串了或放大。',
@@ -280,7 +347,9 @@ const SOURCE_META: Record<SemanticSource, TagMeta> = {
 
 export function sourceMeta(v?: string | null): TagMeta {
   const hit = v ? SOURCE_META[v as SemanticSource] : undefined;
-  return hit ?? { label: v ? `未知来源（${v}）` : '来源不明', hint: '本页还不认识这个 source 取值。' };
+  return (
+    hit ?? { label: v ? `未知来源（${v}）` : '来源不明', hint: '本页还不认识这个 source 取值。' }
+  );
 }
 
 export function isHuman(r: ConnectorSemanticRow): boolean {
@@ -291,7 +360,11 @@ const EVIDENCE_META: Record<SemanticEvidence, TagMeta> = {
   COMMENT: { label: '库注释', color: 'blue', hint: '依据是客户库里写的注释。' },
   DATA: { label: '数据采样', color: 'green', hint: '依据是真实数据的取值分布。' },
   NAME: { label: '命名推断', color: 'orange', hint: '依据只有表名/列名的写法，没有别的旁证。' },
-  GUESS: { label: '无依据', color: 'red', hint: '没有任何外部依据。推导时这类行本来会被丢掉，出现在这里要当心。' },
+  GUESS: {
+    label: '无依据',
+    color: 'red',
+    hint: '没有任何外部依据。推导时这类行本来会被丢掉，出现在这里要当心。',
+  },
 };
 
 /**
@@ -522,7 +595,9 @@ const JOIN_KIND_META: Record<Exclude<JoinKind, 'SIMPLE'>, { label: string; hint:
  * JOIN 行的关系形态叫什么、一般意味着什么。非 JOIN、SIMPLE、存量行（没有 join_kind）返回 null。
  * 只要名字、不要条件的地方用它（验证列的悬停说明、分组标题上的计数），不牵扯档位。
  */
-function joinKindMeta(r: ConnectorSemanticRow): { kind: string; label: string; hint: string } | null {
+function joinKindMeta(
+  r: ConnectorSemanticRow,
+): { kind: string; label: string; hint: string } | null {
   if (r.scope !== 'JOIN' || !r.detail) return null;
   const kind = strOf(r.detail.join_kind);
   if (!kind || kind === 'SIMPLE') return null;
@@ -557,7 +632,10 @@ function storedValueWithheld(r: ConnectorSemanticRow, tier: string | null | unde
  *   漏传就会退回「存了就画成模型在用」——正是这里要堵的那种不报错的错。
  * ★ SIMPLE 刻意不画：满屏「普通关联」是纯噪声，会把真正要带条件的那几条淹掉。
  */
-export function joinCare(r: ConnectorSemanticRow, tier: string | null | undefined): JoinCare | null {
+export function joinCare(
+  r: ConnectorSemanticRow,
+  tier: string | null | undefined,
+): JoinCare | null {
   const km = joinKindMeta(r);
   if (!km || !r.detail) return null;
   const d = r.detail;
@@ -591,9 +669,7 @@ export function joinCare(r: ConnectorSemanticRow, tier: string | null | undefine
       hint,
       careReason: storedReason,
       careReasonWithheld: false,
-      condition: columns.length
-        ? { type: 'COMPOSITE', target: strOf(d.to_object), columns }
-        : null,
+      condition: columns.length ? { type: 'COMPOSITE', target: strOf(d.to_object), columns } : null,
     };
   }
   return { label, hint, careReason: storedReason, careReasonWithheld: false, condition: null };
@@ -759,7 +835,8 @@ function measurementText(v: unknown): string | null {
   const lines: string[] = [];
   const outcome = strOf(m.outcome);
   if (outcome) {
-    const label: string | undefined = MEASUREMENT_OUTCOME_LABEL[outcome as TableShapeMeasurementOutcome];
+    const label: string | undefined =
+      MEASUREMENT_OUTCOME_LABEL[outcome as TableShapeMeasurementOutcome];
     lines.push(`结论：${label ?? `未知（${outcome}）`}`);
   }
   const nameCol = strOf(m.name_column);
@@ -835,7 +912,10 @@ export interface DetailEntry {
  * `tier` 是连接的当前档位，必填，理由同 {@link joinCare}：展开详情里存着的判别值和嵌着它的理由，
  * 档位不开放时要标明「不提供给模型」，不能和模型真在用的那几条长得一样。
  */
-export function detailEntries(r: ConnectorSemanticRow, tier: string | null | undefined): DetailEntry[] {
+export function detailEntries(
+  r: ConnectorSemanticRow,
+  tier: string | null | undefined,
+): DetailEntry[] {
   const d = r.detail;
   if (!d) return [];
   // 工具没认下的 table_shape（旧行 / 来源或取值认不出）：原文照实显示，不套形态的中文名（哪怕它恰好写成 KEY_VALUE），
@@ -916,6 +996,347 @@ export function historyEntries(r: ConnectorSemanticRow): SemanticHistoryEntry[] 
     });
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// 工作台纯派生视图：需关注 + 模型可见性
+// ---------------------------------------------------------------------------
+
+export type SemanticAttentionTone = 'danger' | 'warning' | 'info';
+
+export interface SemanticAttentionReason {
+  code: string;
+  label: string;
+  hint: string;
+  tone: SemanticAttentionTone;
+}
+
+/**
+ * 与后端注入器相同的词条归一：去首尾空白后转小写。
+ *
+ * Java 侧使用 Locale.ROOT；JavaScript 的 String#toLowerCase 不受浏览器 locale 影响，
+ * 因此这里不能换成 toLocaleLowerCase（那会在土耳其语环境重新制造 ROI / roi 不匹配）。
+ */
+export function normalizeSemanticTerm(term?: string | null): string {
+  return term?.trim().toLowerCase() ?? '';
+}
+
+/** 本次模型上下文里确实能作为答案注入的 METRIC 词条。 */
+export function answeredSemanticTerms(rows: ConnectorSemanticRow[]): ReadonlySet<string> {
+  const answered = new Set<string>();
+  for (const row of rows) {
+    if (row.scope !== 'METRIC' || row.status === 'STALE') continue;
+    if (!row.gloss?.trim()) continue;
+    const term = normalizeSemanticTerm(row.term);
+    if (term) answered.add(term);
+  }
+  return answered;
+}
+
+/** 已有有效 METRIC 回答时，同名 CAVEAT 仍留库供审计，但不再注入或要求人重复回答。 */
+export function isAnsweredCaveat(
+  row: ConnectorSemanticRow,
+  answeredTerms?: ReadonlySet<string>,
+): boolean {
+  if (row.scope !== 'CAVEAT' || !answeredTerms) return false;
+  const term = normalizeSemanticTerm(row.term);
+  return Boolean(term && answeredTerms.has(term));
+}
+
+/**
+ * 后端契约 K-3 的值域阶段行判据。
+ *
+ * 新行认 origin=value_profile（不看来源）；旧行认 INFERRED + FIELD + DATA，并要求 detail
+ * 带 value_domain。detail 解析失败时后端为防真实取值漏出而保守地也当成值域行；管理端只拿到
+ * 解析后的 detail/null，所以这里同样把 null 往“需要拦截”的方向处理。
+ */
+export function isValueProfileRow(row: ConnectorSemanticRow): boolean {
+  const detail = row.detail;
+  const origin = detail ? strOf(detail.origin) : null;
+  if (origin?.toLowerCase() === 'value_profile') return true;
+
+  const legacyShape =
+    strOf(row.source)?.toUpperCase() === 'INFERRED' &&
+    strOf(row.scope)?.toUpperCase() === 'FIELD' &&
+    strOf(row.evidence)?.toUpperCase() === 'DATA';
+  if (!legacyShape) return false;
+  return (
+    detail === null ||
+    detail === undefined ||
+    Object.prototype.hasOwnProperty.call(detail, 'value_domain')
+  );
+}
+
+/**
+ * 工作台左侧「需关注」是纯前端视图，不是第六种 scope，也不写回后端。
+ *
+ * 所有判断继续落到本文件已有的单一真相源：结构失效走 isStale，复杂关系走 joinCare，
+ * 表形态走 tableShapeOf，验证措辞走 verifiedMeta。组件只消费结果，不再自己拼一套 if/else。
+ */
+export function semanticAttentionReasons(
+  r: ConnectorSemanticRow,
+  tier: string | null | undefined,
+  answeredTerms?: ReadonlySet<string>,
+): SemanticAttentionReason[] {
+  // 后端 ambiguityPayload 会把同名问题整条过滤；“需关注”也必须同步退场，不能继续催人回答。
+  if (isAnsweredCaveat(r, answeredTerms)) return [];
+
+  const reasons: SemanticAttentionReason[] = [];
+  const add = (reason: SemanticAttentionReason) => {
+    if (!reasons.some((item) => item.code === reason.code)) reasons.push(reason);
+  };
+
+  if (!SCOPE_ORDER.includes(r.scope as SemanticScope)) {
+    add({
+      code: 'UNKNOWN_SCOPE',
+      label: '未知分类',
+      hint: scopeMeta(r.scope).desc,
+      tone: 'warning',
+    });
+  }
+  if (r.scope === 'CAVEAT') {
+    add({
+      code: 'CAVEAT',
+      label: '等待业务方回答',
+      hint: scopeMeta('CAVEAT').desc,
+      tone: 'warning',
+    });
+  }
+  if (isStale(r)) {
+    const stale = rowStatusMeta(r.status, r.scope);
+    add({ code: 'STALE', label: stale.label, hint: stale.hint, tone: 'danger' });
+  }
+
+  if (r.verified === 'REJECTED') {
+    const rejected = verifiedMeta(r);
+    add({ code: 'REJECTED', label: rejected.label, hint: rejected.hint, tone: 'danger' });
+  } else if (r.verified === 'WEAK' || r.verified === 'UNDECIDABLE') {
+    const weak = verifiedMeta(r);
+    add({ code: `VERIFIED_${r.verified}`, label: weak.label, hint: weak.hint, tone: 'warning' });
+  } else if (r.scope === 'JOIN' && (r.verified ?? 'NONE') === 'NONE') {
+    const unverified = verifiedMeta(r);
+    add({
+      code: 'JOIN_UNVERIFIED',
+      label: unverified.label,
+      hint: unverified.hint,
+      tone: 'warning',
+    });
+  }
+
+  const care = joinCare(r, tier);
+  if (care && r.verified !== 'REJECTED') {
+    add({ code: 'JOIN_CARE', label: care.label, hint: care.hint, tone: 'warning' });
+    if (care.careReasonWithheld || care.condition?.type === 'DISCRIMINATOR') {
+      const condition = care.condition?.type === 'DISCRIMINATOR' ? care.condition : null;
+      if (condition?.withheldValue !== null || care.careReasonWithheld) {
+        add({
+          code: 'VALUE_WITHHELD',
+          label: '取值当前不给模型',
+          hint: '平台留存着判别值或含取值的原话，但连接当前档位没有开放样本值。',
+          tone: 'warning',
+        });
+      } else if (condition?.valuesAllowed && condition.value === null) {
+        add({
+          code: 'VALUE_MISSING',
+          label: '允许取值但尚未取得',
+          hint: '当前档位允许样本值，但平台没有取得可安全使用的判别值。',
+          tone: 'warning',
+        });
+      }
+    }
+  }
+
+  const shape = tableShapeOf(r);
+  if (shape?.kind === 'SHAPE' && shape.keyValue) {
+    add({
+      code: 'KEY_VALUE_TABLE',
+      label: shape.shape.label,
+      hint: shape.shape.hint,
+      tone: 'danger',
+    });
+  } else if (shape?.kind === 'LEGACY' || shape?.kind === 'UNRECOGNIZED') {
+    add({
+      code: 'SHAPE_NOT_VISIBLE',
+      label: shape.kind === 'LEGACY' ? '旧版表形态' : '未认出的表形态',
+      hint: '平台留存了形态描述，但给模型的工具不提供它。',
+      tone: 'warning',
+    });
+  }
+
+  const source = sourceMeta(r.source);
+  if (!r.source || !['HUMAN', 'IMPORTED', 'INFERRED'].includes(r.source)) {
+    add({ code: 'UNKNOWN_SOURCE', label: source.label, hint: source.hint, tone: 'warning' });
+  }
+  return reasons;
+}
+
+export interface SemanticVisibilityFact {
+  key: string;
+  label: string;
+  value: string;
+}
+
+export interface SemanticModelVisibilityView {
+  /** 连接级状态对本行可见性的补充说明；不替代下面的行级判定。 */
+  connectionContext: string | null;
+  /** 整条断言此刻是否进入模型上下文。 */
+  visible: boolean;
+  /** 整条不进入时的原因；null 表示正常注入。 */
+  hiddenReason: string | null;
+  /** 模型此刻实际读到的内容。 */
+  current: SemanticVisibilityFact[];
+  /** 平台仍留存，但当前工具刻意不提供给模型的内容。 */
+  retained: SemanticVisibilityFact[];
+  /** 当前档位允许取得、但这次没有安全取得的内容。 */
+  allowedMissing: SemanticVisibilityFact[];
+}
+
+export interface SemanticTierVisibilityView {
+  modelVisible: string;
+  retainedHidden: string;
+  hint: string;
+}
+
+/** 连接级档位的常驻说明。具体客户承诺仍优先展示后端下发的 semanticDataTierEgress。 */
+export function semanticTierVisibility(tier?: string | null): SemanticTierVisibilityView {
+  if (tier === 'SAMPLE_VALUES') {
+    return {
+      modelVisible: '元数据、库内派生统计，以及通过敏感信息筛查后取得的样本值',
+      retainedHidden: '没有因档位而隐藏；没取得或没通过筛查的取值仍不会出现',
+      hint: '允许取值不等于已经取得。每一条未取得的判别值会在 Inspector 单独标出。',
+    };
+  }
+  if (tier === 'DERIVED_STATS') {
+    return {
+      modelVisible: '元数据 + 客户库内计算出的派生统计；逐行业务记录不出库',
+      retainedHidden: '平台旧结果里若留有样本值或含取值的原话，此刻不提供给模型',
+      hint: '这是默认档。Inspector 会把“模型此刻读到”和“平台留存但看不到”分开。',
+    };
+  }
+  if (tier === 'METADATA_ONLY') {
+    return {
+      modelVisible: '表名、列名、类型、索引和客户自己写的注释',
+      retainedHidden: '派生统计、样本值，以及平台旧结果里含具体取值的原话',
+      hint: '纯元数据推断关系的代价更高；未经数据验证的 JOIN 会持续标为需关注。',
+    };
+  }
+  return {
+    modelVisible: '档位未知，按不开放样本值处理',
+    retainedHidden: '无法确认的样本值不会提供给模型',
+    hint: '后端返回了本页不认识的档位，请先核对配置。',
+  };
+}
+
+/**
+ * 一条语义在「平台存着」与「模型此刻收到」之间的边界。
+ *
+ * 这不是另一套注入器：关系条件仍从 joinCare 取，表形态仍从 tableShapeOf 取，展开细账仍从
+ * detailEntries 取。这里仅把三者归到工作台的三个可见性口袋里。
+ */
+export function semanticModelVisibility(
+  r: ConnectorSemanticRow,
+  tier: string | null | undefined,
+  connectionStatus?: string | null,
+  failedContext?: SemanticFailedContext,
+  answeredTerms?: ReadonlySet<string>,
+): SemanticModelVisibilityView {
+  let hiddenReason: string | null = null;
+  if (r.status === 'STALE' && r.scope === 'METRIC') {
+    hiddenReason = rowStatusMeta(r.status, r.scope).hint;
+  } else if (r.verified === 'REJECTED') {
+    hiddenReason = verifiedMeta(r).hint;
+  } else if (isAnsweredCaveat(r, answeredTerms)) {
+    hiddenReason = '已有口径回答同名词条；这条待澄清问题仍留作审计，但不再提供给模型。';
+  } else if (isValueProfileRow(r) && !sampleValuesAllowed(tier)) {
+    hiddenReason =
+      '这条字段说明来自值域阶段，只有第 3 档 · 样本值才会提供给模型；当前仅在平台留存。';
+  }
+  const visible = hiddenReason === null;
+  const current: SemanticVisibilityFact[] = [];
+  const retained: SemanticVisibilityFact[] = [];
+  const allowedMissing: SemanticVisibilityFact[] = [];
+  const put = (fact: SemanticVisibilityFact) => (visible ? current : retained).push(fact);
+
+  if (r.gloss) put({ key: 'gloss', label: '说明', value: r.gloss });
+
+  const care = joinCare(r, tier);
+  if (care) {
+    put({
+      key: 'join-care',
+      label: care.label,
+      value: care.careReason ?? care.hint,
+    });
+    const condition = care.condition;
+    if (condition?.type === 'DISCRIMINATOR') {
+      if (condition.value !== null) {
+        put({
+          key: 'join-condition',
+          label: 'join 条件',
+          value: `${condition.column} = ${condition.value}`,
+        });
+      } else if (condition.withheldValue !== null) {
+        retained.push({
+          key: 'withheld-value',
+          label: '判别值（当前档位不提供）',
+          value: `${condition.column} = ${condition.withheldValue}`,
+        });
+      } else if (condition.valuesAllowed) {
+        allowedMissing.push({
+          key: 'missing-value',
+          label: '允许但未取得判别值',
+          value: `${condition.column} 的安全取值尚未取得；模型会被要求先查、拿不准就问人。`,
+        });
+      } else {
+        put({
+          key: 'join-condition-column',
+          label: 'join 条件',
+          value: `需要 ${condition.column} 的类型条件；当前档位不提供具体取值。`,
+        });
+      }
+    } else if (condition?.type === 'COMPOSITE') {
+      put({
+        key: 'join-condition',
+        label: 'join 条件',
+        value: `${condition.target ? `${condition.target} 的 ` : ''}${condition.columns.join(' + ')} 必须全部对上`,
+      });
+    }
+    if (care.careReasonWithheld) {
+      const storedReason = detailEntries(r, tier).find((entry) => entry.key === 'care_reason');
+      if (storedReason) retained.push(storedReason);
+    }
+  }
+
+  const shape = tableShapeOf(r);
+  if (shape?.kind === 'SHAPE') {
+    put({
+      key: 'table-shape',
+      label: '表形态',
+      value: `${shape.shape.label} · ${shape.source.label}`,
+    });
+    if (shape.keyValue) {
+      put({
+        key: 'key-value-care',
+        label: '聚合约束',
+        value: `先按${shape.kvNameColumn ?? '指标名列'}筛出一个指标，再对${shape.kvValueColumn ?? '值列'}聚合。`,
+      });
+    }
+  } else if (shape) {
+    retained.push({
+      key: 'table-shape-retained',
+      label: shape.kind === 'LEGACY' ? '旧版表形态描述' : '未认出的表形态',
+      value: shape.raw,
+    });
+  }
+
+  return {
+    connectionContext:
+      connectionStatus === 'FAILED' ? semanticFailedVisibilityContext(failedContext) : null,
+    visible,
+    hiddenReason,
+    current,
+    retained,
+    allowedMissing,
+  };
 }
 
 /**

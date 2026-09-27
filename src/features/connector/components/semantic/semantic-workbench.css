@@ -1,0 +1,915 @@
+.semantic-page-shell {
+  min-height: 100%;
+  margin: -32px -32px -64px;
+  background: #eef2f5;
+}
+
+.semantic-page-loading,
+.semantic-loading {
+  display: grid;
+  min-height: 360px;
+  place-items: center;
+}
+
+.semantic-detail-refresh-error {
+  margin: 16px 20px 0;
+}
+
+.semantic-workbench {
+  --semantic-ink: #15232d;
+  --semantic-muted: #667884;
+  --semantic-line: #d8e0e5;
+  --semantic-paper: #fbfcfc;
+  --semantic-blue: #245f7a;
+  --semantic-amber: #bd6a1d;
+  min-height: 100%;
+  color: var(--semantic-ink);
+  background:
+    linear-gradient(90deg, rgb(30 67 82 / 0.035) 1px, transparent 1px),
+    linear-gradient(rgb(30 67 82 / 0.035) 1px, transparent 1px), #eef2f5;
+  background-size: 28px 28px;
+}
+
+.semantic-eyebrow,
+.semantic-rail-title {
+  color: #55717f;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.semantic-header {
+  padding: 26px 28px 20px;
+  border-bottom: 1px solid var(--semantic-line);
+  background: rgb(251 252 252 / 0.94);
+}
+
+.semantic-header-topline,
+.semantic-title-wrap,
+.semantic-connector-meta,
+.semantic-band-title,
+.semantic-list-actions,
+.semantic-condition-line,
+.semantic-shape-line,
+.semantic-shape-tags,
+.semantic-trust-tags {
+  display: flex;
+  align-items: center;
+}
+
+.semantic-header-topline {
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.semantic-title-wrap {
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.semantic-back {
+  margin-top: 11px;
+}
+
+.semantic-title-wrap h1 {
+  margin: 3px 0 4px;
+  color: #12232d;
+  font-family: var(--font-display);
+  font-size: clamp(24px, 2.5vw, 34px);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+}
+
+.semantic-connector-meta {
+  flex-wrap: wrap;
+  gap: 7px 14px;
+  color: var(--semantic-muted);
+  font-size: 12px;
+}
+
+.semantic-connector-meta code {
+  padding: 2px 5px;
+  border: 1px solid #d3dde2;
+  border-radius: 3px;
+  background: #f3f6f7;
+  color: #2b4c5a;
+}
+
+.semantic-header-bands {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.semantic-status,
+.semantic-tier {
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--semantic-line);
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.semantic-status-info {
+  border-left-color: #4e7e93;
+}
+
+.semantic-status-success {
+  border-left-color: #2e8061;
+}
+
+.semantic-status-warning {
+  border-left-color: #b67826;
+}
+
+.semantic-status-error {
+  border-left-color: #bb3e3e;
+}
+
+.semantic-tier {
+  border-left-color: #384e67;
+  background: #f5f8fa;
+}
+
+.semantic-band-label {
+  margin-bottom: 6px;
+  color: #6d7d86;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.semantic-band-title {
+  gap: 7px;
+  min-height: 24px;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.semantic-status p,
+.semantic-tier p {
+  margin: 6px 0 0;
+  color: #52636e;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.semantic-status .semantic-status-emphasis {
+  color: #8f3030;
+  font-weight: 600;
+}
+
+.semantic-status .semantic-note {
+  padding-top: 6px;
+  border-top: 1px dashed #dbe1e4;
+  color: #364d59;
+  white-space: pre-wrap;
+}
+
+.semantic-tier-edit {
+  display: inline-flex;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.semantic-tier dl {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 0;
+}
+
+.semantic-tier dl > div {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.semantic-tier dt {
+  color: #2d5263;
+  font-weight: 700;
+}
+
+.semantic-tier dd {
+  margin: 0;
+  color: #62727b;
+}
+
+.semantic-coverage {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 10px;
+  padding: 14px 28px;
+  border-bottom: 1px solid var(--semantic-line);
+  background: #f8fafb;
+}
+
+.semantic-coverage.is-partial {
+  background: #fff8ed;
+}
+
+.semantic-coverage.is-complete .semantic-coverage-mark {
+  color: #28775c;
+}
+
+.semantic-coverage.is-partial .semantic-coverage-mark {
+  color: #b6631d;
+}
+
+.semantic-coverage.is-unknown .semantic-coverage-mark {
+  color: #7e8d95;
+}
+
+.semantic-coverage.is-unrecognized .semantic-coverage-mark {
+  color: #b6631d;
+}
+
+.semantic-coverage-mark {
+  padding-top: 2px;
+  font-size: 18px;
+}
+
+.semantic-coverage-title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.semantic-coverage-title span {
+  color: #72828b;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.semantic-coverage-copy > p {
+  margin: 5px 0 0;
+  color: #53646e;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.semantic-gap-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.semantic-gap-list article {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid #efd8b8;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.72);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.semantic-gap-list article span {
+  color: #6e5b46;
+}
+
+.semantic-load-alert,
+.semantic-error-state {
+  margin: 14px 28px 0;
+}
+
+.semantic-error-state {
+  display: grid;
+  gap: 5px;
+  padding: 22px;
+  border: 1px solid #e2b6b6;
+  border-radius: 6px;
+  background: #fff7f7;
+  color: #8c3434;
+}
+
+.semantic-workbench-grid {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 340px;
+  gap: 14px;
+  align-items: start;
+  padding: 16px 18px 28px;
+}
+
+.semantic-scope-rail,
+.semantic-row-list,
+.semantic-inspector {
+  min-width: 0;
+  border: 1px solid var(--semantic-line);
+  border-radius: 7px;
+  background: var(--semantic-paper);
+  box-shadow: 0 1px 2px rgb(14 39 50 / 0.035);
+}
+
+.semantic-scope-rail {
+  position: sticky;
+  top: 10px;
+  overflow: hidden;
+  padding: 14px 0 8px;
+}
+
+.semantic-rail-title {
+  padding: 0 14px 10px;
+}
+
+.semantic-scope-options {
+  display: grid;
+}
+
+.semantic-scope-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 8px;
+  width: 100%;
+  padding: 10px 13px;
+  border: 0;
+  border-left: 3px solid transparent;
+  background: transparent;
+  color: var(--semantic-ink);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
+}
+
+.semantic-scope-option:hover {
+  background: #f2f6f7;
+}
+
+.semantic-scope-option.is-active {
+  border-left-color: var(--semantic-blue);
+  background: #e9f1f4;
+}
+
+.semantic-scope-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.semantic-scope-count {
+  min-width: 22px;
+  padding: 1px 6px;
+  border: 1px solid #d7e0e4;
+  border-radius: 99px;
+  background: #fff;
+  color: #516671;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-align: center;
+}
+
+.semantic-scope-desc {
+  grid-column: 1 / -1;
+  color: #819098;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.semantic-row-list {
+  overflow: hidden;
+}
+
+.semantic-list-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px 14px;
+  border-bottom: 1px solid var(--semantic-line);
+  background: #f7f9fa;
+}
+
+.semantic-list-head h2,
+.semantic-inspector-head h2 {
+  margin: 2px 0 3px;
+  font-family: var(--font-display);
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+
+.semantic-list-head p,
+.semantic-inspector-head p {
+  max-width: 680px;
+  margin: 0;
+  color: var(--semantic-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.semantic-list-actions {
+  gap: 6px;
+}
+
+.semantic-inspector-trigger {
+  display: none;
+}
+
+.semantic-card-stack {
+  display: grid;
+}
+
+.semantic-row-card {
+  display: grid;
+  grid-template-columns: minmax(135px, 0.28fr) minmax(260px, 1fr);
+  gap: 11px 16px;
+  width: 100%;
+  padding: 16px 18px;
+  border: 0;
+  border-bottom: 1px solid #e5eaed;
+  border-left: 3px solid transparent;
+  background: #fff;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease;
+}
+
+.semantic-row-card:hover {
+  background: #f8fbfc;
+}
+
+.semantic-row-card.is-selected {
+  border-left-color: var(--semantic-blue);
+  background: #f2f8fa;
+}
+
+.semantic-row-card.is-human {
+  background-image: linear-gradient(90deg, rgb(92 55 137 / 0.065), transparent 42%);
+}
+
+.semantic-row-anchor {
+  min-width: 0;
+}
+
+.semantic-row-anchor > code {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 3px 6px;
+  border: 1px solid #cfdbe0;
+  border-radius: 3px;
+  background: #f4f7f8;
+  color: #214c5e;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.semantic-target,
+.semantic-answerer,
+.semantic-muted,
+.semantic-shape-legacy {
+  display: block;
+  margin-top: 5px;
+  color: #7c8b93;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.semantic-shape-line,
+.semantic-shape-tags {
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.semantic-shape-tags .semantic-muted {
+  display: inline;
+  margin: 0;
+}
+
+.semantic-gloss {
+  color: #172a34;
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.semantic-care-note {
+  display: grid;
+  gap: 4px;
+  margin-top: 9px;
+  padding: 8px 10px;
+  border-left: 3px solid #c67826;
+  background: #fff7ea;
+  color: #6c4d2e;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.semantic-condition-line {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.semantic-condition-warning {
+  color: #a45e18;
+  font-weight: 600;
+}
+
+.semantic-attention-tags,
+.semantic-row-trust {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 9px;
+}
+
+.semantic-row-trust {
+  grid-column: 1 / -1;
+  align-items: center;
+  margin-top: 0;
+  padding-top: 10px;
+  border-top: 1px dashed #dfe6e9;
+}
+
+.semantic-row-trust .semantic-answerer {
+  margin: 0 0 0 4px;
+}
+
+.semantic-row-card .ant-tag,
+.semantic-inspector .ant-tag {
+  margin-inline-end: 0;
+  font-size: 10px;
+  line-height: 19px;
+}
+
+.semantic-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding: 13px 16px;
+  border-top: 1px solid var(--semantic-line);
+  background: #f8fafb;
+}
+
+.semantic-inspector-desktop {
+  position: sticky;
+  top: 10px;
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.semantic-inspector {
+  overflow: hidden;
+}
+
+.semantic-inspector-head {
+  padding: 15px 16px;
+  border-bottom: 1px solid var(--semantic-line);
+  background: #172c36;
+  color: #f8fbfc;
+}
+
+.semantic-inspector-head .semantic-eyebrow,
+.semantic-inspector-head p {
+  color: #9fc1cf;
+}
+
+.semantic-inspector-section {
+  padding: 14px 15px;
+  border-bottom: 1px solid var(--semantic-line);
+  background: #fff;
+}
+
+.semantic-inspector-section:last-child {
+  border-bottom: 0;
+}
+
+.semantic-inspector-section h3 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+}
+
+.semantic-inspector-section.is-visible h3 {
+  color: #1d6b50;
+}
+
+.semantic-inspector-section.is-retained h3 {
+  color: #8c631f;
+}
+
+.semantic-inspector-section.is-danger {
+  background: #fff8f7;
+}
+
+.semantic-inspector-section.is-danger h3 {
+  color: #a83232;
+}
+
+.semantic-inspector-section.is-danger p {
+  margin: 0;
+  color: #815050;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.semantic-inspector-section.is-danger .ant-divider {
+  margin: 10px 0;
+}
+
+.semantic-inspector-section.is-danger > .ant-tag {
+  margin-top: 8px;
+}
+
+.semantic-inspector-warning {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 9px;
+  padding: 8px;
+  border: 1px solid #ebc3a0;
+  border-radius: 4px;
+  background: #fff7ed;
+  color: #925518;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.semantic-inspector-context {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 9px;
+  padding: 8px;
+  border: 1px solid #b9d3df;
+  border-radius: 4px;
+  background: #f0f7fa;
+  color: #315f72;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.semantic-inspector-empty {
+  margin: 0;
+  color: #8a979e;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.semantic-inspector-subhead {
+  margin: 10px 0 6px;
+  color: #788790;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.semantic-inspector-subhead:first-of-type {
+  margin-top: 0;
+}
+
+.semantic-fact-list,
+.semantic-detail-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+}
+
+.semantic-fact-list > div,
+.semantic-detail-list > div {
+  padding: 7px 8px;
+  border: 1px solid #e1e7ea;
+  border-radius: 4px;
+  background: #f8fafb;
+}
+
+.semantic-fact-list dt,
+.semantic-detail-list dt {
+  margin-bottom: 2px;
+  color: #75858d;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.semantic-fact-list dd,
+.semantic-detail-list dd {
+  margin: 0;
+  color: #2e434e;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.semantic-trust-tags {
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.semantic-trust-line {
+  margin: 7px 0;
+  color: #5d6f78;
+  font-size: 11px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.semantic-detail-list {
+  margin-top: 10px;
+}
+
+.semantic-history {
+  margin-top: 10px;
+  color: #52656f;
+  font-size: 11px;
+}
+
+.semantic-history ol {
+  display: grid;
+  gap: 6px;
+  margin: 7px 0 0;
+  padding-left: 18px;
+}
+
+.semantic-history li span {
+  display: block;
+  color: #75858d;
+  white-space: pre-wrap;
+}
+
+.semantic-confirm-copy {
+  color: #465761;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.semantic-confirm-copy p:first-child {
+  margin-top: 8px;
+}
+
+.semantic-confirm-copy p:last-child {
+  margin-bottom: 0;
+}
+
+.semantic-inspector-drawer .ant-drawer-body {
+  padding: 12px;
+  background: #eef2f5;
+}
+
+.semantic-inspector-drawer .semantic-inspector {
+  border-radius: 0;
+}
+
+button.semantic-scope-option:focus-visible,
+button.semantic-row-card:focus-visible,
+.semantic-workbench button:focus-visible {
+  outline: 3px solid rgb(36 95 122 / 0.28);
+  outline-offset: -2px;
+}
+
+@media (max-width: 1179px) {
+  .semantic-inspector-drawer .ant-drawer-content-wrapper {
+    width: 100% !important;
+    max-width: 100%;
+  }
+
+  .semantic-workbench-grid {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .semantic-inspector-desktop {
+    display: none;
+  }
+
+  .semantic-inspector-trigger {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 1023px) {
+  .semantic-page-shell {
+    margin: -24px -20px -64px;
+  }
+
+  .semantic-header-bands {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .semantic-workbench-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .semantic-scope-rail {
+    position: sticky;
+    z-index: 4;
+    top: 0;
+    overflow-x: auto;
+    padding: 9px;
+    scrollbar-width: thin;
+  }
+
+  .semantic-rail-title {
+    padding: 0 4px 7px;
+  }
+
+  .semantic-scope-options {
+    display: flex;
+    gap: 5px;
+    min-width: max-content;
+  }
+
+  .semantic-scope-option {
+    grid-template-columns: auto auto;
+    width: 150px;
+    padding: 8px 9px;
+    border: 1px solid var(--semantic-line);
+    border-bottom: 3px solid transparent;
+    border-radius: 5px;
+    background: #fff;
+  }
+
+  .semantic-scope-option.is-active {
+    border-color: #b8cdd7;
+    border-bottom-color: var(--semantic-blue);
+  }
+
+  .semantic-scope-desc {
+    max-width: 130px;
+  }
+}
+
+@media (max-width: 720px) {
+  .semantic-page-shell {
+    margin: -16px -12px -64px;
+  }
+
+  .semantic-header {
+    padding: 20px 16px 16px;
+  }
+
+  .semantic-header-topline,
+  .semantic-list-head {
+    flex-direction: column;
+  }
+
+  .semantic-header-topline > span,
+  .semantic-header-topline > span .ant-btn {
+    width: 100%;
+  }
+
+  .semantic-coverage {
+    padding: 13px 16px;
+  }
+
+  .semantic-workbench-grid {
+    padding: 10px 8px 22px;
+  }
+
+  .semantic-row-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .semantic-row-trust {
+    grid-column: 1;
+  }
+
+  .semantic-list-actions {
+    justify-content: space-between;
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .semantic-workbench *,
+  .semantic-workbench *::before,
+  .semantic-workbench *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
