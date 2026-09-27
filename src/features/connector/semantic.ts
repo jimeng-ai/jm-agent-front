@@ -512,8 +512,8 @@ export function rowAnchor(r: ConnectorSemanticRow): string {
 export function joinTarget(r: ConnectorSemanticRow): string | null {
   const d = r.detail;
   if (!d) return null;
-  const obj = typeof d.to_object === 'string' ? d.to_object.trim() : '';
-  const col = typeof d.to_column === 'string' ? d.to_column.trim() : '';
+  const obj = joinStringOrNull(d.to_object);
+  const col = joinStringOrNull(d.to_column);
   return obj && col ? `${obj}.${col}` : null;
 }
 
@@ -528,6 +528,33 @@ function strOf(v: unknown): string | null {
   if (typeof v === 'number' && Number.isFinite(v)) return String(v);
   if (typeof v !== 'string') return null;
   const s = v.trim();
+  return s ? s : null;
+}
+
+/**
+ * JOIN detail 专用的字符串读取器，与 ConnectorToolExecutor.stringOrNull 同向：非 null 值先按
+ * Java String.valueOf 语义转成字符串再 trim。Jackson 会把 JSON 数组解析为 List、对象解析为
+ * LinkedHashMap；它们的 Java toString 分别是 `[a, b]` / `{k=v}`，不能用 JS 默认的 `a,b` /
+ * `[object Object]` 代替。不要把它扩大到 OBJECT/FIELD；那些投影有自己更严格的契约。
+ */
+function javaDetailString(v: unknown): string {
+  if (Array.isArray(v)) {
+    return `[${v.map((item) => (item === null || item === undefined ? 'null' : javaDetailString(item))).join(', ')}]`;
+  }
+  if (typeof v === 'object') {
+    return `{${Object.entries(v as Record<string, unknown>)
+      .map(
+        ([key, value]) =>
+          `${key}=${value === null || value === undefined ? 'null' : javaDetailString(value)}`,
+      )
+      .join(', ')}}`;
+  }
+  return String(v);
+}
+
+function joinStringOrNull(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  const s = javaDetailString(v).trim();
   return s ? s : null;
 }
 
@@ -621,7 +648,7 @@ function joinKindMeta(
   r: ConnectorSemanticRow,
 ): { kind: string; label: string; hint: string } | null {
   if (r.scope !== 'JOIN' || !r.detail) return null;
-  const rawKind = strOf(r.detail.join_kind);
+  const rawKind = joinStringOrNull(r.detail.join_kind);
   const kind = rawKind?.toUpperCase() ?? 'SIMPLE';
   if (kind === 'SIMPLE') {
     if (normalizeSemanticVerified(r.verified) !== 'WEAK') return null;
@@ -655,16 +682,22 @@ function storedValueWithheld(r: ConnectorSemanticRow, tier: string | null | unde
   const storedCareMayHoldValues =
     probeMayHaveRun || Object.prototype.hasOwnProperty.call(r.detail, 'discriminator_value');
   return (
-    strOf(r.detail.join_kind)?.toUpperCase() === 'POLYMORPHIC' &&
+    joinStringOrNull(r.detail.join_kind)?.toUpperCase() === 'POLYMORPHIC' &&
     storedCareMayHoldValues &&
     !sampleValuesAllowed(tier)
   );
 }
 
 function lenientStringListOf(v: unknown): string[] {
-  const single = strOf(v);
-  if (single !== null) return [single];
-  return strListOf(v);
+  if (typeof v === 'string') {
+    const single = joinStringOrNull(v);
+    return single === null ? [] : [single];
+  }
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((item) => {
+    const value = joinStringOrNull(item);
+    return value === null ? [] : [value];
+  });
 }
 
 function compositeFromCareReason(
@@ -696,7 +729,11 @@ function compositeColumnsOf(
   if (kind !== 'POLYMORPHIC' && kind !== 'COMPOSITE') return null;
   const stored = lenientStringListOf(detail.composite_columns);
   if (stored.length > 0) return stored;
-  const fromReason = compositeFromCareReason(strOf(detail.care_reason), toObject, toColumn);
+  const fromReason = compositeFromCareReason(
+    joinStringOrNull(detail.care_reason),
+    toObject,
+    toColumn,
+  );
   if (fromReason !== null) return fromReason;
   return kind === 'COMPOSITE' ? [] : null;
 }
@@ -775,9 +812,9 @@ function polymorphicCondition(
   confirmed: boolean,
 ): string {
   const from = fromColumn ?? '这一列';
-  const discriminatorColumn = strOf(detail.discriminator_column);
+  const discriminatorColumn = joinStringOrNull(detail.discriminator_column);
   const discriminatorValue =
-    discriminatorColumn && valuesAllowed ? strOf(detail.discriminator_value) : null;
+    discriminatorColumn && valuesAllowed ? joinStringOrNull(detail.discriminator_value) : null;
   if (discriminatorValue !== null) {
     return (
       `必须同时加上 ${discriminatorColumn} = ${sqlLiteral(discriminatorValue)} 条件。只按 ${from} ` +
@@ -822,14 +859,18 @@ export function joinCare(
   r: ConnectorSemanticRow,
   tier: string | null | undefined,
 ): JoinCare | null {
+  // care_reason / condition 只存在于 relationPayload 已接纳的关系里。卡片和 Inspector 共用本函数，
+  // 所以入口闸必须也放在这里：否则 REJECTED、未知 verified 或残缺端点虽然不进模型，卡片仍会把
+  // 原始 care_reason / discriminator_value 画成“模型当前能读到”。
+  if (r.scope !== 'JOIN' || joinInjectionDecision(r).hiddenReason) return null;
   const km = joinKindMeta(r);
   if (!km || !r.detail) return null;
   const d = r.detail;
   const { label, hint } = km;
-  const storedReason = strOf(d.care_reason);
-  const toObject = strOf(d.to_object) ?? '目标表';
-  const toColumn = strOf(d.to_column) ?? '目标列';
-  const fromColumn = strOf(r.fieldName);
+  const storedReason = joinStringOrNull(d.care_reason);
+  const toObject = joinStringOrNull(d.to_object) ?? '目标表';
+  const toColumn = joinStringOrNull(d.to_column) ?? '目标列';
+  const fromColumn = joinStringOrNull(r.fieldName);
   const verified = normalizeSemanticVerified(r.verified);
   const confirmed = verified === 'CONFIRMED';
   const composite = compositeColumnsOf(d, km.kind, toObject, toColumn);
@@ -849,14 +890,15 @@ export function joinCare(
     };
   }
   if (km.kind === 'POLYMORPHIC') {
-    const column = strOf(d.discriminator_column);
-    const stored = strOf(d.discriminator_value);
+    const column = joinStringOrNull(d.discriminator_column);
+    const stored = joinStringOrNull(d.discriminator_value);
     const allowed = sampleValuesAllowed(tier);
     const withheld = storedValueWithheld(r, tier);
     const genericReason = confirmed
       ? '多态外键：这一列按另一列的类型取值指向不同的表。包含率只能说明这个 id 在对面存在，说明不了连上的是不是同一类行'
       : '疑似多态外键：这一列指向哪张表可能由另一列的类型取值决定，平台没有确认——那一列也可能只是分类列，每个取值都指向同一张表。包含率只能说明这个 id 在对面存在，说明不了连上的是不是同一类行';
-    const baseReason = storedReason && !withheld ? storedReason : genericReason;
+    const storedReasonVisible = storedReason !== null && !withheld;
+    const baseReason = storedReasonVisible ? storedReason : genericReason;
     const modelCondition = polymorphicCondition(fromColumn, d, toObject, allowed, confirmed);
     const fullCondition =
       composite === null
@@ -865,8 +907,9 @@ export function joinCare(
     return {
       label,
       hint,
-      careReason:
-        composite === null
+      careReason: storedReasonVisible
+        ? baseReason
+        : composite === null
           ? baseReason
           : `${baseReason}。另外，${compositeCare(composite, toObject, toColumn)}`,
       modelCondition: fullCondition,
@@ -899,7 +942,7 @@ export function joinCare(
       modelCondition: compositeCondition(fromColumn, columns, toObject, toColumn),
       conditionSummary: `平台只确认 ${fromColumn ?? '本表这一列'} → ${toObject}.${toColumn}；先核目标列是否一行一个，勿按同名列补条件。`,
       careReasonWithheld: false,
-      condition: { type: 'COMPOSITE', target: strOf(d.to_object), columns },
+      condition: { type: 'COMPOSITE', target: joinStringOrNull(d.to_object), columns },
     };
   }
   return {
@@ -1493,8 +1536,8 @@ interface JoinInjectionDecision {
 function joinInjectionDecision(r: ConnectorSemanticRow): JoinInjectionDecision {
   const rawVerified = r.verified;
   const verified = normalizeSemanticVerified(rawVerified);
-  const toObject = strOf(r.detail?.to_object);
-  const toColumn = strOf(r.detail?.to_column);
+  const toObject = joinStringOrNull(r.detail?.to_object);
+  const toColumn = joinStringOrNull(r.detail?.to_column);
   let hiddenReason: string | null = null;
 
   if (verified === null) {
@@ -1508,6 +1551,213 @@ function joinInjectionDecision(r: ConnectorSemanticRow): JoinInjectionDecision {
     hiddenReason = `关系端点不完整：缺少 ${missing}；后端不会拿残缺端点拼 JOIN。`;
   }
   return { verified, toObject, toColumn, hiddenReason };
+}
+
+/** 与 ConnectorToolExecutor.joinKind 相同：旧行缺省为 SIMPLE，未知值只转大写、不擅自降级。 */
+function joinKindOf(detail: Record<string, unknown>): string {
+  return joinStringOrNull(detail.join_kind)?.toUpperCase() ?? 'SIMPLE';
+}
+
+/** 与 ConnectorToolExecutor.joinBasis 的 evidence 分支逐字一致；source=HUMAN 不改变模型收到的依据。 */
+function joinEvidenceSentence(evidence: unknown): string {
+  if (evidence === 'COMMENT') return '客户库自己的注释';
+  if (evidence === 'DATA') return '库里的数据';
+  if (evidence === 'NAME') return '列名本身';
+  return '常识推测，没有外部依据';
+}
+
+function undecidableWhy(detail: Record<string, unknown>): string {
+  return joinStringOrNull(detail.verify_note) ?? '样本不足或探查未能完成';
+}
+
+/** 可靠单列关系进入 joins 时，basis 中实际携带的验证结论与动作。 */
+function reliableVerificationSentence(
+  verified: SemanticVerified,
+  detail: Record<string, unknown>,
+): string {
+  const measured = measuredSentence(detail);
+  const suffix = measured === null ? '' : `（${measured}）`;
+  if (verified === 'CONFIRMED') {
+    return `已用真实数据采样验证通过${suffix}，可以直接使用，不必再为它单跑一次 COUNT 自验`;
+  }
+  if (verified === 'UNDECIDABLE') {
+    return (
+      `已经用真实数据查过了，但判不出来（${undecidableWhy(detail)}）。` +
+      '这不等于这条关系不成立，只是这次没能判定；依赖它之前先自己跑一条 COUNT 核一次'
+    );
+  }
+  return '未经数据验证，依赖它之前先跑一条 COUNT 自验';
+}
+
+/** 不可靠关系进入 unreliable_relations 时，basis 只陈述验证事实，动作由 condition 承担。 */
+function unreliableVerificationSentence(
+  verified: SemanticVerified,
+  detail: Record<string, unknown>,
+): string {
+  const measured = measuredSentence(detail);
+  const suffix = measured === null ? '' : `（${measured}）`;
+  if (verified === 'CONFIRMED') {
+    return (
+      `已用真实数据采样验证，取值基本都能在对面找到${suffix}。` +
+      '但包含率只说明这些取值在对面存在，说明不了连上的是不是对的那一行'
+    );
+  }
+  if (verified === 'WEAK') {
+    return `已用真实数据采样验证，但只有一部分取值能在对面找到${suffix}`;
+  }
+  if (verified === 'UNDECIDABLE') {
+    return `已经用真实数据查过，但判不出来（${undecidableWhy(detail)}）`;
+  }
+  return '没有用数据验证过';
+}
+
+function joinBasis(
+  r: ConnectorSemanticRow,
+  detail: Record<string, unknown>,
+  verified: SemanticVerified,
+  reliable: boolean,
+): string {
+  const verification = reliable
+    ? reliableVerificationSentence(verified, detail)
+    : unreliableVerificationSentence(verified, detail);
+  return `依据：${joinEvidenceSentence(r.evidence)}；${verification}`;
+}
+
+/** 与 ConnectorToolExecutor.fanoutWarning 的优先级和措辞逐字一致。 */
+function fanoutWarning(autoJoinable: boolean | null, cardinality: string | null): string | null {
+  if (cardinality === 'N:N') {
+    return (
+      '两侧都不唯一（N:N）：直接 join 会让左表的一行匹配到右表的多行，行数成倍放大，' +
+      'SUM / COUNT 出来的数会凭空变大而且不会报错。只把它当线索，不要直接 join；' +
+      '确实要用就先在一侧按连接键聚合或去重，再连。'
+    );
+  }
+  if (cardinality === '1:N') {
+    return (
+      '右侧不是唯一键（1:N）：左表一行会匹配到右表多行，join 之后行数被放大，' +
+      '再做 SUM / AVG 就会算错而且不报错。先在右表上按连接键聚合，再拿聚合结果去 join。'
+    );
+  }
+  if (autoJoinable === false) {
+    return (
+      '平台没能确认右侧这一列是唯一的：一行可能匹配到多行，join 会放大行数，' +
+      'SUM / COUNT 会跟着变大而不报错。动手前先用 COUNT 对一下 join 前后的行数。'
+    );
+  }
+  return null;
+}
+
+const JOIN_STALE_NOTE =
+  '结构已变，这条说明可能过时——请以本次返回的 type / comment 为准，不要直接采信它';
+
+interface JoinPayloadProjection {
+  facts: SemanticVisibilityFact[];
+  care: JoinCare | null;
+}
+
+/**
+ * 把一条已通过入口闸的 JOIN 按 relationPayload 的字段顺序投影出来。
+ * 这里不追加摘要或解释；Inspector 的「模型此刻读到」必须能与真实 JSON payload 一项项对上。
+ */
+function joinPayloadProjection(
+  r: ConnectorSemanticRow,
+  tier: string | null | undefined,
+  decision: JoinInjectionDecision,
+): JoinPayloadProjection {
+  const detail = r.detail;
+  if (!detail || !decision.toObject || !decision.toColumn || !decision.verified) {
+    return { facts: [], care: null };
+  }
+
+  const kind = joinKindOf(detail);
+  const reliable = kind === 'SIMPLE' && decision.verified !== 'WEAK';
+  const care = reliable ? null : joinCare(r, tier);
+  const facts: SemanticVisibilityFact[] = [
+    {
+      key: 'join-column',
+      label: '本表列（column）',
+      value: r.fieldName === null || r.fieldName === undefined ? 'null' : String(r.fieldName),
+    },
+    { key: 'join-to-object', label: '目标表（to_object）', value: decision.toObject },
+    { key: 'join-to-column', label: '目标列（to_column）', value: decision.toColumn },
+  ];
+
+  if (!reliable && care) {
+    facts.push(
+      { key: 'join-kind', label: '关系形态（join_kind）', value: kind },
+      { key: 'join-care', label: '需当心理由（care_reason）', value: care.careReason },
+      { key: 'join-condition', label: '使用条件（condition）', value: care.modelCondition },
+    );
+    if (kind === 'POLYMORPHIC') {
+      const discriminatorColumn = joinStringOrNull(detail.discriminator_column);
+      if (discriminatorColumn) {
+        facts.push({
+          key: 'join-discriminator-column',
+          label: '判别列（discriminator_column）',
+          value: discriminatorColumn,
+        });
+        const discriminatorValue = sampleValuesAllowed(tier)
+          ? joinStringOrNull(detail.discriminator_value)
+          : null;
+        if (discriminatorValue) {
+          facts.push({
+            key: 'join-discriminator-value',
+            label: '判别值（discriminator_value）',
+            value: discriminatorValue,
+          });
+        }
+      }
+    } else if (kind === 'COMPOSITE') {
+      const columns = lenientStringListOf(detail.composite_columns);
+      if (columns.length > 0) {
+        facts.push({
+          key: 'join-composite-columns',
+          label: '复合键列（composite_columns）',
+          value: JSON.stringify(columns),
+        });
+      }
+    }
+  }
+
+  const cardinality = joinStringOrNull(detail.cardinality);
+  if (cardinality) {
+    facts.push({ key: 'join-cardinality', label: '基数（cardinality）', value: cardinality });
+  }
+  const autoJoinable = booleanOf(detail.auto_joinable);
+  if (autoJoinable !== null) {
+    facts.push({
+      key: 'join-auto-joinable',
+      label: '可自动 JOIN（auto_joinable）',
+      value: String(autoJoinable),
+    });
+  }
+  if (r.confidence !== null && r.confidence !== undefined) {
+    facts.push({
+      key: 'join-confidence',
+      label: '置信度（confidence）',
+      value: String(r.confidence),
+    });
+  }
+  if (r.verified !== null && r.verified !== undefined && String(r.verified).trim() !== '') {
+    facts.push({
+      key: 'join-verified',
+      label: '验证结论（verified）',
+      value: decision.verified,
+    });
+  }
+  facts.push({
+    key: 'join-basis',
+    label: '依据（basis）',
+    value: joinBasis(r, detail, decision.verified, reliable),
+  });
+  const warning = fanoutWarning(autoJoinable, cardinality);
+  if (warning) {
+    facts.push({ key: 'join-fanout-warning', label: '风险（fanout_warning）', value: warning });
+  }
+  if (r.status === 'STALE') {
+    facts.push({ key: 'join-stale-note', label: '结构漂移（stale_note）', value: JOIN_STALE_NOTE });
+  }
+  return { facts, care };
 }
 
 function valueDomainFragment(r: ConnectorSemanticRow): Record<string, unknown> | null {
@@ -1624,6 +1874,7 @@ export function semanticModelVisibility(
   const retained: SemanticVisibilityFact[] = [];
   const allowedMissing: SemanticVisibilityFact[] = [];
   const put = (fact: SemanticVisibilityFact) => (visible ? current : retained).push(fact);
+  let projectedJoinCare: JoinCare | null = null;
 
   if (r.scope === 'JOIN') {
     if (r.gloss) {
@@ -1659,60 +1910,19 @@ export function semanticModelVisibility(
           ? 'NONE'
           : String(r.verified),
       });
-    } else if (joinDecision?.toObject && joinDecision.toColumn && joinDecision.verified) {
-      current.push({
-        key: 'join-endpoint',
-        label: '关系端点',
-        value: `${r.objectName || '—'}.${r.fieldName || '—'} → ${joinDecision.toObject}.${joinDecision.toColumn}`,
-      });
-      current.push({
-        key: 'join-verified',
-        label: '验证结论',
-        value: joinDecision.verified,
-      });
-      const cardinality = strOf(r.detail?.cardinality);
-      if (cardinality) current.push({ key: 'join-cardinality', label: '基数', value: cardinality });
-      const autoJoinable = booleanOf(r.detail?.auto_joinable);
-      if (autoJoinable !== null) {
-        current.push({
-          key: 'join-auto-joinable',
-          label: '目标端唯一性',
-          value: autoJoinable ? '已确认可直接 join' : '未确认唯一，直接 join 可能放大行数',
-        });
-      }
-      const confidence = confidenceOf(r);
-      if (confidence !== null) {
-        current.push({ key: 'join-confidence', label: '置信度', value: String(confidence) });
-      }
-      current.push({
-        key: 'join-basis',
-        label: '依据',
-        value: `${evidenceMeta(r).label}；${verifiedMeta(r).label}`,
-      });
-      if (r.status === 'STALE') {
-        current.push({
-          key: 'join-stale-note',
-          label: '结构漂移',
-          value: '结构已变；模型会被要求以本次实时结构为准。',
-        });
-      }
+    } else if (joinDecision) {
+      const projection = joinPayloadProjection(r, tier, joinDecision);
+      current.push(...projection.facts);
+      projectedJoinCare = projection.care;
     }
   } else if (r.gloss) {
     put({ key: 'gloss', label: '说明', value: r.gloss });
   }
 
-  const care = joinCare(r, tier);
+  // 这里只有给管理员看的留存/缺失信息；真实 care_reason / condition 已按 payload 顺序投影进 current。
+  // 未通过入口闸的关系绝不调用 joinCare，避免把畸形行的 care_reason 或判别值侧漏进 retained。
+  const care = projectedJoinCare;
   if (care) {
-    put({
-      key: 'join-care',
-      label: care.label,
-      value: care.careReason,
-    });
-    put({
-      key: 'join-condition',
-      label: '使用条件（真实注入）',
-      value: care.modelCondition,
-    });
     const condition = care.condition;
     if (condition?.type === 'DISCRIMINATOR') {
       if (condition.withheldValue !== null) {

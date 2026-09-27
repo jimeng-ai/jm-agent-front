@@ -166,6 +166,126 @@ const semanticRows = [
     },
   },
   {
+    id: 'semantic-join-human-none',
+    scope: 'JOIN',
+    objectName: 'orders',
+    fieldName: 'owner_id',
+    gloss: '人工补充的关系说明只留库',
+    source: 'HUMAN',
+    evidence: 'GUESS',
+    verified: 'NONE',
+    status: 'CONFIRMED',
+    detail: { to_object: 'users', to_column: 'id' },
+  },
+  {
+    id: 'semantic-join-undecidable',
+    scope: 'JOIN',
+    objectName: 'orders',
+    fieldName: 'campaign_id',
+    gloss: '探查过但样本不足的关系',
+    source: 'INFERRED',
+    evidence: 'DATA',
+    verified: 'UNDECIDABLE',
+    status: 'CONFIRMED',
+    detail: {
+      to_object: 'campaigns',
+      to_column: 'id',
+      verify_note: '目标表样本太少',
+    },
+  },
+  {
+    id: 'semantic-join-one-many',
+    scope: 'JOIN',
+    objectName: 'orders',
+    fieldName: 'campaign_code',
+    gloss: '右侧一对多关系',
+    source: 'INFERRED',
+    evidence: 'COMMENT',
+    confidence: '88',
+    verified: 'CONFIRMED',
+    status: 'CONFIRMED',
+    detail: {
+      to_object: 'campaign_events',
+      to_column: 'campaign_code',
+      cardinality: '1:N',
+      auto_joinable: true,
+      sample_n: '100',
+      match_n: '100',
+      containment: '1',
+    },
+  },
+  {
+    id: 'semantic-join-many-many',
+    scope: 'JOIN',
+    objectName: 'orders',
+    fieldName: 'tag_code',
+    gloss: '两侧多对多关系',
+    source: 'INFERRED',
+    evidence: 'NAME',
+    verified: 'NONE',
+    status: 'CONFIRMED',
+    detail: {
+      to_object: 'tag_links',
+      to_column: 'tag_code',
+      cardinality: 'N:N',
+    },
+  },
+  {
+    id: 'semantic-join-not-unique',
+    scope: 'JOIN',
+    objectName: 'orders',
+    fieldName: 'external_ref',
+    gloss: '目标列唯一性未确认的关系',
+    source: 'INFERRED',
+    evidence: 'DATA',
+    verified: 'CONFIRMED',
+    status: 'CONFIRMED',
+    detail: {
+      to_object: 'external_records',
+      to_column: 'ref',
+      cardinality: 'N:1',
+      auto_joinable: false,
+    },
+  },
+  {
+    id: 'semantic-join-poly-composite-stored-care',
+    scope: 'JOIN',
+    objectName: 'orders',
+    fieldName: 'entity_id',
+    gloss: '多态复合关系的原始提醒必须原样投影',
+    source: 'INFERRED',
+    evidence: 'DATA',
+    verified: 'CONFIRMED',
+    status: 'CONFIRMED',
+    detail: {
+      to_object: 'entities',
+      to_column: 'id',
+      join_kind: 'POLYMORPHIC',
+      discriminator_column: 'entity_type',
+      discriminator_value: [],
+      composite_columns: ['id', 'partition_at'],
+      care_reason: 'fixture 原样 care：已包含复合键提醒，不得再次拼接',
+    },
+  },
+  {
+    id: 'semantic-join-primitive-detail',
+    scope: 'JOIN',
+    objectName: 'orders',
+    fieldName: 'primitive_target_id',
+    gloss: 'detail primitive 按后端 String.valueOf 投影',
+    source: 'INFERRED',
+    evidence: 'DATA',
+    verified: 'UNDECIDABLE',
+    status: 'CONFIRMED',
+    detail: {
+      to_object: true,
+      to_column: [],
+      join_kind: { future: 'kind' },
+      cardinality: ['1', 'N'],
+      verify_note: { reason: 'too_small' },
+    },
+  },
+  {
     id: 'semantic-join-rejected-lowercase',
     scope: 'JOIN',
     objectName: 'orders',
@@ -175,7 +295,14 @@ const semanticRows = [
     evidence: 'DATA',
     verified: 'rejected',
     status: 'CONFIRMED',
-    detail: { to_object: 'customers', to_column: 'id' },
+    detail: {
+      to_object: 'customers',
+      to_column: 'id',
+      join_kind: 'POLYMORPHIC',
+      discriminator_column: 'customer_type',
+      discriminator_value: 'REJECTED_JOIN_SECRET',
+      care_reason: 'REJECTED_CARE_SECRET',
+    },
   },
   {
     id: 'semantic-join-unknown-verified',
@@ -187,7 +314,14 @@ const semanticRows = [
     evidence: 'DATA',
     verified: 'FUTURE_VERDICT',
     status: 'CONFIRMED',
-    detail: { to_object: 'customers', to_column: 'id' },
+    detail: {
+      to_object: 'customers',
+      to_column: 'id',
+      join_kind: 'POLYMORPHIC',
+      discriminator_column: 'customer_type',
+      discriminator_value: 'UNKNOWN_JOIN_SECRET',
+      care_reason: 'UNKNOWN_CARE_SECRET',
+    },
   },
   {
     id: 'semantic-join-missing-endpoint',
@@ -199,7 +333,13 @@ const semanticRows = [
     evidence: 'NAME',
     verified: 'NONE',
     status: 'DRAFT',
-    detail: { to_object: 'customers' },
+    detail: {
+      to_object: 'customers',
+      join_kind: 'POLYMORPHIC',
+      discriminator_column: 'customer_type',
+      discriminator_value: 'MALFORMED_JOIN_SECRET',
+      care_reason: 'MALFORMED_CARE_SECRET',
+    },
   },
   {
     id: 'semantic-join-probed-secret',
@@ -663,17 +803,139 @@ export default async function run() {
       (await liveInspector.locator('.semantic-inspector-section.is-retained').textContent()) ?? '';
     r.ok(
       '合法 JOIN 规范化 verified 并只展示 structured relation facts',
-      ['关系端点orders.customer_id → customers.id', '验证结论CONFIRMED', '基数N:1'].every(
-        (label) => validJoinCurrent.includes(label),
-      ) &&
+      [
+        '本表列（column）customer_id',
+        '目标表（to_object）customers',
+        '目标列（to_column）id',
+        '验证结论（verified）CONFIRMED',
+        '基数（cardinality）N:1',
+        '可自动 JOIN（auto_joinable）true',
+        '依据（basis）依据：库里的数据；已用真实数据采样验证通过，可以直接使用，不必再为它单跑一次 COUNT 自验',
+      ].every((label) => validJoinCurrent.includes(label)) &&
         !validJoinCurrent.includes('这句 relation gloss') &&
         validJoinRetained.includes('这句 relation gloss'),
       `${validJoinCurrent} | ${validJoinRetained}`,
     );
 
+    const humanJoinCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: '人工补充的关系说明只留库' });
+    await humanJoinCard.click();
+    const humanJoinCurrent =
+      (await liveInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+    r.ok(
+      'HUMAN JOIN 的 basis 只按后端 evidence=GUESS 投影，不改写成人工依据',
+      humanJoinCurrent.includes('验证结论（verified）NONE') &&
+        humanJoinCurrent.includes(
+          '依据（basis）依据：常识推测，没有外部依据；未经数据验证，依赖它之前先跑一条 COUNT 自验',
+        ) &&
+        !humanJoinCurrent.includes('人给的定义'),
+      humanJoinCurrent,
+    );
+
+    const undecidableJoinCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: '探查过但样本不足的关系' });
+    await undecidableJoinCard.click();
+    const undecidableJoinCurrent =
+      (await liveInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+    r.ok(
+      'UNDECIDABLE JOIN 投影后端已探查但判不出与 COUNT action',
+      undecidableJoinCurrent.includes('验证结论（verified）UNDECIDABLE') &&
+        undecidableJoinCurrent.includes(
+          '已经用真实数据查过了，但判不出来（目标表样本太少）。这不等于这条关系不成立，只是这次没能判定；依赖它之前先自己跑一条 COUNT 核一次',
+        ),
+      undecidableJoinCurrent,
+    );
+
+    const oneManyJoinCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: '右侧一对多关系' });
+    await oneManyJoinCard.click();
+    const oneManyJoinCurrent =
+      (await liveInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+    r.ok(
+      '1:N JOIN 投影 measured basis 与先聚合再 join 的 fanout_warning',
+      oneManyJoinCurrent.includes(
+        '依据：客户库自己的注释；已用真实数据采样验证通过（采样 100 个取值，命中 100（包含率 100.0%）），可以直接使用，不必再为它单跑一次 COUNT 自验',
+      ) &&
+        oneManyJoinCurrent.includes('风险（fanout_warning）右侧不是唯一键（1:N）') &&
+        oneManyJoinCurrent.includes('先在右表上按连接键聚合，再拿聚合结果去 join'),
+      oneManyJoinCurrent,
+    );
+
+    const manyManyJoinCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: '两侧多对多关系' });
+    await manyManyJoinCard.click();
+    const manyManyJoinCurrent =
+      (await liveInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+    r.ok(
+      'N:N JOIN 投影禁止直接 join 与先聚合/去重指令',
+      manyManyJoinCurrent.includes('依据：列名本身；未经数据验证，依赖它之前先跑一条 COUNT 自验') &&
+        manyManyJoinCurrent.includes('风险（fanout_warning）两侧都不唯一（N:N）') &&
+        manyManyJoinCurrent.includes('只把它当线索，不要直接 join') &&
+        manyManyJoinCurrent.includes('先在一侧按连接键聚合或去重，再连'),
+      manyManyJoinCurrent,
+    );
+
+    const notUniqueJoinCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: '目标列唯一性未确认的关系' });
+    await notUniqueJoinCard.click();
+    const notUniqueJoinCurrent =
+      (await liveInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+    r.ok(
+      'auto_joinable=false JOIN 投影 COUNT 对账 fanout_warning',
+      notUniqueJoinCurrent.includes('可自动 JOIN（auto_joinable）false') &&
+        notUniqueJoinCurrent.includes('平台没能确认右侧这一列是唯一的') &&
+        notUniqueJoinCurrent.includes('动手前先用 COUNT 对一下 join 前后的行数'),
+      notUniqueJoinCurrent,
+    );
+
+    const storedCareJoinCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: '多态复合关系的原始提醒必须原样投影' });
+    await storedCareJoinCard.click();
+    const storedCareJoinCurrent = liveInspector.locator(
+      '.semantic-inspector-section.is-visible',
+    );
+    const storedCareValue =
+      (await storedCareJoinCurrent
+        .locator('.semantic-fact-list > div')
+        .filter({ hasText: '需当心理由（care_reason）' })
+        .locator('dd')
+        .textContent()) ?? '';
+    const storedCareJoinCurrentText = (await storedCareJoinCurrent.textContent()) ?? '';
+    r.ok(
+      'POLYMORPHIC + composite 的 stored care 在 tier3 原样投影且容器判别值字符串化',
+      storedCareValue === 'fixture 原样 care：已包含复合键提醒，不得再次拼接' &&
+        storedCareJoinCurrentText.includes('判别值（discriminator_value）[]') &&
+        storedCareJoinCurrentText.includes("必须同时加上 entity_type = '[]' 条件") &&
+        storedCareJoinCurrentText.includes('另外，entities.id 只是组合唯一键'),
+      `${storedCareValue} | ${storedCareJoinCurrentText}`,
+    );
+
+    const primitiveJoinCard = page
+      .locator('button.semantic-row-card')
+      .filter({ hasText: 'detail primitive 按后端 String.valueOf 投影' });
+    await primitiveJoinCard.click();
+    const primitiveJoinCurrent =
+      (await liveInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
+    r.ok(
+      'JOIN detail 非字符串值与后端 stringOrNull / joinKind 一致',
+      primitiveJoinCurrent.includes('目标表（to_object）true') &&
+        primitiveJoinCurrent.includes('目标列（to_column）[]') &&
+        primitiveJoinCurrent.includes('关系形态（join_kind）{FUTURE=KIND}') &&
+        primitiveJoinCurrent.includes('基数（cardinality）[1, N]') &&
+        primitiveJoinCurrent.includes('已经用真实数据查过，但判不出来（{reason=too_small}）'),
+      primitiveJoinCurrent,
+    );
+
     const rejectedJoinCard = page
       .locator('button.semantic-row-card')
       .filter({ hasText: 'lowercase rejected' });
+    const rejectedJoinCardText = (await rejectedJoinCard.textContent()) ?? '';
     await rejectedJoinCard.click();
     const rejectedJoinCurrent =
       (await liveInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
@@ -683,13 +945,18 @@ export default async function run() {
       'lowercase rejected JOIN 按后端归一后整条 withheld',
       !rejectedJoinCurrent.includes('customers.id') &&
         rejectedJoinRetained.includes('lowercase rejected') &&
-        rejectedJoinRetained.includes('REJECTED'),
+        rejectedJoinRetained.includes('REJECTED') &&
+        !rejectedJoinCardText.includes('REJECTED_JOIN_SECRET') &&
+        !rejectedJoinCardText.includes('REJECTED_CARE_SECRET') &&
+        !`${rejectedJoinCurrent} ${rejectedJoinRetained}`.includes('REJECTED_JOIN_SECRET') &&
+        !`${rejectedJoinCurrent} ${rejectedJoinRetained}`.includes('REJECTED_CARE_SECRET'),
       `${rejectedJoinCurrent} | ${rejectedJoinRetained}`,
     );
 
     const unknownJoinCard = page
       .locator('button.semantic-row-card')
       .filter({ hasText: '未知验证枚举' });
+    const unknownJoinCardText = (await unknownJoinCard.textContent()) ?? '';
     await unknownJoinCard.click();
     const unknownJoinCurrent =
       (await liveInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
@@ -699,13 +966,18 @@ export default async function run() {
       '未知 verified JOIN fail-closed 并解释 retained 原因',
       !unknownJoinCurrent.includes('customers.id') &&
         unknownJoinRetained.includes('FUTURE_VERDICT') &&
-        unknownJoinRetained.includes('未识别'),
+        unknownJoinRetained.includes('未识别') &&
+        !unknownJoinCardText.includes('UNKNOWN_JOIN_SECRET') &&
+        !unknownJoinCardText.includes('UNKNOWN_CARE_SECRET') &&
+        !`${unknownJoinCurrent} ${unknownJoinRetained}`.includes('UNKNOWN_JOIN_SECRET') &&
+        !`${unknownJoinCurrent} ${unknownJoinRetained}`.includes('UNKNOWN_CARE_SECRET'),
       `${unknownJoinCurrent} | ${unknownJoinRetained}`,
     );
 
     const incompleteJoinCard = page
       .locator('button.semantic-row-card')
       .filter({ hasText: '缺完整 endpoint' });
+    const incompleteJoinCardText = (await incompleteJoinCard.textContent()) ?? '';
     await incompleteJoinCard.click();
     const incompleteJoinCurrent =
       (await liveInspector.locator('.semantic-inspector-section.is-visible').textContent()) ?? '';
@@ -715,7 +987,11 @@ export default async function run() {
       '缺 to_column 的 JOIN 不注入并说明 endpoint 不完整',
       !incompleteJoinCurrent.includes('关系端点orders.') &&
         incompleteJoinRetained.includes('to_column') &&
-        incompleteJoinRetained.includes('不完整'),
+        incompleteJoinRetained.includes('不完整') &&
+        !incompleteJoinCardText.includes('MALFORMED_JOIN_SECRET') &&
+        !incompleteJoinCardText.includes('MALFORMED_CARE_SECRET') &&
+        !`${incompleteJoinCurrent} ${incompleteJoinRetained}`.includes('MALFORMED_JOIN_SECRET') &&
+        !`${incompleteJoinCurrent} ${incompleteJoinRetained}`.includes('MALFORMED_CARE_SECRET'),
       `${incompleteJoinCurrent} | ${incompleteJoinRetained}`,
     );
 
