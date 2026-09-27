@@ -104,6 +104,28 @@ const refresh = (page) =>
     page.click('[data-testid="connector-schema-panel"] button:has-text("刷新结构")'),
   );
 
+/**
+ * 后端在一次结构抓取意外返回 0 个对象时会 fail-closed：拒绝保存快照并返回 guardNote。
+ * 这不是「结构没变化」，也不能让后续断言把它当成功；对真实环境的瞬时空抓取做有界重试，
+ * 连续 3 次仍被拒绝就保留失败，避免把持续的连接/权限问题吞掉。
+ */
+const refreshUntilAccepted = async (page, firstAction = null, maxAttempts = 3) => {
+  let action = firstAction;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const response = action
+      ? await waitForRefreshAction(page, action)
+      : await refresh(page);
+    action = null;
+    const panelText =
+      (await page.textContent('[data-testid="connector-schema-panel"]')) ?? '';
+    if (!panelText.includes('刷新被拒绝：客户库这次突然返回了 0 个对象')) {
+      return response;
+    }
+    console.log(`  ↻ 第 ${attempt} 次结构抓取被保护性拒绝，重新抓取`);
+  }
+  throw new Error(`结构刷新连续 ${maxAttempts} 次被拒绝：客户库抓取结果均为 0 个对象`);
+};
+
 const { browser, page } = await launchBrowser();
 let primaryError = null;
 try {
@@ -182,7 +204,7 @@ try {
   });
 
   // ---- 打开并刷新，建立基线 ----
-  await refresh(page);
+  await refreshUntilAccepted(page);
   await page.screenshot({ path: shot('schema-baseline.png') });
   panel = await page.textContent('[data-testid="connector-schema-panel"]');
   check('结构表渲染', panel.includes('orders'));
@@ -200,15 +222,17 @@ try {
     panel.includes('fixture：刷新结构请求失败') && panel.includes('orders'),
   );
   await page.unroute(refreshPattern, refreshFailure);
-  await waitForRefreshAction(page, () =>
-    page.click('[data-testid="connector-schema-refresh-error"] button:has-text("重试")'),
+  await refreshUntilAccepted(
+    page,
+    () =>
+      page.click('[data-testid="connector-schema-refresh-error"] button:has-text("重试")'),
   );
   await page.waitForSelector('[data-testid="connector-schema-refresh-error"]', {
     state: 'detached',
   });
 
   // ---- 空刷：不该误报 ----
-  await refresh(page);
+  await refreshUntilAccepted(page);
   await page.waitForFunction(
     () =>
       document
@@ -280,14 +304,14 @@ try {
 
   // ---- 删表：REMOVED 默认展开，因为最该被看到 ----
   customerDdl('DROP TABLE coupons;');
-  await refresh(page);
+  await refreshUntilAccepted(page);
   await page.screenshot({ path: shot('schema-removed.png') });
   panel = await page.textContent('[data-testid="connector-schema-panel"]');
   check('删表被检出', panel.includes('删除') && panel.includes('coupons'));
 
   // 收尾：把客户库改回去，别给后续验证留脏结构
   customerDdl('ALTER TABLE orders DROP COLUMN promo_code;');
-  await refresh(page);
+  await refreshUntilAccepted(page);
   await page.waitForFunction(
     () => {
       const text = document.querySelector('[data-testid="connector-schema-panel"]')?.textContent;
