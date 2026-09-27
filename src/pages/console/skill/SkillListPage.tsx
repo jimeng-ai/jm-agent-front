@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { App, Button, Input, Segmented, Select, Space, Typography } from 'antd';
-import { UploadOutlined } from '@ant-design/icons';
+import { App, Button, Input, Modal, Segmented, Select, Space, Typography } from 'antd';
+import { GithubOutlined, UploadOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { skillApi } from '@/features/skill/api';
@@ -15,11 +15,32 @@ type FilterKey = 'ALL' | 'MINE';
 type TypeFilter = 'ALL' | 'PROMPT' | 'DOER';
 type StatusFilter = 'ALL' | 'ACTIVE' | 'DISABLED' | 'DRAFT';
 
+/**
+ * 解析 GitHub 上一个 skill 目录的位置。认三种写法：
+ *   https://github.com/owner/repo/tree/<ref>/<path>   （浏览器地址栏里直接复制）
+ *   owner/repo@<ref>:<path>                          （与后端 origin_ref 同一种写法）
+ *   owner/repo                                        （仓库根就是 skill）
+ * 解析不出来返回 null。
+ */
+function parseGithubSkillRef(raw: string): { owner: string; repo: string; ref?: string; path?: string } | null {
+  const t = raw.trim().replace(/\/+$/, '');
+  const url = /^https?:\/\/github\.com\/([^/\s]+)\/([^/\s#?]+)(?:\/(?:tree|blob)\/([^/\s]+)(?:\/(.+))?)?$/i.exec(t);
+  if (url) {
+    const path = url[4]?.replace(/\/SKILL\.md$/i, '');
+    return { owner: url[1], repo: url[2].replace(/\.git$/i, ''), ref: url[3], path: path || undefined };
+  }
+  const short = /^([\w.-]+)\/([\w.-]+)(?:@([^:\s]+))?(?::(.+))?$/.exec(t);
+  if (short) return { owner: short[1], repo: short[2], ref: short[3], path: short[4] };
+  return null;
+}
+
 export default function SkillListPage() {
   const { message } = App.useApp();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importRef, setImportRef] = useState('');
 
   const [filter, setFilter] = useState<FilterKey>('ALL');
   const [search, setSearch] = useState('');
@@ -132,6 +153,18 @@ export default function SkillListPage() {
     onError: (err: { message?: string }) => message.error(err?.message || '删除失败'),
   });
 
+  const importMut = useMutation({
+    mutationFn: skillApi.importFromGithub,
+    onSuccess: (s) => {
+      message.success(`已导入「${s.name}」`);
+      setImportOpen(false);
+      setImportRef('');
+      refresh();
+    },
+    onError: (err: { message?: string }) => message.error(err?.message || '导入失败'),
+  });
+  const parsedImport = parseGithubSkillRef(importRef);
+
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (file) uploadMut.mutate(file);
@@ -160,6 +193,9 @@ export default function SkillListPage() {
           <Space>
             <Button type="primary" onClick={() => navigate('/console/skill/builder')}>
               ✦ AI 生成
+            </Button>
+            <Button icon={<GithubOutlined />} onClick={() => setImportOpen(true)}>
+              从 GitHub 导入
             </Button>
             <Button
               icon={<UploadOutlined />}
@@ -238,7 +274,39 @@ export default function SkillListPage() {
           onEnable={(id: string) => enableMut.mutate(id)}
           onDisable={(id: string) => disableMut.mutate(id)}
           onRemove={(id: string) => removeMut.mutate(id)}
+          onContinue={(sessionId: string) => navigate(`/console/skill/builder?session=${sessionId}`)}
         />
+
+        <Modal
+          title="从 GitHub 导入 Skill"
+          open={importOpen}
+          okText="导入"
+          cancelText="取消"
+          confirmLoading={importMut.isPending}
+          okButtonProps={{ disabled: !parsedImport }}
+          onOk={() => parsedImport && importMut.mutate(parsedImport)}
+          onCancel={() => setImportOpen(false)}
+        >
+          <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
+            粘贴 skill 目录的 GitHub 地址（例如 https://github.com/anthropics/skills/tree/main/skills/pdf），
+            或写成 owner/repo@分支:路径。导入后可以在详情里「用 AI 改进」它。
+          </Typography.Paragraph>
+          <Input
+            value={importRef}
+            onChange={(e) => setImportRef(e.target.value)}
+            placeholder="https://github.com/owner/repo/tree/main/path/to/skill"
+            onPressEnter={() => parsedImport && importMut.mutate(parsedImport)}
+          />
+          {importRef.trim() && (
+            <Typography.Text type={parsedImport ? 'secondary' : 'danger'} style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
+              {parsedImport
+                ? `仓库 ${parsedImport.owner}/${parsedImport.repo}` +
+                  (parsedImport.ref ? ` · 分支 ${parsedImport.ref}` : ' · 默认分支') +
+                  (parsedImport.path ? ` · 路径 ${parsedImport.path}` : ' · 仓库根目录')
+                : '认不出这个地址：请粘贴 GitHub 目录链接，或写成 owner/repo@分支:路径'}
+            </Typography.Text>
+          )}
+        </Modal>
 
         <SkillDetailDrawer id={detailId} onClose={() => setDetailId(null)} />
       </div>

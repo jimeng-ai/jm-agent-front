@@ -118,22 +118,15 @@ function CaseList({ cases }: { cases: SkillEvalCase[] }) {
   );
 }
 
-export default function SkillEvalPanel({
-  conversationId,
-  skillId,
-}: {
-  conversationId?: string;
-  skillId?: string;
-}) {
+export default function SkillEvalPanel({ skillId }: { skillId?: string }) {
   const { message } = App.useApp();
   const [mode, setMode] = useState<SkillEvalMode>('RECALL');
   const [runId, setRunId] = useState<string>();
 
-  // 两种来源恰好给一个：跑评测时把非空的那个传给后端（二选一）。
-  const canRun = !!conversationId || !!skillId;
+  const canRun = !!skillId;
 
   const startMut = useMutation({
-    mutationFn: () => skillEvalApi.start({ conversationId, skillId }, mode),
+    mutationFn: () => skillEvalApi.start(skillId!, mode),
     onSuccess: (run) => setRunId(String(run.id)),
     onError: (e: Error) => message.error(e.message),
   });

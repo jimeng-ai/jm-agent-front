@@ -14,6 +14,7 @@ interface Props {
   onEnable: (id: string) => void;
   onDisable: (id: string) => void;
   onRemove: (id: string) => void;
+  onContinue?: (sessionId: string) => void;
 }
 
 export default function SkillCardGrid(props: Props) {

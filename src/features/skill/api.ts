@@ -14,4 +14,8 @@ export const skillApi = {
   enable: (id: string) => post<void>(`/tenant/skills/${id}/enable`),
   disable: (id: string) => post<void>(`/tenant/skills/${id}/disable`),
   remove: (id: string) => del<void>(`/tenant/skills/${id}`),
+
+  /** 从 GitHub 导入（后端拉 owner/repo@ref 的 tarball，取 path 下的 skill 目录）。 */
+  importFromGithub: (req: { owner: string; repo: string; ref?: string; path?: string }) =>
+    post<SkillView>('/tenant/skills/import', req),
 };

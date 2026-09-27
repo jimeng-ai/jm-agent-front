@@ -8,6 +8,8 @@ export interface SkillView {
   status: 'DRAFT' | 'ACTIVE' | 'DISABLED';
   ownerUserId: string;
   version: number;
+  /** 构建器草稿所属的会话 id（「继续编辑」用）；不是构建器草稿为 null */
+  builderSessionId?: string | null;
 }
 
 /** DOER bundle 里的单个文件（脚本/依赖/README 等）。size 后端按字符串下发。 */

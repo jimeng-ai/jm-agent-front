@@ -7,6 +7,7 @@ import {
   MoreOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
+  EditOutlined,
   ShareAltOutlined,
   StopOutlined,
 } from '@ant-design/icons';
@@ -22,6 +23,8 @@ interface Props {
   onEnable: (id: string) => void;
   onDisable: (id: string) => void;
   onRemove: (id: string) => void;
+  /** 构建器草稿：回到它的构建器会话 */
+  onContinue?: (sessionId: string) => void;
 }
 
 export default function SkillCard(props: Props) {
@@ -33,20 +36,31 @@ export default function SkillCard(props: Props) {
       ? { color: '#4338CA', bg: '#EEF2FF' }
       : { color: '#7C3AED', bg: '#F5F3FF' };
 
-  const menuItems: MenuProps['items'] = [
-    s.scope === 'PRIVATE'
-      ? { key: 'share', icon: <ShareAltOutlined />, label: '共享给团队' }
-      : { key: 'unshare', icon: <StopOutlined />, label: '取消共享' },
-    s.status === 'ACTIVE'
-      ? { key: 'disable', icon: <PauseCircleOutlined />, label: '停用' }
-      : { key: 'enable', icon: <PlayCircleOutlined />, label: '启用' },
-    { type: 'divider' },
-    { key: 'remove', icon: <DeleteOutlined />, label: '删除', danger: true },
-  ];
+  // 草稿只能回构建器继续编辑、或删除：「启用」会绕过发布那一步的校验与版本化 bundle（后端也会拒）。
+  const menuItems: MenuProps['items'] =
+    s.status === 'DRAFT'
+      ? [
+          ...(s.builderSessionId
+            ? [{ key: 'continue', icon: <EditOutlined />, label: '继续编辑' }]
+            : []),
+          { type: 'divider' as const },
+          { key: 'remove', icon: <DeleteOutlined />, label: '删除', danger: true },
+        ]
+      : [
+          s.scope === 'PRIVATE'
+            ? { key: 'share', icon: <ShareAltOutlined />, label: '共享给团队' }
+            : { key: 'unshare', icon: <StopOutlined />, label: '取消共享' },
+          s.status === 'ACTIVE'
+            ? { key: 'disable', icon: <PauseCircleOutlined />, label: '停用' }
+            : { key: 'enable', icon: <PlayCircleOutlined />, label: '启用' },
+          { type: 'divider' },
+          { key: 'remove', icon: <DeleteOutlined />, label: '删除', danger: true },
+        ];
 
   const onMenuClick: MenuProps['onClick'] = ({ key, domEvent }) => {
     domEvent.stopPropagation();
-    if (key === 'share') props.onShare(s.id);
+    if (key === 'continue' && s.builderSessionId) props.onContinue?.(s.builderSessionId);
+    else if (key === 'share') props.onShare(s.id);
     else if (key === 'unshare') props.onUnshare(s.id);
     else if (key === 'enable') props.onEnable(s.id);
     else if (key === 'disable')

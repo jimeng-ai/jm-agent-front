@@ -6,6 +6,8 @@ import {
   PlayCircleOutlined,
   ShareAltOutlined,
   StopOutlined,
+  EditOutlined,
+  RobotOutlined,
 } from '@ant-design/icons';
 import type { SkillDetailView } from '@/features/skill/types';
 import { SkillScopeChip, SkillStatusDot, SkillTypeChip } from '@/features/skill/meta';
@@ -20,6 +22,10 @@ interface Props {
   onEnable: () => void;
   onDisable: () => void;
   onRemove: () => void;
+  /** 已发布的 skill：开一个构建器会话来改进它 */
+  onImprove?: () => void;
+  /** 构建器草稿：回到它的会话 */
+  onContinue?: () => void;
 }
 
 export default function SkillDetailHeader(props: Props) {
@@ -49,8 +55,21 @@ export default function SkillDetailHeader(props: Props) {
         </Typography.Text>
       )}
 
-      <Space size="small" style={{ marginTop: 4 }}>
-        {s.scope === 'PRIVATE' ? (
+      <Space size="small" style={{ marginTop: 4 }} wrap>
+        {s.status === 'DRAFT' ? (
+          s.builderSessionId && props.onContinue ? (
+            <Button size="small" type="primary" icon={<EditOutlined />} onClick={props.onContinue}>
+              继续编辑
+            </Button>
+          ) : null
+        ) : (
+          <>
+            {props.onImprove && (
+              <Button size="small" type="primary" icon={<RobotOutlined />} onClick={props.onImprove}>
+                用 AI 改进
+              </Button>
+            )}
+            {s.scope === 'PRIVATE' ? (
           <Button size="small" icon={<ShareAltOutlined />} onClick={props.onShare}>
             共享给团队
           </Button>
@@ -71,6 +90,8 @@ export default function SkillDetailHeader(props: Props) {
               启用
             </Button>
           </Popconfirm>
+        )}
+          </>
         )}
         <Popconfirm title="确认删除该 Skill?" okType="danger" onConfirm={props.onRemove}>
           <Button size="small" danger icon={<DeleteOutlined />}>

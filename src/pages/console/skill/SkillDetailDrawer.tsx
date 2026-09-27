@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { App, Button, Drawer, Spin, Tooltip, Typography } from 'antd';
 import { CopyOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { skillApi } from '@/features/skill/api';
 import SkillTheme from '@/features/skill/SkillTheme';
 import { SOURCE_LABEL } from '@/features/skill/skillMeta';
@@ -46,6 +47,7 @@ function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
 export default function SkillDetailDrawer({ id, onClose }: Props) {
   const { message } = App.useApp();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const filesRef = useRef<HTMLDivElement>(null);
 
   const { data, isLoading } = useQuery({
@@ -96,7 +98,7 @@ export default function SkillDetailDrawer({ id, onClose }: Props) {
           <SkillTheme>
             <SkillDetailHeader
               skill={data}
-              fileCount={data.skillType === 'DOER' ? files.length : 0}
+              fileCount={files.length}
               onJumpToFiles={() =>
                 filesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
               }
@@ -105,6 +107,18 @@ export default function SkillDetailDrawer({ id, onClose }: Props) {
               onEnable={action(skillApi.enable, '已启用')}
               onDisable={action(skillApi.disable, '已停用')}
               onRemove={() => removeMut.mutate()}
+              onImprove={() => {
+                onClose();
+                navigate(`/console/skill/builder?skillId=${data.id}`);
+              }}
+              onContinue={
+                data.builderSessionId
+                  ? () => {
+                      onClose();
+                      navigate(`/console/skill/builder?session=${data.builderSessionId}`);
+                    }
+                  : undefined
+              }
             />
           </SkillTheme>
         ) : (
@@ -157,16 +171,17 @@ export default function SkillDetailDrawer({ id, onClose }: Props) {
               <Typography.Text type="secondary">无正文</Typography.Text>
             )}
 
-            {/* 文件(仅 DOER):独立卡片,头部有可点芯片可滚到此处 */}
-            {data.skillType === 'DOER' && (
+            {/* 附带文件（所有类型都展示：PROMPT skill 也可能带 evals/evals.json 等存档文件）。
+                根目录 evals/ 是测试用例，只存档、不会下发给运行。 */}
+            {files.length > 0 && (
               <div ref={filesRef} style={{ scrollMarginTop: 8 }}>
                 <FileTabsViewer files={files} />
               </div>
             )}
 
-            {/* 评测:对已发布 skill 跑评测(skillId 二选一分支)。
+            {/* 评测:只对已发布 skill 跑(草稿的测试在构建器里由 skill-creator 自己做)。
                 该 skill 无 evals/evals.json 时后端回业务错误,由面板 onError 直接 message.error 展示。 */}
-            <SkillEvalPanel skillId={data.id} />
+            {data.status !== 'DRAFT' && <SkillEvalPanel skillId={data.id} />}
           </>
         ) : null}
       </SkillTheme>
