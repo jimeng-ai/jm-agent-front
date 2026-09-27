@@ -8,17 +8,14 @@ import {
   Empty,
   Input,
   Modal,
-  Result,
   Segmented,
   Space,
-  Spin,
   Table,
   Tag,
   Tooltip,
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { authApi } from '@/features/auth/api';
 import { connectorWriteApi } from '@/features/connector/api';
 import type {
   PendingWriteRow,
@@ -97,16 +94,6 @@ export default function PendingWritePage() {
   const [rejecting, setRejecting] = useState<PendingWriteRow | null>(null);
   const [reason, setReason] = useState('');
 
-  // 超管门控：staleTime 必须与其它用到 ['me','permissions'] 的地方一致（全局默认是 30s，
-  // 这里和 ModuleRoute / ConnectorListPage 一样显式写 60s），否则同 key 不同 staleTime 会多发请求。
-  const { data: perm, isLoading: permLoading } = useQuery({
-    queryKey: ['me', 'permissions'],
-    queryFn: authApi.mePermissions,
-    staleTime: 60_000,
-  });
-
-  const enabled = perm?.superAdmin === true;
-
   const listQuery = useQuery({
     queryKey: ['connector', 'pending-writes', page, size, statusFilter],
     queryFn: () =>
@@ -115,7 +102,6 @@ export default function PendingWritePage() {
         size,
         status: statusFilter === 'ALL' ? undefined : 'PENDING',
       }),
-    enabled,
   });
 
   const rows = listQuery.data?.records ?? [];
@@ -204,25 +190,6 @@ export default function PendingWritePage() {
       onOk: () => approveMut.mutateAsync(r.id),
     });
   };
-
-  if (permLoading) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
-        <Spin />
-      </div>
-    );
-  }
-
-  if (perm && !perm.superAdmin) {
-    return (
-      <Result
-        status="403"
-        title="仅企业超管可访问"
-        subTitle="批准一条写操作等于直接改客户的生产数据，仅企业超级管理员可操作。"
-        icon={<Empty description={false} />}
-      />
-    );
-  }
 
   const columns: ColumnsType<PendingWriteRow> = [
     {

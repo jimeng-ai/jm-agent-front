@@ -1,8 +1,14 @@
-import { lazy, Suspense } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
-import { Spin } from 'antd';
+import { lazy } from 'react';
+import {
+  createBrowserRouter,
+  createRoutesFromElements,
+  Navigate,
+  Route,
+} from 'react-router-dom';
 import ProtectedRoute from './ProtectedRoute';
 import ModuleRoute from './ModuleRoute';
+import SuperAdminRoute from './SuperAdminRoute';
+import RouteBoundary from './RouteBoundary';
 import ConsoleLayout from '@/layouts/ConsoleLayout';
 import ChatLayout from '@/layouts/ChatLayout';
 
@@ -25,111 +31,116 @@ const ChatHomePage = lazy(() => import('@/pages/chat/ChatHomePage'));
 const ChatConversationPage = lazy(() => import('@/pages/chat/ConversationPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 
-function Loading() {
-  return (
-    <div className="app-loading">
-      <Spin />
-    </div>
-  );
-}
+export const appRouter = createBrowserRouter(
+  createRoutesFromElements(
+    <Route element={<RouteBoundary />}>
+      <Route path="/login" element={<LoginPage />} />
 
-export default function AppRouter() {
-  return (
-    <Suspense fallback={<Loading />}>
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-
+      <Route
+        path="/console"
+        element={
+          <ProtectedRoute>
+            <ConsoleLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={<DashboardPage />} />
         <Route
-          path="/console"
+          path="agents"
           element={
-            <ProtectedRoute>
-              <ConsoleLayout />
-            </ProtectedRoute>
+            <ModuleRoute module="AGENT_MODULE">
+              <AgentListPage />
+            </ModuleRoute>
           }
-        >
-          <Route index element={<Navigate to="dashboard" replace />} />
-          {/* 仪表盘不受模块限制 */}
-          <Route path="dashboard" element={<DashboardPage />} />
-          <Route
-            path="agents"
-            element={
-              <ModuleRoute module="AGENT_MODULE">
-                <AgentListPage />
-              </ModuleRoute>
-            }
-          />
-          <Route
-            path="agents/new"
-            element={
-              <ModuleRoute module="AGENT_MODULE">
-                <AgentBuilderWizardPage />
-              </ModuleRoute>
-            }
-          />
-          <Route
-            path="agents/:id"
-            element={
-              <ModuleRoute module="AGENT_MODULE">
-                <AgentEditorPage />
-              </ModuleRoute>
-            }
-          />
-          <Route
-            path="knowledge"
-            element={
-              <ModuleRoute module="KB_MODULE">
-                <KnowledgeListPage />
-              </ModuleRoute>
-            }
-          />
-          <Route
-            path="knowledge/:kbId"
-            element={
-              <ModuleRoute module="KB_MODULE">
-                <KnowledgeDetailPage />
-              </ModuleRoute>
-            }
-          />
-          <Route
-            path="playground/:agentId?"
-            element={
-              <ModuleRoute module="AGENT_MODULE">
-                <PlaygroundPage />
-              </ModuleRoute>
-            }
-          />
-          {/* 调用日志：v1 不加新 module 权限，登录态即可访问 */}
-          <Route path="traces" element={<TraceListPage />} />
-          {/* 产品反馈：登录态即可访问，不受模块限制 */}
-          <Route path="feedback" element={<FeedbackPage />} />
-          {/* 技能管理：登录态即可访问，不受模块限制 */}
-          <Route path="skills" element={<SkillListPage />} />
-          <Route path="skill/builder" element={<SkillBuilderPage />} />
-          {/* 外部连接：不套 ModuleRoute，页面内部已做超管门控 */}
-          <Route path="connections" element={<ConnectionListPage />} />
-          <Route path="connectors" element={<ConnectorListPage />} />
-          {/* 写操作审批：同样不套 ModuleRoute，页面内部已做超管门控 */}
-          <Route path="pending-writes" element={<PendingWritePage />} />
-        </Route>
-
+        />
         <Route
-          path="/chat"
+          path="agents/new"
           element={
-            <ProtectedRoute>
-              <ModuleRoute module="CHAT_MODULE">
-                <ChatLayout />
-              </ModuleRoute>
-            </ProtectedRoute>
+            <ModuleRoute module="AGENT_MODULE">
+              <AgentBuilderWizardPage />
+            </ModuleRoute>
           }
-        >
-          <Route index element={<ChatHomePage />} />
-          <Route path="agent/:agentId" element={<ChatConversationPage />} />
-          <Route path="c/:conversationId" element={<ChatConversationPage />} />
-        </Route>
+        />
+        <Route
+          path="agents/:id"
+          element={
+            <ModuleRoute module="AGENT_MODULE">
+              <AgentEditorPage />
+            </ModuleRoute>
+          }
+        />
+        <Route
+          path="knowledge"
+          element={
+            <ModuleRoute module="KB_MODULE">
+              <KnowledgeListPage />
+            </ModuleRoute>
+          }
+        />
+        <Route
+          path="knowledge/:kbId"
+          element={
+            <ModuleRoute module="KB_MODULE">
+              <KnowledgeDetailPage />
+            </ModuleRoute>
+          }
+        />
+        <Route
+          path="playground/:agentId?"
+          element={
+            <ModuleRoute module="AGENT_MODULE">
+              <PlaygroundPage />
+            </ModuleRoute>
+          }
+        />
+        <Route path="traces" element={<TraceListPage />} />
+        <Route path="feedback" element={<FeedbackPage />} />
+        <Route path="skills" element={<SkillListPage />} />
+        <Route path="skill/builder" element={<SkillBuilderPage />} />
+        <Route
+          path="connections"
+          element={
+            <SuperAdminRoute>
+              <ConnectionListPage />
+            </SuperAdminRoute>
+          }
+        />
+        <Route
+          path="connectors"
+          element={
+            <SuperAdminRoute>
+              <ConnectorListPage />
+            </SuperAdminRoute>
+          }
+        />
+        <Route
+          path="pending-writes"
+          element={
+            <SuperAdminRoute>
+              <PendingWritePage />
+            </SuperAdminRoute>
+          }
+        />
+      </Route>
 
-        <Route path="/" element={<Navigate to="/console" replace />} />
-        <Route path="*" element={<NotFoundPage />} />
-      </Routes>
-    </Suspense>
-  );
-}
+      <Route
+        path="/chat"
+        element={
+          <ProtectedRoute>
+            <ModuleRoute module="CHAT_MODULE">
+              <ChatLayout />
+            </ModuleRoute>
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<ChatHomePage />} />
+        <Route path="agent/:agentId" element={<ChatConversationPage />} />
+        <Route path="c/:conversationId" element={<ChatConversationPage />} />
+      </Route>
+
+      <Route path="/" element={<Navigate to="/console" replace />} />
+      <Route path="*" element={<NotFoundPage />} />
+    </Route>,
+  ),
+);

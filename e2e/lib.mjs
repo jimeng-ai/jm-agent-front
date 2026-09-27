@@ -36,7 +36,14 @@ export const sel = {
 };
 
 export async function launchBrowser() {
-  const browser = await chromium.launch({ headless: !CONFIG.headed });
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: !CONFIG.headed });
+  } catch (error) {
+    // 本机开发环境不一定下载 Playwright 自带 Chromium；CI/开发机已有 Chrome 时直接复用。
+    if (!(error instanceof Error) || !error.message.includes('Executable doesn\'t exist')) throw error;
+    browser = await chromium.launch({ channel: 'chrome', headless: !CONFIG.headed });
+  }
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await ctx.newPage();
   return { browser, ctx, page };

@@ -19,6 +19,8 @@ export type NavItem = {
   Icon: (p: { size?: number; className?: string }) => JSX.Element;
   /** 该入口所属模块码；成员需被授权该模块才可见。留空表示不受模块限制（如仪表盘）。 */
   module?: string;
+  /** 治理入口仅企业超管可见；权限请求失败时保持 fail-open。 */
+  superAdminOnly?: boolean;
 };
 
 // 注意：仪表盘在前、对话在后（按需求调整顺序）。
@@ -45,28 +47,29 @@ export const WORKBENCH_NAV: NavItem[] = [
     path: '/console/skills',
     Icon: SkillIcon,
   },
-  // 外部连接：不设 module，侧栏对超管本就可见；非超管点进去是空状态（可接受）。
+  // 兼容的 HTTP egress 入口。与新版数据连接同属敏感治理面，只对超管展示。
   {
     key: 'connections',
-    label: '外部连接',
+    label: 'HTTP 出站（兼容）',
     path: '/console/connections',
     Icon: PlugIcon,
+    superAdminOnly: true,
   },
-  // 数据连接（连接器）：与上面同源——两个入口读写同一张 connection 表，这个是类型感知的新入口。
-  // 同样不设 module，理由同上。
+  // 数据连接（连接器）：与上面同源，这个是含治理与语义层的主入口。
   {
     key: 'connectors',
     label: '数据连接',
     path: '/console/connectors',
     Icon: DatabaseIcon,
+    superAdminOnly: true,
   },
-  // 写操作审批：待办性质的入口，和「数据连接」同源但不是管连接，所以单列一项。
-  // 同样不设 module（超管本就可见），页面内部自己做超管门控。
+  // 写操作审批：待办性质的超管入口，和「数据连接」同源但不是管连接。
   {
     key: 'pending-writes',
     label: '写操作审批',
     path: '/console/pending-writes',
     Icon: BellIcon,
+    superAdminOnly: true,
   },
 ];
 

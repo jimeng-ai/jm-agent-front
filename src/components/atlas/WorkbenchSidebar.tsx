@@ -12,13 +12,14 @@ export default function WorkbenchSidebar({ collapsed = false }: { collapsed?: bo
   const { user, tenantId, token, logout } = useAuthStore();
 
   // 拉取当前账号权限，用于按模块过滤左侧导航。超管 / 数据未到达时默认全显示。
-  const { data: perm } = useQuery({
+  const { data: perm, isSuccess: permissionResolved } = useQuery({
     queryKey: ['me', 'permissions'],
     queryFn: authApi.mePermissions,
     enabled: !!token,
     staleTime: 60_000,
   });
   const canSee = (item: NavItem) => {
+    if (permissionResolved && perm && !perm.superAdmin && item.superAdminOnly) return false;
     if (!perm || perm.superAdmin) return true;
     if (!item.module) return true;
     return perm.modules.includes(item.module);

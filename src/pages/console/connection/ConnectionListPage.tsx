@@ -3,20 +3,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   App,
   Button,
-  Empty,
   Form,
   Input,
   Modal,
-  Result,
   Select,
   Space,
-  Spin,
   Table,
   Tag,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { PlusOutlined } from '@ant-design/icons';
-import { authApi } from '@/features/auth/api';
 import { connectionApi } from '@/features/connection/api';
 import type { Connection, ConnectionUpsert } from '@/features/connection/types';
 
@@ -62,17 +58,9 @@ export default function ConnectionListPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Connection | null>(null);
 
-  // 超管门控：整页仅企业超管可见，非超管不发列表请求，直接空状态。
-  const { data: perm, isLoading: permLoading } = useQuery({
-    queryKey: ['me', 'permissions'],
-    queryFn: authApi.mePermissions,
-    staleTime: 60_000,
-  });
-
   const listQuery = useQuery({
     queryKey: ['connection', 'list'],
     queryFn: connectionApi.list,
-    enabled: perm?.superAdmin === true,
   });
 
   const createMut = useMutation({
@@ -166,27 +154,6 @@ export default function ConnectionListPage() {
       onOk: () => delMut.mutateAsync(row.id),
     });
   };
-
-  // 权限加载中
-  if (permLoading) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
-        <Spin />
-      </div>
-    );
-  }
-
-  // 非超管：空状态，不渲染列表也不发请求
-  if (perm && !perm.superAdmin) {
-    return (
-      <Result
-        status="403"
-        title="仅企业超管可访问"
-        subTitle="外部连接涉及出网凭据，仅企业超级管理员可管理。"
-        icon={<Empty description={false} />}
-      />
-    );
-  }
 
   const columns: ColumnsType<Connection> = [
     {
