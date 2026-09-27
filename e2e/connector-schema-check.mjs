@@ -17,11 +17,37 @@ const failJson = (message) => ({
   data: null,
 });
 
+const successJson = (data) => ({
+  success: true,
+  respCode: '200',
+  respMsg: 'ok',
+  data,
+});
+
 const fulfillFailure = (route, message) =>
   route.fulfill({
     status: 503,
     contentType: 'application/json',
     body: JSON.stringify(failJson(message)),
+  });
+
+const fulfillGuard = (route, guardNote) =>
+  route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(
+      successJson({
+        objectCount: '1',
+        totalObjects: '1',
+        truncated: false,
+        firstSnapshot: false,
+        diffs: [],
+        syncedAt: '2026-09-27T10:00:00',
+        guardNote,
+        semanticStaled: null,
+        semanticRevived: null,
+      }),
+    ),
   });
 
 /** 直接对客户库做 DDL，模拟「客户悄悄改了结构」。 */
@@ -105,9 +131,9 @@ const refresh = (page) =>
   );
 
 /**
- * 后端在一次结构抓取意外返回 0 个对象时会 fail-closed：拒绝保存快照并返回 guardNote。
- * 这不是「结构没变化」，也不能让后续断言把它当成功；对真实环境的瞬时空抓取做有界重试，
- * 连续 3 次仍被拒绝就保留失败，避免把持续的连接/权限问题吞掉。
+ * 后端会 fail-closed 拒绝保存可疑或过时的刷新结果并返回 guardNote：可能是这次抓到 0 个对象，
+ * 也可能是并发刷新里更新的一份已经先落库。这不是「结构没变化」，不能让后续断言把它当成功。
+ * 对真实环境的瞬时保护做有界退避重试；连续 3 次仍被拒绝就保留失败，避免吞掉持续问题。
  */
 const refreshUntilAccepted = async (page, firstAction = null, maxAttempts = 3) => {
   let action = firstAction;
@@ -116,14 +142,47 @@ const refreshUntilAccepted = async (page, firstAction = null, maxAttempts = 3) =
       ? await waitForRefreshAction(page, action)
       : await refresh(page);
     action = null;
-    const panelText =
-      (await page.textContent('[data-testid="connector-schema-panel"]')) ?? '';
-    if (!panelText.includes('刷新被拒绝：客户库这次突然返回了 0 个对象')) {
+
+    if (!response.ok()) {
+      throw new Error(`结构刷新请求失败：HTTP ${response.status()}`);
+    }
+    let envelope;
+    try {
+      envelope = await response.json();
+    } catch {
+      throw new Error('结构刷新请求失败：响应不是 JSON');
+    }
+    if (envelope?.success !== true || String(envelope?.respCode) !== '200') {
+      throw new Error(
+        `结构刷新业务失败：${envelope?.respMsg || `respCode=${String(envelope?.respCode)}`}`,
+      );
+    }
+    const guardNote =
+      typeof envelope?.data?.guardNote === 'string' ? envelope.data.guardNote.trim() : '';
+    if (!guardNote) {
+      // 上一次若是 guard，当前成功响应必须把旧提示换掉；不能让后续步骤读到旧 DOM。
+      await page
+        .locator('[data-testid="connector-schema-guard"]')
+        .waitFor({ state: 'detached', timeout: 10000 });
       return response;
     }
-    console.log(`  ↻ 第 ${attempt} 次结构抓取被保护性拒绝，重新抓取`);
+
+    await page.waitForFunction(
+      (expectedNote) =>
+        document
+          .querySelector('[data-testid="connector-schema-guard"]')
+          ?.textContent?.includes(expectedNote),
+      guardNote,
+      { timeout: 10000 },
+    );
+    const guard = page.locator('[data-testid="connector-schema-guard"]');
+    const kind = (await guard.getAttribute('data-guard-kind')) ?? 'UNKNOWN';
+    console.log(
+      `  ↻ 第 ${attempt} 次结构抓取被保护性拒绝（${kind}），重新抓取：${guardNote.slice(0, 120)}`,
+    );
+    if (attempt < maxAttempts) await page.waitForTimeout(1200);
   }
-  throw new Error(`结构刷新连续 ${maxAttempts} 次被拒绝：客户库抓取结果均为 0 个对象`);
+  throw new Error(`结构刷新连续 ${maxAttempts} 次被保护性拒绝`);
 };
 
 const { browser, page } = await launchBrowser();
@@ -203,6 +262,93 @@ try {
     state: 'detached',
   });
 
+  // guardNote 不只代表空目录：并发刷新时，旧结果也会被更新快照取代。
+  // 两种原因必须给出不同动作含义，不能把无需处理的并发保护误导成客户权限故障。
+  const refreshPattern = '**/admin/connectors/*/schema/refresh';
+  const supersededGuard = (route) =>
+    fulfillGuard(
+      route,
+      '本次结构拉取开始于 2026-09-27 10:00:00，拉完时库里已经有一份更晚开始拉取的结构快照（2026-09-27 10:00:01）。本次拉回来的结构比它旧，所以本次没有覆盖结构快照，不需要处理。',
+    );
+  await page.route(refreshPattern, supersededGuard);
+  await refresh(page);
+  const supersededAlert = page.locator('[data-testid="connector-schema-guard"]');
+  await supersededAlert.waitFor();
+  await page.waitForSelector(
+    '.ant-message-notice:has-text("本次刷新结果已被更新的结构快照取代")',
+  );
+  const supersededText = (await supersededAlert.textContent()) ?? '';
+  check(
+    '更新快照保护不会误报成客户库空目录',
+    (await supersededAlert.getAttribute('data-guard-kind')) === 'SUPERSEDED' &&
+      supersededText.includes('已被更新的结构快照取代') &&
+      !supersededText.includes('突然返回了 0 个对象') &&
+      (await page.locator('.ant-message-notice:has-text("客户库这次返回了 0 个对象")').count()) === 0,
+  );
+  await page.unroute(refreshPattern, supersededGuard);
+
+  const emptyCatalogGuard = (route) =>
+    fulfillGuard(
+      route,
+      '本次从客户库列出的对象是 0 个，而上一份结构快照有 1 个。请先确认只读账号的授权与库名。',
+    );
+  await page.route(refreshPattern, emptyCatalogGuard);
+  await refresh(page);
+  const emptyCatalogAlert = page.locator('[data-testid="connector-schema-guard"]');
+  await emptyCatalogAlert.waitFor();
+  await page.waitForSelector(
+    '.ant-message-notice:has-text("客户库这次返回了 0 个对象")',
+  );
+  const emptyCatalogText = (await emptyCatalogAlert.textContent()) ?? '';
+  check(
+    '空目录保护继续给出权限与库名排查动作',
+    (await emptyCatalogAlert.getAttribute('data-guard-kind')) === 'EMPTY_CATALOG' &&
+      emptyCatalogText.includes('突然返回了 0 个对象') &&
+      emptyCatalogText.includes('只读账号的权限'),
+  );
+  await page.unroute(refreshPattern, emptyCatalogGuard);
+
+  const unknownGuard = (route) =>
+    fulfillGuard(route, '后端返回了测试用未知保护原因；平台保留现有快照，请核对服务端日志。');
+  await page.route(refreshPattern, unknownGuard);
+  await refresh(page);
+  const unknownAlert = page.locator('[data-testid="connector-schema-guard"]');
+  await unknownAlert.waitFor();
+  await page.waitForSelector('.ant-message-notice:has-text("本次刷新结果未保存")');
+  const unknownText = (await unknownAlert.textContent()) ?? '';
+  check(
+    '未知保护原因保守展示原话且不冒充空目录',
+    (await unknownAlert.getAttribute('data-guard-kind')) === 'UNKNOWN' &&
+      unknownText.includes('测试用未知保护原因') &&
+      !unknownText.includes('突然返回了 0 个对象'),
+  );
+  await page.unroute(refreshPattern, unknownGuard);
+
+  // 上一次 guard 留在界面时，本次真实 HTTP / 业务失败必须立即失败；不能读取旧 DOM 后当 guard 重试吞掉。
+  let guardThenFailureCalls = 0;
+  const guardThenFailure = (route) => {
+    guardThenFailureCalls += 1;
+    return guardThenFailureCalls === 1
+      ? fulfillGuard(
+          route,
+          '本次结构拉取开始于 2026-09-27 10:00:00，拉完时库里已经有一份更晚开始拉取的结构快照（2026-09-27 10:00:01）。本次拉回来的结构比它旧，不需要处理。',
+        )
+      : fulfillFailure(route, 'fixture：guard 后的真实刷新失败');
+  };
+  await page.route(refreshPattern, guardThenFailure);
+  let guardThenFailureMessage = '';
+  try {
+    await refreshUntilAccepted(page);
+  } catch (error) {
+    guardThenFailureMessage = error instanceof Error ? error.message : String(error);
+  }
+  check(
+    'guard 后的 HTTP 失败不会被旧提示吞掉或继续重试',
+    guardThenFailureCalls === 2 && guardThenFailureMessage.includes('HTTP 503'),
+    `${guardThenFailureCalls} 次 · ${guardThenFailureMessage}`,
+  );
+  await page.unroute(refreshPattern, guardThenFailure);
+
   // ---- 打开并刷新，建立基线 ----
   await refreshUntilAccepted(page);
   await page.screenshot({ path: shot('schema-baseline.png') });
@@ -211,7 +357,6 @@ try {
   check('展示上次同步时间', panel.includes('上次同步'));
 
   // 手动刷新本身失败也必须是非阻断告警：旧快照还在，且可以从告警处重试。
-  const refreshPattern = '**/admin/connectors/*/schema/refresh';
   const refreshFailure = (route) => fulfillFailure(route, 'fixture：刷新结构请求失败');
   await page.route(refreshPattern, refreshFailure);
   await refresh(page);

@@ -75,6 +75,8 @@ interface LastRefresh {
   result: SchemaSnapshotResult;
 }
 
+type SchemaGuardKind = 'EMPTY_CATALOG' | 'SUPERSEDED' | 'UNKNOWN';
+
 /** 结构刷新的 mutationKey。按它从 MutationCache 里找「哪几条连接的刷新还在路上」，见文件头第 8 条。 */
 const REFRESH_MUTATION_KEY = ['connector', 'schema', 'refresh'];
 
@@ -112,10 +114,31 @@ function toastTail(impact: RefreshSemanticImpact): { tail: string; alarm: boolea
     : { tail: '', alarm: false };
 }
 
+/** guardNote 目前是后端原话，没有独立枚举；未知新原因必须保守显示，不能默认为空目录。 */
+function schemaGuardKind(note: string): SchemaGuardKind {
+  if (note.includes('对象是 0 个')) return 'EMPTY_CATALOG';
+  if (note.includes('更晚开始拉取') || note.includes('比它旧')) return 'SUPERSEDED';
+  return 'UNKNOWN';
+}
+
+function schemaGuardTitle(kind: SchemaGuardKind): string {
+  if (kind === 'EMPTY_CATALOG') return '刷新被拒绝：客户库这次突然返回了 0 个对象';
+  if (kind === 'SUPERSEDED') return '本次刷新结果已被更新的结构快照取代';
+  return '本次刷新结果未保存';
+}
+
 /** 一次刷新结果的一句话总结（toast 用）。 */
 function refreshSummary(r: SchemaSnapshotResult): { text: string; level: 'success' | 'warning' } {
-  if (guardNoteOf(r)) {
-    return { text: '刷新被拒绝——客户库这次返回了 0 个对象，这份结果没有保存', level: 'warning' };
+  const guardNote = guardNoteOf(r);
+  if (guardNote) {
+    const kind = schemaGuardKind(guardNote);
+    const text =
+      kind === 'EMPTY_CATALOG'
+        ? '刷新被拒绝——客户库这次返回了 0 个对象，这份结果没有保存'
+        : kind === 'SUPERSEDED'
+          ? '本次刷新结果已被更新的结构快照取代，保留的是更新版本'
+          : `本次刷新结果未保存——${guardNote}`;
+    return { text, level: 'warning' };
   }
   const { tail, alarm } = toastTail(refreshSemanticImpact(r));
   const diffCount = r.firstSnapshot ? 0 : (r.diffs ?? []).length;
@@ -344,6 +367,7 @@ export function ConnectorSchemaPanel({ connector }: PanelProps) {
   // 双保险：回调里已经按连接丢弃过一次；渲染时再核一次归属，任何一条漏网的路径都画不进别的连接。
   const last = lastRefresh && lastRefresh.connectorId === connector?.id ? lastRefresh.result : null;
   const guardNote = last ? guardNoteOf(last) : null;
+  const guardKind = guardNote ? schemaGuardKind(guardNote) : null;
   // 被拒的那次不是一份快照：下面这些派生量一律不算（见 types.ts guardNote 的注释）。
   const settled = last && !guardNote ? last : null;
   const impact = settled ? refreshSemanticImpact(settled) : null;
@@ -478,20 +502,26 @@ export function ConnectorSchemaPanel({ connector }: PanelProps) {
           ①会说「没核对成」，③会说「结构没有变化」。 */}
       {guardNote && (
         <Alert
+          data-testid="connector-schema-guard"
+          data-guard-kind={guardKind}
           type="warning"
           showIcon
           style={{ marginBottom: 12 }}
-          message="刷新被拒绝：客户库这次突然返回了 0 个对象"
+          message={schemaGuardTitle(guardKind ?? 'UNKNOWN')}
           description={
             <>
               {guardNote}
-              <br />
-              一次返回 0 个对象，更可能是「这次没看到」，而不是「整个库的表都删光了」，所以平台
-              <b>没有保存</b>这份结果：
-              上一份快照原样保留，挂在上面的说明也不会因为这次的空结果被标成「结构已变」。
-              <br />
-              常见原因：只读账号的权限被收回或收窄了、连接参数指向的库不对了、客户库这时本身有问题。
-              先让客户那边确认，再刷新一次。
+              {guardKind === 'EMPTY_CATALOG' ? (
+                <>
+                  <br />
+                  一次返回 0 个对象，更可能是「这次没看到」，而不是「整个库的表都删光了」，所以平台
+                  <b>没有保存</b>这份结果：
+                  上一份快照原样保留，挂在上面的说明也不会因为这次的空结果被标成「结构已变」。
+                  <br />
+                  常见原因：只读账号的权限被收回或收窄了、连接参数指向的库不对了、客户库这时本身有问题。
+                  先让客户那边确认，再刷新一次。
+                </>
+              ) : null}
             </>
           }
         />
