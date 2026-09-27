@@ -31,6 +31,57 @@ const check = (name, ok, detail = '') => {
 
 const okEnvelope = (data) => ({ success: true, respCode: '200', respMsg: 'ok', data });
 
+const pendingHistoryRows = [
+  {
+    id: 'fixture-approved',
+    time: '2099-01-02T10:00:00',
+    connectorName: '订单库',
+    agentName: '经营分析助手',
+    operation: 'UPDATE',
+    targetTable: 'orders',
+    statementText: "UPDATE orders SET status = 'PAID' WHERE id = 42",
+    status: 'APPROVED',
+    affectedRows: '1',
+    decidedBy: 'fixture-admin',
+    decidedAt: '2099-01-02T10:02:00',
+    expiresAt: '2099-01-02T10:10:00',
+  },
+  {
+    id: 'fixture-rejected',
+    time: '2099-01-02T09:00:00',
+    connectorName: '订单库',
+    agentName: '经营分析助手',
+    operation: 'DELETE',
+    targetTable: 'orders',
+    statementText: 'DELETE FROM orders WHERE id = 43',
+    status: 'REJECTED',
+    errorDetail: '没有业务依据',
+    decidedBy: 'fixture-admin',
+    decidedAt: '2099-01-02T09:02:00',
+    expiresAt: '2099-01-02T09:10:00',
+  },
+];
+
+let pendingHistoryRequests = 0;
+const pendingHistoryFixture = async (route) => {
+  const url = new URL(route.request().url());
+  const records = url.searchParams.get('status') === 'PENDING' ? [] : pendingHistoryRows;
+  pendingHistoryRequests += 1;
+  await route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(
+      okEnvelope({
+        records,
+        total: String(records.length),
+        size: '20',
+        current: '1',
+        pages: records.length ? '1' : '0',
+      }),
+    ),
+  });
+};
+
 let delayedGrant = null;
 const grantRequests = [];
 const grantFixture = async (route) => {
@@ -302,14 +353,42 @@ try {
   check('「全部」下列出了写请求', rows.length > 0, `${rows.length} 行`);
 
   const allText = await page.textContent('body');
-  check('能看到已批准与已拒绝两种状态', allText.includes('已批准') && allText.includes('已拒绝'));
-  check('能看到被拒绝的理由', allText.includes('没有业务依据'));
+  const liveDecisionLabels = ['已批准', '已拒绝'].filter((label) => allText.includes(label));
+  console.log(
+    `  · 真实历史状态：${liveDecisionLabels.length ? liveDecisionLabels.join('、') : '记录均已按有效期显示为已过期'}`,
+  );
 
   // 语句默认折在展开行里：展开第一条，确认看到的是护栏改写后的那一条。
   await page.click('.ant-table-tbody .ant-table-row:first-child .ant-table-row-expand-icon').catch(() => {});
   await sleep(1000);
   const expanded = await page.textContent('body');
   check('展开后能看到实际要执行的语句', /UPDATE\s+orders|DELETE\s+FROM\s+orders/.test(expanded));
+
+  // 真实库里的 APPROVED / REJECTED 记录会随时间自然过期，届时页面应诚实显示「已过期」。
+  // 用未来时间的受控历史记录验证两种决策态和拒绝原因，避免把测试绑在会衰减的 seed 上。
+  await page.route(/\/admin\/connectors\/pending-writes(?:\?|$)/, pendingHistoryFixture);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await sleep(1200);
+  await page.click('.ant-radio-button-wrapper:has-text("全部"), .ant-segmented-item:has-text("全部")');
+  await page.waitForSelector('.ant-table-row[data-row-key="fixture-approved"]', {
+    timeout: 10000,
+  });
+  await page.waitForSelector('.ant-table-row[data-row-key="fixture-rejected"]', {
+    timeout: 10000,
+  });
+
+  const fixtureText = await page.textContent('body');
+  check('受控历史请求实际命中审批接口', pendingHistoryRequests >= 2, `${pendingHistoryRequests} 次`);
+  check(
+    '未过期历史记录能看到已批准与已拒绝两种状态',
+    fixtureText.includes('已批准') && fixtureText.includes('已拒绝'),
+  );
+  check('拒绝记录能看到理由', fixtureText.includes('没有业务依据'));
+  check(
+    '历史记录默认展示实际执行语句',
+    fixtureText.includes("UPDATE orders SET status = 'PAID' WHERE id = 42") &&
+      fixtureText.includes('DELETE FROM orders WHERE id = 43'),
+  );
   await page.screenshot({ path: shot('writepolicy-pending.png'), fullPage: true });
 } catch (e) {
   console.log('\n!! 脚本抛错：', e.message.slice(0, 500));

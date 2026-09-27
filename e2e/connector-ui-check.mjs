@@ -527,12 +527,78 @@ try {
   const CODES =
     /UNREACHABLE|AUTH_FAILED|FORBIDDEN|NOT_FOUND|TIMEOUT|RATE_LIMITED|RESULT_TOO_LARGE|UPSTREAM_ERROR|CONFIG_ERROR/;
 
-  // 展开【有语句的那一行】。不能随便展开第一行——conn_catalog 本来就没有语句，
+  // 真实审计只增不减：频繁跑结构刷新后，早期 conn_query 即使把分页拉到 100 也会被挤出去。
+  // 上面的真实接口、真实行和 Agent 解析已经验过；下面用受控的成功/失败记录专门验证展开详情与筛选，
+  // 避免把 UI 行为断言绑在会随时间衰减的历史 seed 上。
+  let auditFixtureRequests = 0;
+  const auditRows = [
+    {
+      id: 'fixture-audit-query',
+      time: '2099-01-02T10:00:00',
+      connectorId,
+      connectorName: 'demo-shop',
+      agentName: '经营分析助手',
+      capability: 'QUERY',
+      operation: 'conn_query',
+      traceId: 'fixture-trace-query',
+      rowCount: '4',
+      elapsedMs: '12',
+      success: true,
+      statementText: 'SELECT id, amount FROM orders ORDER BY id DESC LIMIT 100',
+    },
+    {
+      id: 'fixture-audit-failure',
+      time: '2099-01-02T09:00:00',
+      connectorId,
+      connectorName: 'demo-shop',
+      agentName: null,
+      capability: 'QUERY',
+      operation: 'conn_query',
+      traceId: 'fixture-trace-failure',
+      rowCount: null,
+      elapsedMs: '30000',
+      success: false,
+      errorCode: 'TIMEOUT',
+      errorDetail: '查询超时，请收窄范围后重试',
+      statementText: null,
+    },
+  ];
+  const auditFixture = async (route) => {
+    const success = new URL(route.request().url()).searchParams.get('success');
+    const records =
+      success === 'true'
+        ? auditRows.filter((row) => row.success)
+        : success === 'false'
+          ? auditRows.filter((row) => !row.success)
+          : auditRows;
+    auditFixtureRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        successEnvelope({
+          records,
+          total: String(records.length),
+          size: '100',
+          current: '1',
+          pages: '1',
+        }),
+      ),
+    });
+  };
+  await page.route(auditPattern, auditFixture);
+  await page.click('[data-testid="connector-inspector-tab-overview"]');
+  await page.click('[data-testid="connector-inspector-tab-audit"]');
+  await page.waitForSelector(
+    '[data-testid="connector-audit-panel"] tr[data-row-key="fixture-audit-query"]',
+    { timeout: 10000 },
+  );
+  check('受控审计详情实际命中接口', auditFixtureRequests > 0, `${auditFixtureRequests} 次`);
+
+  // 展开【有语句的那一行】。不能随便展开第一行——失败记录可以没有语句，
   // 那样的断言会因为「没东西可看」而空转通过。
-  // 必须选【成功的】那条 conn_query：表格按时间倒序，第一条 conn_query 是失败的那次（无语句），
-  // 选错行会让断言在「没东西可看」的情况下空转。
   const queryRow = await page.$(
-    '[data-testid="connector-audit-panel"] tr.ant-table-row:has(:text("conn_query")):has(:text("成功")) .ant-table-row-expand-icon',
+    '[data-testid="connector-audit-panel"] tr[data-row-key="fixture-audit-query"] .ant-table-row-expand-icon',
   );
   if (queryRow) {
     await queryRow.click();
@@ -541,9 +607,9 @@ try {
     const expanded = await page.textContent('[data-testid="connector-audit-panel"]');
     check('展开后看到平台实际执行的语句', expanded.includes('平台实际执行的语句'));
     check(
-      '语句是平台改写后的版本（含护栏注入的 LIMIT）',
+      '正确展示后端返回的实际执行语句及 LIMIT',
       /LIMIT\s+\d+/i.test(expanded),
-      '这条正是「查数必须亮出过程」在事后回溯时的落点',
+      '这条正是「查数必须亮出过程」在界面渲染时的落点',
     );
   } else {
     check('展开行可用', false, '找不到 conn_query 行的展开图标');
@@ -551,7 +617,14 @@ try {
 
   // 筛选：切到「仅失败」后，表体里只该剩失败那条。
   await page.click('[data-testid="connector-audit-panel"] .ant-segmented-item:has-text("仅失败")');
-  await sleep(2000);
+  await page.waitForSelector(
+    '[data-testid="connector-audit-panel"] tr[data-row-key="fixture-audit-failure"]',
+    { timeout: 10000 },
+  );
+  await page.waitForSelector(
+    '[data-testid="connector-audit-panel"] tr[data-row-key="fixture-audit-query"]',
+    { state: 'detached', timeout: 10000 },
+  );
   await page.screenshot({ path: shot('connector-audit-failed-only.png') });
   // 只读表体，不读整个抽屉——顶部那段说明里就写着「查目录、看结构」之类的字样，
   // 拿整个抽屉的文本做「不包含」断言会被说明文案带偏。
@@ -565,6 +638,7 @@ try {
   const allFailed = statuses.length > 0 && statuses.every((t) => t.includes('失败'));
   check('失败行带错误码', CODES.test(tbody));
   check('「仅失败」筛选生效', allFailed && !/成功/.test(tbody), `表体行数=${statuses.length}`);
+  await page.unroute(auditPattern, auditFixture);
 
   // ---- Inspector 有缓存后的详情失败：保留旧详情 + 非阻断重试 ----
   await page.click('[data-testid="connector-inspector-close"]');
