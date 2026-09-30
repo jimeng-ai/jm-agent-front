@@ -10,6 +10,7 @@ import {
   SkillIcon,
   PlugIcon,
   DatabaseIcon,
+  DataGraphIcon,
 } from '@/components/icons/AtlasIcons';
 
 export type NavItem = {
@@ -61,6 +62,13 @@ export const WORKBENCH_NAV: NavItem[] = [
     label: '数据连接',
     path: '/console/connectors',
     Icon: DatabaseIcon,
+    superAdminOnly: true,
+  },
+  {
+    key: 'data-graph',
+    label: '数据星图',
+    path: '/console/data-graph',
+    Icon: DataGraphIcon,
     superAdminOnly: true,
   },
   // 写操作审批：待办性质的超管入口，和「数据连接」同源但不是管连接。
