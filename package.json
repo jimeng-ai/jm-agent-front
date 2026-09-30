@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test:workbench": "node e2e/run-workbench.mjs",
+    "test:data-graph": "node e2e/data-graph-check.mjs",
     "lint": "eslint . --ext .ts,.tsx --report-unused-disable-directives --max-warnings 0",
     "format": "prettier --write \"src/**/*.{ts,tsx,json,css,md}\"",
     "typecheck": "tsc --noEmit"
