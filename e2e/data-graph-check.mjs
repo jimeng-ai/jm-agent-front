@@ -314,6 +314,19 @@ try {
   const isolatedText = await page.locator('[data-testid="dg-isolated-list"]').innerText();
   r.ok('未发现关联的表列出地区与操作日志', isolatedText.includes('地区') && isolatedText.includes('操作日志') && isolatedText.includes('有上下级'));
 
+  // 4b. 带自关联的表打开详情：「内部有上下级」那句占满整行，不能被挤进图例那一窄列、一行一个字
+  await page.locator('[data-testid="dg-isolated-list"] button', { hasText: '地区' }).click();
+  const selfLine = page.locator('.dg-detail .dg-sentences li', { hasText: '内部有上下级' });
+  await selfLine.waitFor({ state: 'visible', timeout: 5_000 });
+  const selfBox = await selfLine.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const box = range.getBoundingClientRect();
+    return { width: Math.round(box.width), height: Math.round(box.height) };
+  });
+  r.ok('「内部有上下级」句子横排（不超过两行）', selfBox.height <= 48, JSON.stringify(selfBox));
+  await page.locator('.dg-detail__back').click();
+
   // 5. 空状态
   const states = [
     ['8', '这个系统的表关系还没整理'],

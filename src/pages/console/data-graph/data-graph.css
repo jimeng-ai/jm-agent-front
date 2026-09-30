@@ -122,8 +122,7 @@
   position: relative;
   min-width: 0;
   background:
-    radial-gradient(circle at 50% 48%, rgb(14 116 144 / 0.16), transparent 38%),
-    var(--graph-navy);
+    radial-gradient(circle at 50% 48%, rgb(14 116 144 / 0.16), transparent 38%), var(--graph-navy);
 }
 
 .data-graph-toolbar {
@@ -245,7 +244,10 @@
   border: 1px solid #1d4a66;
   border-radius: 12px;
   box-shadow: 0 10px 30px rgb(2 8 23 / 0.5);
-  transition: opacity 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .dg-card:hover {
@@ -488,6 +490,11 @@
 
 .dg-detail .dg-sentences li > .dg-source {
   grid-column: 2;
+}
+
+/* 自关联那句没有线型图例：跨满两列，否则会被挤进 22px 的图例列、一行一个字 */
+.dg-detail .dg-sentences li.is-self > span {
+  grid-column: 1 / -1;
 }
 
 .dg-source,

@@ -74,7 +74,9 @@ export default function TableDetailPanel({
         ) : (
           <ul className="dg-sentences">
             {detail.selfReferences.map((ref) => (
-              <li key={`self:${ref.fromColumn}`}>{selfReferenceSentence(title, ref)}</li>
+              <li key={`self:${ref.fromColumn}`} className="is-self">
+                <span>{selfReferenceSentence(title, ref)}</span>
+              </li>
             ))}
             {detail.relations.map((relation) => (
               <li key={relation.id}>
