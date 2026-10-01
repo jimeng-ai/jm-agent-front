@@ -72,7 +72,7 @@ Both paths pick an nginx config via `ARG NGINX_CONF`:
 - `nginx.deploy.conf` (default) — backend at the **production** gateway `host.docker.internal:20011` (single-host / local Mac; published 20011→container 10011, host 10011 left for the local IDE so the deployed front-end never hits your dev backend)
 - `nginx.conf` — backend at `data-service-gateway:8080` (docker-compose network)
 
-**SSE requires `proxy_buffering off` + `X-Accel-Buffering: no` + long `proxy_read_timeout`** in nginx, or streaming stalls. `client_max_body_size 100m` for document uploads. SPA fallback `try_files $uri /index.html`. Deploys run on a pushed `vX.Y.Z` tag, not on pushes to `main` (`.github/workflows/deploy.yml`, self-hosted runner): release with `npm run release -- <version>`, roll back by re-running the previous tag from Actions.
+**SSE requires `proxy_buffering off` + `X-Accel-Buffering: no` + long `proxy_read_timeout`** in nginx, or streaming stalls. `client_max_body_size 100m` for document uploads. SPA fallback `try_files $uri /index.html`. Every push to `main` gets an automatic `vX.Y.Z` tag (`.github/workflows/tag.yml`); nothing deploys on its own. Deploy (`.github/workflows/deploy.yml`, self-hosted runner) only when the user says so: Actions → Deploy → Run workflow on a tag, or `npm run deploy -- [version]`; roll back by deploying the previous tag.
 
 ## Conventions
 - ESLint is strict (`--max-warnings 0`); `@typescript-eslint/no-explicit-any` is intentionally off. Run `npm run lint` before considering work done.
