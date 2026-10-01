@@ -24,6 +24,7 @@ const SYSTEMS = [
   { connectorId: '13', name: 'legacy', displayName: '旧系统', kind: 'MYSQL', status: 'ACTIVE', semanticStatus: 'READY', tableCount: '3', truncated: false, viewStatus: 'RUNNING' },
   { connectorId: '14', name: 'legacy-failed', displayName: '旧系统二', kind: 'MYSQL', status: 'ACTIVE', semanticStatus: 'READY', tableCount: '3', truncated: false, viewStatus: 'FAILED' },
   { connectorId: '15', name: 'legacy-idle', displayName: '旧系统三', kind: 'MYSQL', status: 'ACTIVE', semanticStatus: 'READY', tableCount: '3', truncated: false, viewStatus: null },
+  { connectorId: '16', name: 'naming-empty', displayName: '新系统', kind: 'MYSQL', status: 'ACTIVE', semanticStatus: 'READY', tableCount: '1', truncated: false, viewStatus: 'RUNNING' },
 ];
 
 const card = (name, view, related, keyColumns, relationColumns, extra = {}) => ({
@@ -139,6 +140,8 @@ const GRAPHS = {
   13: legacyGraph('13', 'RUNNING'),
   14: legacyGraph('14', 'FAILED'),
   15: legacyGraph('15', null),
+  // 还没发现关联、业务名称还在整理：提示照样要挂（设计文档 §6.3 的条件里没有「得有关联」）。
+  16: { ...lonely('16', 'naming-empty', 'READY'), displayName: '新系统', viewStatus: 'RUNNING' },
 };
 
 // 单表详情的字段：键列、关系列，再补一些普通列；凭证行和采购订单明细各 30 列以上，才会出现字段搜索框。
@@ -291,6 +294,114 @@ const insideCanvas = (page, name) =>
     return box.left >= canvas.left && box.right <= canvas.right && box.top >= canvas.top && box.bottom <= canvas.bottom;
   }, name);
 
+/**
+ * WCAG 2.x 对比度（设计文档 §8.5：新增的颜色要加进对比度清单，仍须满足 AA）。不手抄色值：直接读页面上实际渲染的颜色，
+ * 底色沿祖先一层层往上叠（半透明的按透明度叠；渐变的每个色标都算一遍，取最差的），改了样式这里自动跟着变。
+ * 返回不达标的条目：scope 里每段可见文字（含输入框的占位文字），普通字要 4.5:1、大字（≥ 24px，或粗体 ≥ 18.66px）要 3:1；
+ * marks 选中的色块（领域色条、色点）按图形对象要 3:1，填充色或描边有一个达到就算看得出。
+ * 被调暗（opacity < 1）的元素是选中状态下的有意弱化，不算。
+ */
+const contrastProblems = (page, scope, marks = []) =>
+  page.evaluate(
+    ({ scope, marks }) => {
+      const rgba = (s) => {
+        const m = /rgba?\(([^)]+)\)/.exec(s ?? '');
+        if (!m) return null;
+        const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number);
+        return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
+      };
+      const over = (top, bottom) => ({
+        r: top.r * top.a + bottom.r * (1 - top.a),
+        g: top.g * top.a + bottom.g * (1 - top.a),
+        b: top.b * top.a + bottom.b * (1 - top.a),
+        a: 1,
+      });
+      const lum = ({ r, g, b }) => {
+        const f = (c) => {
+          const v = c / 255;
+          return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+        };
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+      };
+      const ratio = (x, y) => {
+        const [hi, lo] = [lum(x), lum(y)].sort((a, b) => b - a);
+        return (hi + 0.05) / (lo + 0.05);
+      };
+      // 元素背后所有可能的底色：从最外层叠到它的父元素（withSelf 时连它自己的背景也叠上）。
+      const backdrops = (el, withSelf) => {
+        const chain = [];
+        for (let n = withSelf ? el : el.parentElement; n; n = n.parentElement) chain.unshift(n);
+        let cands = [{ r: 255, g: 255, b: 255, a: 1 }];
+        for (const n of chain) {
+          const cs = getComputedStyle(n);
+          const base = rgba(cs.backgroundColor);
+          if (base && base.a > 0) cands = cands.map((c) => over(base, c));
+          const stops = cs.backgroundImage && cs.backgroundImage !== 'none'
+            ? [...cs.backgroundImage.matchAll(/rgba?\([^)]+\)/g)].map((m) => rgba(m[0]))
+            : [];
+          if (stops.length) {
+            const next = [];
+            for (const c of cands) {
+              for (const stop of stops) next.push(stop.a > 0 ? over(stop, c) : c);
+              if (stops.some((stop) => stop.a < 1)) next.push(c);
+            }
+            const seen = new Set();
+            cands = next.filter((c) => {
+              const k = [c.r, c.g, c.b].map(Math.round).join(',');
+              return seen.has(k) ? false : seen.add(k);
+            });
+          }
+        }
+        return cands;
+      };
+      const shown = (el) => {
+        const box = el.getBoundingClientRect();
+        if (!box.width || !box.height) return false;
+        for (let n = el; n; n = n.parentElement) {
+          const cs = getComputedStyle(n);
+          if (cs.visibility === 'hidden' || cs.display === 'none' || Number(cs.opacity) < 1) return false;
+        }
+        return true;
+      };
+      const problems = [];
+      for (const root of document.querySelectorAll(scope)) {
+        for (const el of [root, ...root.querySelectorAll('*')]) {
+          if (el.closest('svg')) continue;
+          const own = [...el.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE).map((n) => n.textContent.trim()).join('');
+          if (!own || !shown(el)) continue;
+          const cs = getComputedStyle(el);
+          const fg = rgba(cs.color);
+          const size = parseFloat(cs.fontSize);
+          const need = size >= 24 || (Number(cs.fontWeight) >= 700 && size >= 18.66) ? 3 : 4.5;
+          const worst = Math.min(...backdrops(el, true).map((bg) => ratio(fg.a < 1 ? over(fg, bg) : fg, bg)));
+          if (worst < need) problems.push(`「${own.slice(0, 16)}」${worst.toFixed(2)}:1（要 ${need}:1）`);
+        }
+        for (const input of root.querySelectorAll('input[placeholder], textarea[placeholder]')) {
+          if (!input.placeholder || !shown(input)) continue;
+          const fg = rgba(getComputedStyle(input, '::placeholder').color);
+          if (!fg) continue;
+          const worst = Math.min(...backdrops(input, true).map((bg) => ratio(fg.a < 1 ? over(fg, bg) : fg, bg)));
+          if (worst < 4.5) problems.push(`占位文字「${input.placeholder.slice(0, 16)}」${worst.toFixed(2)}:1（要 4.5:1）`);
+        }
+      }
+      for (const selector of marks) {
+        for (const el of document.querySelectorAll(selector)) {
+          if (!shown(el)) continue;
+          const cs = getComputedStyle(el);
+          const mark = rgba(cs.backgroundColor);
+          if (!mark) continue;
+          const edge = parseFloat(cs.borderTopWidth) >= 1 && cs.borderTopStyle !== 'none' ? rgba(cs.borderTopColor) : null;
+          const worst = Math.min(
+            ...backdrops(el, false).map((bg) => Math.max(ratio(mark, bg), edge ? ratio(edge.a < 1 ? over(edge, bg) : edge, bg) : 0)),
+          );
+          if (worst < 3) problems.push(`${selector} rgb(${mark.r},${mark.g},${mark.b}) ${worst.toFixed(2)}:1（要 3:1）`);
+        }
+      }
+      return [...new Set(problems)];
+    },
+    { scope, marks },
+  );
+
 const { baseUrl, child } = await startVite();
 const r = reporter('data-graph');
 const { browser, page } = await launchBrowser();
@@ -392,6 +503,10 @@ try {
   const pageText = await page.locator('[data-testid="data-graph-page"]').innerText();
   const codes = codesIn(pageText, erpIds);
   r.ok('★ 默认视图扫描不到任何表名、字段名', codes.length === 0, codes.join(','));
+  const defaultContrast = await contrastProblems(page, '[data-testid="data-graph-page"]');
+  r.ok('文字对比度达到 WCAG AA：默认视图（页头、概览、领域筛选、画布、关联清单）', defaultContrast.length === 0, defaultContrast.join('；'));
+  const hintContrast = [];
+  const markContrast = await contrastProblems(page, 'none', ['.dg-card__domain', '[data-testid="dg-domains"] i']);
   // 读屏软件念的标签、悬停提示也算默认视图：React Flow 默认给线的读屏标签是「Edge from 表名 to 表名」。
   const spoken = await page.$$eval('[data-testid="data-graph-page"] [aria-label], [data-testid="data-graph-page"] [title]', (els) =>
     els.map((el) => `${el.getAttribute('aria-label') ?? ''}\n${el.getAttribute('title') ?? ''}`).join('\n'),
@@ -473,6 +588,8 @@ try {
   if (await techSummary.count()) await techSummary.click();
   const techText = await detail.locator('.dg-tech').innerText().catch(() => '');
   r.ok('展开技术信息：看得到表名、字段对应与核对状态', techText.includes('t_voucher_line') && techText.includes('t_voucher_line.recon_account_id → t_account.id · 数据核对通过'), techText.slice(0, 200));
+  const detailContrast = await contrastProblems(page, '[data-testid="dg-detail"]');
+  r.ok('文字对比度达到 WCAG AA：对象详情（含展开的技术信息）', detailContrast.length === 0, detailContrast.join('；'));
   const fieldSearch = detail.locator('.dg-tech input');
   if (await fieldSearch.count()) await fieldSearch.fill('recon');
   r.ok('字段搜索能筛字段', (await detail.locator('.dg-fields li').count()) === 1);
@@ -517,6 +634,16 @@ try {
       (await page.locator('[data-testid="dg-card"][data-table="l_item"] .dg-card__title').innerText()) === 'l_item',
   );
   r.ok('有对象还没拿到业务名、补全链在跑：提示「业务名称整理中」', ((await page.locator('[data-testid="dg-hint-naming"]').innerText().catch(() => '')) ?? '').includes('业务名称整理中'));
+  hintContrast.push(...(await contrastProblems(page, '[data-testid="dg-hint-naming"]')));
+  // 切回原来的系统：之前在 ERP 里搜索选中的「采购订单明细」不能恢复（设计文档 §8.1：切换时清掉选中，不是藏起来）。
+  await page.locator('.data-graph-systems').getByText('ERP 系统 · 9 个对象').click();
+  await waitForGraph(page, 7, 8);
+  r.ok(
+    '★ 切回原来的系统：之前的选中已经清掉，不恢复',
+    (await page.locator('[data-testid="dg-detail"]').count()) === 0 &&
+      (await page.locator('.dg-card.is-selected').count()) === 0 &&
+      (await page.locator('.dg-card.is-dimmed').count()) === 0,
+  );
   await openSystem(page, baseUrl, '14');
   await waitForGraph(page, 3, 2);
   r.ok('补全链上次失败：安静地用兜底，不挂提示', (await page.locator('[data-testid="dg-hint-naming"]').count()) === 0);
@@ -541,6 +668,13 @@ try {
   await openSystem(page, baseUrl, '8');
   await page.locator('[data-testid="dg-empty"]').waitFor({ state: 'visible', timeout: 10_000 });
   r.ok('企业超管在空状态看得到「去数据连接」', (await page.locator('[data-testid="dg-empty"] a', { hasText: '去「数据连接」' }).count()) === 1);
+  await openSystem(page, baseUrl, '16');
+  await page.locator('[data-testid="dg-empty"]').waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {});
+  r.ok(
+    '还没发现关联、业务名称还在整理：空状态之外照样提示「业务名称整理中」',
+    ((await page.locator('[data-testid="dg-hint-naming"]').innerText().catch(() => '')) ?? '').includes('业务名称整理中'),
+  );
+  hintContrast.push(...(await contrastProblems(page, '[data-testid="dg-empty"], [data-testid="dg-relations-empty"]')));
 
   // ======================================================== 7. 大图：截断提示、小地图、先显示关联最多的对象、键盘聚焦跟随（#6）
   const started = Date.now();
@@ -556,6 +690,10 @@ try {
   r.ok('画布按钮、小地图的提示是中文', JSON.stringify(chromeTips) === JSON.stringify(['放大', '缩小', '显示全图', '小地图']), chromeTips.join('|'));
   const hint = await page.locator('[data-testid="dg-explore-hint"]').innerText().catch(() => '');
   r.ok('大图提示先显示关联最多的对象附近', hint.includes('「对象10」附近'), hint);
+  hintContrast.push(...(await contrastProblems(page, '[data-testid="dg-hint-truncated"], [data-testid="dg-explore-hint"]')));
+  r.ok('文字对比度达到 WCAG AA：整理提示、空状态、截断提示、大图提示', hintContrast.length === 0, hintContrast.join('；'));
+  markContrast.push(...(await contrastProblems(page, 'none', ['.dg-card__domain', '[data-testid="dg-domains"] i'])));
+  r.ok('领域颜色（8 色与「未分类」：卡片色条、筛选色点）与底色的对比度至少 3:1', markContrast.length === 0, [...new Set(markContrast)].join('；'));
   const hubBox = await page.locator('[data-testid="dg-card"][data-table="table_010"]').boundingBox();
   r.ok('关联最多的对象在视野里、卡片够大能读', Boolean(hubBox) && hubBox.width >= 200 && (await insideCanvas(page, 'table_010')), JSON.stringify(hubBox));
   const far = 'table_199';

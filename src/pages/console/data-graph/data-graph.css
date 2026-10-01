@@ -142,12 +142,13 @@
   border-color: #0891b2;
 }
 
-/* 圆点只是辅助，领域靠文字辨认；描一圈深色边，浅底上的浅色点也看得出来 */
+/* 圆点只是辅助，领域靠文字辨认；描一圈深色实边，浅底上的浅色点也看得出来（与白底 7.6:1，图形对象要 3:1）。
+   半透明的边叠在白底上只剩 2.2:1，不够。 */
 .data-graph-domains i {
   display: inline-block;
   width: 8px;
   height: 8px;
-  border: 1px solid rgb(15 23 42 / 0.35);
+  border: 1px solid #475569;
   border-radius: 50%;
 }
 
@@ -187,6 +188,15 @@
 
 .data-graph-search {
   width: 320px;
+}
+
+/* React Flow 的署名链接：默认是半透明白底配 #999，叠在深色画布上只有 3.9:1；换成深底浅字（约 8.7:1）。 */
+.dg-canvas .react-flow__attribution {
+  background: rgb(6 17 31 / 0.8);
+}
+
+.dg-canvas .react-flow__attribution a {
+  color: #9fb3c8;
 }
 
 .dg-search-option {

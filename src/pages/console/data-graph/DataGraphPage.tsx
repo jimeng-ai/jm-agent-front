@@ -32,20 +32,20 @@ import { useAuthStore } from '@/stores/authStore';
 import './data-graph.css';
 
 // 深色工作区：画布、搜索框、右侧面板里的 antd 组件都用暗色算法渲染，和画布同一套底色。
+// 占位文字：深色算法默认是 25% 的白，叠在 #0a1b2e 上只有 2.25:1；换成实色，约 5.2:1（WCAG AA 4.5:1，设计文档 §8.5）。
 const DARK_THEME = {
   algorithm: theme.darkAlgorithm,
-  token: { colorPrimary: '#22d3ee', colorBgContainer: '#0a1b2e' },
+  token: { colorPrimary: '#22d3ee', colorBgContainer: '#0a1b2e', colorTextPlaceholder: '#7b8fa3' },
 };
 
 /**
  * 「业务名称整理中」只在有对象还没拿到业务名、并且补全链正在整理时出现（设计文档 §6.3）。「正在整理」由后端判断：
  * 正在跑，或者从没跑完过、但补全链会来跑，都给 RUNNING；补全链关着、语义层没生成成功（不会有人来跑）给 null。
  * 跑完了仍有对象没拿到业务名（校验两次不过、或者失败了），以及不会有人来跑的，都安静地用兜底，不挂提示。
+ * 还没发现关联也照样挂：空状态那句话说的是关联，这条说的是名字，两件事。
  */
 const namingInProgress = (graph: SystemGraph): boolean =>
-  graph.relations.length > 0 &&
-  graph.tables.some((table) => table.nameSource !== 'BUSINESS_VIEW') &&
-  graph.viewStatus === 'RUNNING';
+  graph.tables.some((table) => table.nameSource !== 'BUSINESS_VIEW') && graph.viewStatus === 'RUNNING';
 
 /** 按系统记下来的页面状态：切换系统后自然作废，不会有一瞬间把上一个系统的选中套到新系统上（v2 审查 #11）。 */
 interface Scoped<T> {
@@ -80,6 +80,18 @@ export default function DataGraphPage() {
   const requested = params.get('system');
   const current = systems.find((system) => system.connectorId === requested) ?? systems[0] ?? null;
   const currentId = current?.connectorId ?? null;
+
+  // 切换系统时清掉选中、聚焦请求、领域筛选和搜索词（设计文档 §8.1，v2 审查 #11）。在渲染时比对、当场清，不放进 effect：
+  // effect 晚一拍，会先把上一个系统的选中套到新系统上画一帧（下面按系统取值，防的也是这一帧）。清掉而不是藏起来：
+  // 切回原来的系统时不恢复旧选中，也不会按旧的聚焦请求把视野挪过去；浏览器前进后退改了地址也一样。
+  const [shownSystem, setShownSystem] = useState<string | null>(currentId);
+  if (shownSystem !== currentId) {
+    setShownSystem(currentId);
+    setSelection({ system: currentId, value: null });
+    setFocusState({ system: currentId, value: null });
+    setDomainState({ system: currentId, value: null });
+    setSearch('');
+  }
 
   const graphQuery = useQuery({
     queryKey: ['data-graph', 'system', currentId],
