@@ -92,7 +92,7 @@ export function buildFlow(
     focusable: false,
     data: {
       tier: relation.tier,
-      label: relation.label,
+      label: relation.role,
       fromMark:
         relation.cardinality === 'MANY_TO_ONE'
           ? 'N'
