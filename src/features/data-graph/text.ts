@@ -68,3 +68,50 @@ export function emptyRelationsText(status: SemanticStatus): string {
 }
 
 export const NO_SYSTEMS_TEXT = '还没有可以查看的业务系统。';
+
+export interface SentenceGroup {
+  key: string;
+  title: string;
+  relations: Relation[];
+}
+
+/**
+ * 关联清单：按对象两两分组，不分方向（客户、供应商互相引用的两条放在一组）。
+ * 组的顺序按每组第一条关系在后端顺序里出现的位置；组名按第一条关系的起点、终点写。
+ */
+export function groupByPair(relations: Relation[], titleOf: (table: string) => string): SentenceGroup[] {
+  const groups = new Map<string, SentenceGroup>();
+  for (const relation of relations) {
+    const key = [relation.fromTable, relation.toTable].sort().join('\u0000');
+    const group = groups.get(key);
+    if (group) {
+      group.relations.push(relation);
+    } else {
+      groups.set(key, {
+        key,
+        title: `「${titleOf(relation.fromTable)}」与「${titleOf(relation.toTable)}」`,
+        relations: [relation],
+      });
+    }
+  }
+  return [...groups.values()];
+}
+
+/** 单个对象的「和谁有关」：按另一端的对象分组，组名是那个对象的业务名。 */
+export function groupByCounterpart(
+  relations: Relation[],
+  table: string,
+  titleOf: (table: string) => string,
+): SentenceGroup[] {
+  const groups = new Map<string, SentenceGroup>();
+  for (const relation of relations) {
+    const other = relation.fromTable === table ? relation.toTable : relation.fromTable;
+    const group = groups.get(other);
+    if (group) {
+      group.relations.push(relation);
+    } else {
+      groups.set(other, { key: other, title: titleOf(other), relations: [relation] });
+    }
+  }
+  return [...groups.values()];
+}

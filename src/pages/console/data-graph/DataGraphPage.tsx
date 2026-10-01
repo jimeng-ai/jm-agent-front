@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   Alert,
@@ -13,13 +13,22 @@ import {
 } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
+import { authApi } from '@/features/auth/api';
 import { dataGraphApi } from '@/features/data-graph/api';
 import DataGraphCanvas from '@/features/data-graph/components/DataGraphCanvas';
-import DataGraphSidePanel from '@/features/data-graph/components/DataGraphSidePanel';
+import DataGraphSidePanel, {
+  type SidePanelTab,
+} from '@/features/data-graph/components/DataGraphSidePanel';
 import { domainOptions } from '@/features/data-graph/domains';
 import type { FocusRequest } from '@/features/data-graph/flow';
-import { tableTitle } from '@/features/data-graph/text';
-import type { SemanticStatus } from '@/features/data-graph/types';
+import {
+  NO_SYSTEMS_TEXT,
+  domainLabel,
+  emptyRelationsText,
+  tableTitle,
+} from '@/features/data-graph/text';
+import type { SystemGraph } from '@/features/data-graph/types';
+import { useAuthStore } from '@/stores/authStore';
 import './data-graph.css';
 
 // 深色工作区：画布、搜索框、右侧面板里的 antd 组件都用暗色算法渲染，和画布同一套底色。
@@ -28,19 +37,39 @@ const DARK_THEME = {
   token: { colorPrimary: '#22d3ee', colorBgContainer: '#0a1b2e' },
 };
 
-// 语义层还没给出关系时，画布位置显示的话（设计文档 §6.5）。
-function emptyCanvasText(status: SemanticStatus): string {
-  if (status === null) return '这个系统的表关系还没整理。在「数据连接」里生成语义层后会自动出现。';
-  if (status === 'RUNNING') return '正在整理表关系，完成后刷新页面即可看到。';
-  if (status === 'FAILED') return '表关系整理没有成功，可在「数据连接」查看原因。';
-  return '暂未发现可以确认的表关系。';
+/**
+ * 「业务名称整理中」只在两种时候出现（设计文档 §6.3）：有对象还没拿到业务名，并且补全链正在跑、或这个连接还从没跑过。
+ * 跑完了仍有对象没拿到业务名（校验两次不过、或者失败了），就安静地用兜底，不挂提示。
+ */
+const namingInProgress = (graph: SystemGraph): boolean =>
+  graph.relations.length > 0 &&
+  graph.tables.some((table) => table.nameSource !== 'BUSINESS_VIEW') &&
+  (graph.viewStatus === 'RUNNING' || graph.viewStatus === null);
+
+/** 按系统记下来的页面状态：切换系统后自然作废，不会有一瞬间把上一个系统的选中套到新系统上（v2 审查 #11）。 */
+interface Scoped<T> {
+  system: string | null;
+  value: T;
 }
 
 export default function DataGraphPage() {
   const [params, setParams] = useSearchParams();
-  const [selected, setSelected] = useState<string | null>(null);
-  const [focus, setFocus] = useState<FocusRequest | null>(null);
+  const token = useAuthStore((s) => s.token);
+  const [selection, setSelection] = useState<Scoped<string | null>>({ system: null, value: null });
+  const [focusState, setFocusState] = useState<Scoped<FocusRequest | null>>({ system: null, value: null });
+  const [domainState, setDomainState] = useState<Scoped<string | null>>({ system: null, value: null });
   const [search, setSearch] = useState('');
+  // 记住上次停留的页签：从对象详情返回时回到它，而不是总回到第一个（v2 审查 #9）。
+  const [tab, setTab] = useState<SidePanelTab>('relations');
+
+  // 与侧栏、ModuleRoute 共用同一份权限缓存。拿不到时按「不是超管」处理：管理页面的链接宁可不给。
+  const { data: permission } = useQuery({
+    queryKey: ['me', 'permissions'],
+    queryFn: authApi.mePermissions,
+    enabled: !!token,
+    staleTime: 60_000,
+  });
+  const isSuperAdmin = permission?.superAdmin === true;
 
   const systemsQuery = useQuery({
     queryKey: ['data-graph', 'systems'],
@@ -58,27 +87,35 @@ export default function DataGraphPage() {
   });
   const graph = graphQuery.data;
 
-  useEffect(() => {
-    setSelected(null);
-    setFocus(null);
-    setSearch('');
-  }, [currentId]);
+  const selected = selection.system === currentId ? selection.value : null;
+  const focus = focusState.system === currentId ? focusState.value : null;
+  const domainFilter = domainState.system === currentId ? domainState.value : null;
 
-  const onSelect = useCallback((name: string | null) => setSelected(name), []);
-  const pick = useCallback((name: string) => {
-    setSelected(name);
-    setFocus((previous) => ({ name, seq: (previous?.seq ?? 0) + 1 }));
-  }, []);
+  const onSelect = useCallback(
+    (name: string | null) => setSelection({ system: currentId, value: name }),
+    [currentId],
+  );
+  const pick = useCallback(
+    (name: string) => {
+      setSelection({ system: currentId, value: name });
+      setFocusState((previous) => ({
+        system: currentId,
+        value: { name, seq: (previous.value?.seq ?? 0) + 1 },
+      }));
+    },
+    [currentId],
+  );
 
   const titles = useMemo(
     () => new Map((graph?.tables ?? []).map((table) => [table.name, tableTitle(table)])),
     [graph?.tables],
   );
   const titleOf = useCallback((name: string) => titles.get(name) ?? name, [titles]);
+  const domains = useMemo(() => domainOptions(graph?.tables ?? []), [graph?.tables]);
 
   const counts = useMemo(
     () => ({
-      tables: graph?.tables.length ?? 0,
+      objects: graph?.tables.length ?? 0,
       confirmed: graph?.relations.filter((relation) => relation.tier === 'CONFIRMED').length ?? 0,
       inferred: graph?.relations.filter((relation) => relation.tier === 'INFERRED').length ?? 0,
       isolated: graph?.tables.filter((table) => !table.related).length ?? 0,
@@ -86,15 +123,16 @@ export default function DataGraphPage() {
     [graph],
   );
 
+  // 按业务名、说明找，也认表名（懂技术的人会直接敲表名）；下拉里只显示业务名和领域。
   const searchOptions = useMemo(() => {
     const keyword = search.trim().toLowerCase();
     if (!graph || !keyword) return [];
     return graph.tables
       .filter(
         (table) =>
-          table.name.toLowerCase().includes(keyword) ||
-          (table.displayName ?? '').toLowerCase().includes(keyword) ||
-          (table.comment ?? '').toLowerCase().includes(keyword),
+          tableTitle(table).toLowerCase().includes(keyword) ||
+          (table.summary ?? '').toLowerCase().includes(keyword) ||
+          table.name.toLowerCase().includes(keyword),
       )
       .slice(0, 20)
       .map((table) => ({
@@ -102,7 +140,7 @@ export default function DataGraphPage() {
         label: (
           <div className="dg-search-option">
             <strong>{tableTitle(table)}</strong>
-            {table.displayName ? <span>{table.name}</span> : null}
+            <span>{domainLabel(table.domain)}</span>
           </div>
         ),
       }));
@@ -111,13 +149,14 @@ export default function DataGraphPage() {
   const semanticLink = currentId
     ? `/console/connectors/${currentId}/semantic`
     : '/console/connectors';
+  const emptyText = emptyRelationsText(graph?.semanticStatus ?? null);
 
   return (
     <main className="data-graph-page" data-testid="data-graph-page">
       <header className="data-graph-header">
         <h2 className="data-graph-header__title">数据星图</h2>
         <p className="data-graph-header__lead">
-          查看各业务系统里有哪些表、表与表之间怎样关联。关系来自数据连接的语义层，语义层更新后这里自动同步。
+          看看业务系统里有哪些业务对象、它们之间怎样关联。内容由平台根据接入的系统自动整理，并随系统更新自动同步。
         </p>
       </header>
 
@@ -136,11 +175,12 @@ export default function DataGraphPage() {
           }
         />
       ) : !current ? (
-        <section className="data-graph-blank">
+        <section className="data-graph-blank" data-testid="dg-no-systems">
           <Empty
             description={
               <span>
-                还没有可以展示的业务系统。<Link to="/console/connectors">去「数据连接」</Link>
+                {NO_SYSTEMS_TEXT}
+                {isSuperAdmin ? <Link to="/console/connectors">去「数据连接」</Link> : null}
               </span>
             }
           />
@@ -151,12 +191,15 @@ export default function DataGraphPage() {
             <Segmented
               className="data-graph-systems"
               value={current.connectorId}
-              onChange={(value) => setParams({ system: String(value) })}
+              onChange={(value) => {
+                setSearch('');
+                setParams({ system: String(value) });
+              }}
               options={systems.map((system) => ({
                 value: system.connectorId,
                 label: (
                   <span>
-                    {system.displayName || system.name} · {system.tableCount} 张表
+                    {system.displayName || system.name} · {system.tableCount} 个对象
                     {system.status === 'DISABLED' ? (
                       <Tag className="data-graph-systems__tag">已停用</Tag>
                     ) : null}
@@ -172,7 +215,7 @@ export default function DataGraphPage() {
             <Alert
               type="error"
               showIcon
-              message="这个系统的表关系没有加载出来"
+              message="这个系统的关联没有加载出来"
               description={graphQuery.error instanceof Error ? graphQuery.error.message : undefined}
               action={
                 <Button icon={<ReloadOutlined />} onClick={() => void graphQuery.refetch()}>
@@ -184,24 +227,59 @@ export default function DataGraphPage() {
             <>
               <section className="data-graph-summary" aria-label="概览">
                 <div>
-                  <span>表</span>
-                  <strong>{counts.tables}</strong>
+                  <span>对象</span>
+                  <strong>{counts.objects}</strong>
                 </div>
                 <div>
-                  <span>已确认关系</span>
+                  <span>已核对的关联</span>
                   <strong>{counts.confirmed}</strong>
                 </div>
                 <div>
-                  <span>推断关系</span>
+                  <span>待核对的关联</span>
                   <strong>{counts.inferred}</strong>
                 </div>
                 <div>
-                  <span>未发现关联的表</span>
+                  <span>暂未发现关联的对象</span>
                   <strong>{counts.isolated}</strong>
                 </div>
               </section>
-              {graph.semanticStatus === 'RUNNING' && graph.relations.length > 0 ? (
-                <p className="data-graph-note">语义层正在更新，完成后刷新页面可看到最新关系</p>
+              {namingInProgress(graph) || graph.truncated ? (
+                <div className="data-graph-notes">
+                  {namingInProgress(graph) ? (
+                    <p className="data-graph-note" data-testid="dg-hint-naming">
+                      业务名称整理中。
+                    </p>
+                  ) : null}
+                  {graph.truncated ? (
+                    <p className="data-graph-note" data-testid="dg-hint-truncated">
+                      这个系统表很多，只整理了按重要性排前 200 个对象。
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+              {graph.relations.length > 0 && domains.length > 1 ? (
+                <div className="data-graph-domains" role="group" aria-label="按领域查看" data-testid="dg-domains">
+                  <button
+                    type="button"
+                    className={domainFilter === null ? 'is-active' : undefined}
+                    aria-pressed={domainFilter === null}
+                    onClick={() => setDomainState({ system: currentId, value: null })}
+                  >
+                    全部
+                  </button>
+                  {domains.map((domain) => (
+                    <button
+                      key={domain.label}
+                      type="button"
+                      className={domainFilter === domain.label ? 'is-active' : undefined}
+                      aria-pressed={domainFilter === domain.label}
+                      onClick={() => setDomainState({ system: currentId, value: domain.label })}
+                    >
+                      <i style={{ background: domain.color }} aria-hidden />
+                      {domain.label}
+                    </button>
+                  ))}
+                </div>
               ) : null}
 
               <ConfigProvider theme={DARK_THEME}>
@@ -218,25 +296,25 @@ export default function DataGraphPage() {
                           setSearch('');
                           pick(String(value));
                         }}
-                        placeholder="搜索表（中文名或表名）"
-                        notFoundContent={search.trim() ? '没有匹配的表' : null}
+                        placeholder="搜索对象（业务名或表名）"
+                        notFoundContent={search.trim() ? '没有匹配的对象' : null}
                       />
                     </div>
                     {graph.relations.length > 0 ? (
                       <DataGraphCanvas
                         key={graph.connectorId}
                         graph={graph}
-                        domains={domainOptions(graph.tables)}
+                        domains={domains}
                         selected={selected}
-                        domainFilter={null}
+                        domainFilter={domainFilter}
                         focus={focus}
                         titleOf={titleOf}
                         onSelect={onSelect}
                       />
                     ) : (
                       <div className="data-graph-empty-canvas" data-testid="dg-empty">
-                        <p>{emptyCanvasText(graph.semanticStatus)}</p>
-                        {graph.semanticStatus !== 'READY' ? (
+                        <p>{emptyText}</p>
+                        {isSuperAdmin && graph.semanticStatus !== 'READY' ? (
                           <Link to={semanticLink}>去「数据连接」</Link>
                         ) : null}
                       </div>
@@ -244,20 +322,24 @@ export default function DataGraphPage() {
                     <div className="data-graph-legend" aria-label="图例">
                       <span>
                         <i className="dg-swatch is-confirmed" aria-hidden />
-                        已确认：数据核对通过或业务方确认
+                        已核对：数据核对通过或业务方确认
                       </span>
                       <span>
                         <i className="dg-swatch is-inferred" aria-hidden />
-                        推断：按表结构，尚未核对
+                        待核对：按表结构推断，尚未核对
                       </span>
                     </div>
                   </div>
                   <DataGraphSidePanel
                     graph={graph}
+                    domains={domains}
                     selected={selected}
+                    tab={tab}
+                    emptyText={emptyText}
                     titleOf={titleOf}
+                    onTabChange={setTab}
                     onPick={pick}
-                    onBack={() => setSelected(null)}
+                    onBack={() => onSelect(null)}
                   />
                 </section>
               </ConfigProvider>

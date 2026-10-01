@@ -92,10 +92,63 @@
   font-variant-numeric: tabular-nums;
 }
 
+.data-graph-notes {
+  display: grid;
+  gap: 2px;
+  margin-top: -4px;
+}
+
 .data-graph-note {
-  margin: -4px 0 0;
+  margin: 0;
   color: #0369a1;
   font-size: 12px;
+}
+
+/* ---------- 领域筛选：选中一个领域，别的领域的对象变暗，布局不动 ---------- */
+
+.data-graph-domains {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.data-graph-domains button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 12px;
+  color: #334155;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid #d5dee7;
+  border-radius: 999px;
+}
+
+.data-graph-domains button:hover {
+  border-color: #94a3b8;
+}
+
+.data-graph-domains button:focus-visible {
+  outline: 2px solid #0891b2;
+  outline-offset: 2px;
+}
+
+.data-graph-domains button.is-active {
+  color: #0b1b2b;
+  font-weight: 600;
+  background: #e0f2fe;
+  border-color: #0891b2;
+}
+
+/* 圆点只是辅助，领域靠文字辨认；描一圈深色边，浅底上的浅色点也看得出来 */
+.data-graph-domains i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border: 1px solid rgb(15 23 42 / 0.35);
+  border-radius: 50%;
 }
 
 .data-graph-blank {
@@ -145,7 +198,6 @@
 
 .dg-search-option span {
   color: #94a3b8;
-  font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 12px;
 }
 
@@ -448,10 +500,22 @@
   color: #f0f9ff;
 }
 
-.dg-table-list__name {
-  color: #7dd3fc;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
+/* 关联清单、「和谁有关」：按对象分组 */
+.dg-groups {
+  display: grid;
+  gap: 14px;
+}
+
+.dg-group {
+  display: grid;
+  gap: 8px;
+}
+
+.dg-group__title {
+  margin: 0;
+  color: #bfe3f5;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .dg-detail {
@@ -470,16 +534,72 @@
   font-size: 17px;
 }
 
-.dg-detail__name {
-  color: #7dd3fc;
+.dg-detail__domain {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--graph-text);
+  font-size: 12px;
+}
+
+.dg-detail__domain i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.dg-detail__summary {
+  margin: 0;
+  color: var(--graph-text);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* 技术信息：默认折叠，表名、字段、字段对应都只在这里 */
+.dg-tech {
+  padding-top: 12px;
+  border-top: 1px solid var(--graph-border);
+}
+
+.dg-tech > summary {
+  color: #bfe3f5;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dg-tech > summary:focus-visible {
+  outline: 2px solid var(--graph-blue);
+  outline-offset: 2px;
+}
+
+.dg-tech__body {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.dg-tech__row {
+  margin: 0;
+  color: var(--graph-muted);
+  font-size: 12px;
+}
+
+.dg-tech__row code,
+.dg-tech__mapping {
+  color: #cfe8f6;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 12px;
 }
 
-.dg-detail__comment {
+.dg-tech__mapping {
+  display: grid;
+  gap: 4px;
   margin: 0;
-  color: var(--graph-muted);
-  font-size: 13px;
+  padding: 0;
+  list-style: none;
+  word-break: break-all;
 }
 
 .dg-detail__section {
