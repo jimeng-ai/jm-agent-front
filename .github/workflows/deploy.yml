@@ -1,9 +1,10 @@
 name: Deploy
 
-# push 到 main 即自动部署。也支持在 Actions 页面手动触发。
+# 推送 v* 版本 tag 才部署，推 main 不上线。发版：node scripts/release.mjs <版本号>（npm 仓库是 npm run release -- <版本号>），
+# 规则见 scripts/release.mjs 开头。回滚：Actions → Deploy → Run workflow，在 Use workflow from 里选上一个 tag。
 on:
   push:
-    branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 # 让 GITHUB_TOKEN 有推送 GHCR 镜像的权限（无需额外 secret）
@@ -11,9 +12,11 @@ permissions:
   contents: read
   packages: write
 
+# 同一仓库的部署排队、不互相取消：发版是有意为之的，一次部署跑到一半（旧容器已删、新容器还没起）
+# 被取消，线上就挂了。
 concurrency:
   group: deploy-main
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   IMAGE: ghcr.io/jimeng-ai/jm-agent-front
@@ -27,6 +30,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 只部署 v* 版本 tag，而且 tag 指向的提交必须已经在 main 上：线上永远是 main 上某个有版本号的提交。
+      # 手动触发也一样（Use workflow from 里选的是分支就直接失败），回滚就是手动重跑上一个 tag。
+      - name: Only release tags on main
+        run: |
+          set -euo pipefail
+          case "$GITHUB_REF" in
+            refs/tags/v*) ;;
+            *) echo "::error::只部署 v* 版本 tag（现在是 $GITHUB_REF）。手动触发请在 Use workflow from 里选一个 tag。"; exit 1 ;;
+          esac
+          git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "::error::$GITHUB_REF_NAME 指向的提交不在 main 上，不部署：先合进 main 再发版"; exit 1; }
+          echo "部署 $GITHUB_REF_NAME（$GITHUB_SHA）"
 
       # ---- 前端构建跑在宿主机原生环境，【不】进 Docker ----
       # 这台机器就是 prod：Docker VM 只有 7.75G，ds-data-server(1.2G)/ds-elasticsearch(1G)/
@@ -70,6 +89,7 @@ jobs:
           docker build -f Dockerfile.dist \
             -t "$IMAGE:latest" \
             -t "$IMAGE:${{ github.sha }}" \
+            -t "$IMAGE:${{ github.ref_name }}" \
             .
 
       # 部署是关键步骤：直接用刚构建的本地镜像重建容器，不依赖镜像仓库可达性。
@@ -94,6 +114,7 @@ jobs:
           printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "$AUTH" > "$DOCKER_CONFIG/config.json"
           docker push "$IMAGE:latest"
           docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:${{ github.ref_name }}"
 
       # 多个仓库的部署并行跑在同一 Docker daemon 上，prune 有全局锁，并发会撞
       # "a prune operation is already running"。这是无害的清理步骤，失败不应判部署失败。

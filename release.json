@@ -1,0 +1,7 @@
+{
+  "name": "jm-agent-front",
+  "gate": [
+    "npm run typecheck",
+    "npm run lint"
+  ]
+}
