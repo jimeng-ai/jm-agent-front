@@ -16,6 +16,7 @@ import { useQuery } from '@tanstack/react-query';
 import { dataGraphApi } from '@/features/data-graph/api';
 import DataGraphCanvas from '@/features/data-graph/components/DataGraphCanvas';
 import DataGraphSidePanel from '@/features/data-graph/components/DataGraphSidePanel';
+import { domainOptions } from '@/features/data-graph/domains';
 import type { FocusRequest } from '@/features/data-graph/flow';
 import { tableTitle } from '@/features/data-graph/text';
 import type { SemanticStatus } from '@/features/data-graph/types';
@@ -225,8 +226,11 @@ export default function DataGraphPage() {
                       <DataGraphCanvas
                         key={graph.connectorId}
                         graph={graph}
+                        domains={domainOptions(graph.tables)}
                         selected={selected}
+                        domainFilter={null}
                         focus={focus}
+                        titleOf={titleOf}
                         onSelect={onSelect}
                       />
                     ) : (

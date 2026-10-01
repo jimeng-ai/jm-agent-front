@@ -1,24 +1,22 @@
 import { Graph, layout } from '@dagrejs/dagre';
-import type { ColumnRef, Relation, TableCard } from './types';
+import type { Relation, TableCard } from './types';
 
-// 与 data-graph.css 里 .dg-card 的宽度和头部、行、底部高度一致：布局按这个算，DOM 也按这个画。
+// 与 data-graph.css 里 .dg-card 的宽高一致：布局按这个算，DOM 也按这个画。所有卡片一样大（设计文档 §8.2）。
 export const CARD_WIDTH = 240;
-export const CARD_HEADER_HEIGHT = 58;
-export const CARD_ROW_HEIGHT = 26;
-export const CARD_FOOTER_HEIGHT = 28;
+export const CARD_HEIGHT = 96;
 
 // 「整图一屏看得清」的判据：按一块 800×620 的名义画布算，整图缩放到能放下时比例不低于 0.55
 // （卡片标题约 8px 以上）。只看数据不看窗口大小，所以同一份数据永远是同一种显示方式。
 const NOMINAL_CANVAS_WIDTH = 800;
 const NOMINAL_CANVAS_HEIGHT = 620;
 const READABLE_ZOOM = 0.55;
-/** 整图看不清时，打开就放大到关联最多的那张表附近，用这个比例。 */
+/** 整图看不清时，打开就放大到关联最多的那个对象附近，用这个比例。 */
 export const EXPLORE_ZOOM = 0.9;
 
-export interface CardRow extends ColumnRef {
-  /** 主键列（没有主键时为最小的唯一键列）。 */
-  isKey: boolean;
-}
+/** dagre 算不出来时的兜底：按对象顺序排成固定列数的网格。 */
+const FALLBACK_COLUMNS = 6;
+const FALLBACK_GAP_X = 100;
+const FALLBACK_GAP_Y = 40;
 
 export interface CardBox {
   x: number;
@@ -27,45 +25,71 @@ export interface CardBox {
   height: number;
 }
 
-/** 卡片上的行：键列在前，再是参与关系的列；去重，保持后端给的顺序。 */
-export function cardRows(table: TableCard): CardRow[] {
-  const keys = new Set(table.keyColumns.map((column) => column.name));
-  const seen = new Set<string>();
-  const rows: CardRow[] = [];
-  for (const column of [...table.keyColumns, ...table.relationColumns]) {
-    if (seen.has(column.name)) continue;
-    seen.add(column.name);
-    rows.push({ ...column, isKey: keys.has(column.name) });
-  }
-  return rows;
+/** 画布上的一根线：同一方向（起点对象 → 终点对象）上的全部关系。 */
+export interface EdgeGroup {
+  id: string;
+  fromTable: string;
+  toTable: string;
+  relations: Relation[];
 }
 
-export const cardHeight = (table: TableCard): number =>
-  CARD_HEADER_HEIGHT + cardRows(table).length * CARD_ROW_HEIGHT + CARD_FOOTER_HEIGHT;
+/**
+ * 按「起点对象 → 终点对象」把关系合并成线（设计文档 §8.2）。A→B 和 B→A 是两根。
+ * 顺序按每一组第一条关系在后端顺序里出现的位置，保证同一份数据永远是同一组线。
+ */
+export function groupRelations(relations: Relation[]): EdgeGroup[] {
+  const groups = new Map<string, EdgeGroup>();
+  for (const relation of relations) {
+    const id = `${relation.fromTable}→${relation.toTable}`;
+    const group = groups.get(id);
+    if (group) {
+      group.relations.push(relation);
+    } else {
+      groups.set(id, { id, fromTable: relation.fromTable, toTable: relation.toTable, relations: [relation] });
+    }
+  }
+  return [...groups.values()];
+}
 
 /**
- * dagre 分层布局，rankdir=LR：引用方在左，被引用的主数据在右。
- * 节点和边按后端给的顺序喂入（设计文档 §5.5），同一份数据永远得到同一组坐标。返回卡片左上角坐标。
+ * dagre 分层布局，rankdir=LR：引用方在左，被引用的主数据在右。返回卡片左上角坐标。
+ *
+ * <p>每个方向只喂一条边：dagre 3.1.1 遇到同一方向的平行边（multigraph）会抛
+ * 「Not possible to find intersection inside of the rectangle」，整页跟着崩——一张凭证行表有五条指向科目表的关系是常态。
+ * 节点和边按后端给的顺序喂入，同一份数据永远得到同一组坐标；dagre 仍然算不出来时按网格兜底，页面不崩。
  */
-export function layoutTables(tables: TableCard[], relations: Relation[]): Map<string, CardBox> {
-  const graph = new Graph({ multigraph: true });
-  graph.setGraph({ rankdir: 'LR', nodesep: 28, ranksep: 100, marginx: 24, marginy: 24 });
-  graph.setDefaultEdgeLabel(() => ({}));
-  tables.forEach((table) =>
-    graph.setNode(table.name, { width: CARD_WIDTH, height: cardHeight(table) }),
-  );
-  relations.forEach((relation) =>
-    graph.setEdge(relation.fromTable, relation.toTable, {}, relation.id),
-  );
-  layout(graph);
+export function layoutTables(tables: TableCard[], groups: EdgeGroup[]): Map<string, CardBox> {
+  try {
+    const graph = new Graph();
+    graph.setGraph({ rankdir: 'LR', nodesep: 36, ranksep: 120, marginx: 24, marginy: 24 });
+    graph.setDefaultEdgeLabel(() => ({}));
+    tables.forEach((table) => graph.setNode(table.name, { width: CARD_WIDTH, height: CARD_HEIGHT }));
+    groups.forEach((group) => graph.setEdge(group.fromTable, group.toTable));
+    layout(graph);
+    const boxes = new Map<string, CardBox>();
+    tables.forEach((table) => {
+      const node = graph.node(table.name) as CardBox;
+      boxes.set(table.name, {
+        x: node.x - CARD_WIDTH / 2,
+        y: node.y - CARD_HEIGHT / 2,
+        width: CARD_WIDTH,
+        height: CARD_HEIGHT,
+      });
+    });
+    return boxes;
+  } catch {
+    return gridLayout(tables);
+  }
+}
+
+function gridLayout(tables: TableCard[]): Map<string, CardBox> {
   const boxes = new Map<string, CardBox>();
-  tables.forEach((table) => {
-    const node = graph.node(table.name) as CardBox;
+  tables.forEach((table, index) => {
     boxes.set(table.name, {
-      x: node.x - node.width / 2,
-      y: node.y - node.height / 2,
-      width: node.width,
-      height: node.height,
+      x: 24 + (index % FALLBACK_COLUMNS) * (CARD_WIDTH + FALLBACK_GAP_X),
+      y: 24 + Math.floor(index / FALLBACK_COLUMNS) * (CARD_HEIGHT + FALLBACK_GAP_Y),
+      width: CARD_WIDTH,
+      height: CARD_HEIGHT,
     });
   });
   return boxes;
@@ -84,7 +108,7 @@ export function fitsOnOneScreen(boxes: Map<string, CardBox>): boolean {
   );
 }
 
-/** 关联最多的表（起点、终点都算）；并列取后端顺序里靠前的。没有表时为 null。 */
+/** 关联最多的对象（按关系条数，起点、终点都算）；并列取后端顺序里靠前的。没有对象时为 null。 */
 export function hubTable(tables: TableCard[], relations: Relation[]): string | null {
   const degree = new Map<string, number>();
   relations.forEach((relation) => {

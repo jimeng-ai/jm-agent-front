@@ -1,5 +1,5 @@
-/* 数据星图。配色沿用上一版（codex/enterprise-data-graph）的深色画布与青色发光；
-   卡片尺寸必须与 features/data-graph/layout.ts 的常量一致（头 58 / 行 26 / 底 28 / 宽 240）。 */
+/* 数据星图。配色沿用上一版的深色画布与青色发光；
+   卡片尺寸必须与 features/data-graph/layout.ts 的常量一致（宽 240 / 高 96，所有卡片一样大）。 */
 
 .data-graph-page {
   --graph-navy: #06111f;
@@ -230,13 +230,13 @@
   opacity: 0.8;
 }
 
-/* ---------- 表卡片 ---------- */
+/* ---------- 对象卡片 ---------- */
 
 .dg-card {
+  position: relative;
   display: flex;
-  flex-direction: column;
   width: 240px;
-  height: 100%;
+  height: 96px;
   overflow: hidden;
   color: var(--graph-text);
   cursor: pointer;
@@ -270,13 +270,19 @@
   opacity: 0.25;
 }
 
-.dg-card__head {
+/* 领域色条：颜色来自 features/data-graph/domains.ts，按领域顺序分配 */
+.dg-card__domain {
+  flex: 0 0 4px;
+  background: var(--dg-domain, #7c8ea3);
+}
+
+.dg-card__body {
   display: grid;
+  flex: 1 1 auto;
   align-content: center;
-  gap: 2px;
-  height: 58px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--graph-border);
+  gap: 6px;
+  min-width: 0;
+  padding: 0 14px 0 12px;
 }
 
 .dg-card__title-row {
@@ -295,72 +301,16 @@
   text-overflow: ellipsis;
 }
 
-.dg-card__name,
-.dg-card__note {
-  overflow: hidden;
-  font-size: 11px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.dg-card__name {
-  color: #7dd3fc;
-  font-family: var(--font-mono, ui-monospace, monospace);
-}
-
-.dg-card__note {
-  color: var(--graph-muted);
-}
-
-.dg-card__rows {
-  flex: 1 1 auto;
+/* 一句说明最多两行 */
+.dg-card__summary {
+  display: -webkit-box;
   margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.dg-card__row {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 26px;
-  padding: 0 12px;
-  font-size: 13px;
-}
-
-.dg-card__column {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 5px;
-  color: #cfe8f6;
-  font-family: var(--font-mono, ui-monospace, monospace);
-}
-
-.dg-card__key {
-  width: 6px;
-  height: 6px;
-  background: var(--graph-cyan);
-  border-radius: 50%;
-  box-shadow: 0 0 6px var(--graph-cyan);
-}
-
-.dg-card__comment {
   overflow: hidden;
   color: var(--graph-muted);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.dg-card__foot {
-  display: flex;
-  align-items: center;
-  height: 28px;
-  padding: 0 12px;
-  color: var(--graph-muted);
-  font-size: 11px;
-  border-top: 1px solid var(--graph-border);
+  font-size: 12px;
+  line-height: 1.45;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .dg-card .dg-card__handle {
@@ -401,31 +351,22 @@
   opacity: 0.12;
 }
 
-.dg-edge-label,
-.dg-edge-mark {
-  position: absolute;
-  pointer-events: none;
-  transition: opacity 0.2s ease;
-}
-
+/* 线上的字：角色名或「N 种关联」；悬停出全部角色（title），所以要接得住指针 */
 .dg-edge-label {
+  position: absolute;
   padding: 1px 8px;
   color: #bae6fd;
   font-size: 11px;
   white-space: nowrap;
+  cursor: default;
+  pointer-events: all;
   background: rgb(6 17 31 / 0.92);
   border: 1px solid #155e75;
   border-radius: 999px;
+  transition: opacity 0.2s ease;
 }
 
-.dg-edge-mark {
-  color: var(--graph-cyan);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.dg-edge-label.is-dimmed,
-.dg-edge-mark.is-dimmed {
+.dg-edge-label.is-dimmed {
   opacity: 0.15;
 }
 
