@@ -122,9 +122,9 @@ export const appRouter = createBrowserRouter(
         <Route
           path="data-graph"
           element={
-            <SuperAdminRoute>
+            <ModuleRoute module="DATA_GRAPH_MODULE">
               <DataGraphPage />
-            </SuperAdminRoute>
+            </ModuleRoute>
           }
         />
         <Route
