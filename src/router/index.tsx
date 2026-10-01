@@ -27,6 +27,7 @@ const SkillListPage = lazy(() => import('@/pages/console/skill/SkillListPage'));
 const SkillBuilderPage = lazy(() => import('@/pages/console/skill/SkillBuilderPage'));
 const ConnectionListPage = lazy(() => import('@/pages/console/connection/ConnectionListPage'));
 const ConnectorListPage = lazy(() => import('@/pages/console/connector/ConnectorListPage'));
+const DataGraphPage = lazy(() => import('@/pages/console/data-graph/DataGraphPage'));
 const SemanticWorkbenchPage = lazy(
   () => import('@/pages/console/connector/SemanticWorkbenchPage'),
 );
@@ -116,6 +117,14 @@ export const appRouter = createBrowserRouter(
             <SuperAdminRoute>
               <ConnectorListPage />
             </SuperAdminRoute>
+          }
+        />
+        <Route
+          path="data-graph"
+          element={
+            <ModuleRoute module="DATA_GRAPH_MODULE">
+              <DataGraphPage />
+            </ModuleRoute>
           }
         />
         <Route

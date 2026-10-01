@@ -10,6 +10,7 @@ import {
   SkillIcon,
   PlugIcon,
   DatabaseIcon,
+  DataGraphIcon,
 } from '@/components/icons/AtlasIcons';
 
 export type NavItem = {
@@ -62,6 +63,14 @@ export const WORKBENCH_NAV: NavItem[] = [
     path: '/console/connectors',
     Icon: DatabaseIcon,
     superAdminOnly: true,
+  },
+  // 数据星图给业务人员和产品看：按模块授权，企业超管在角色里勾上「数据星图」即可（超管自己始终可见）。
+  {
+    key: 'data-graph',
+    label: '数据星图',
+    path: '/console/data-graph',
+    Icon: DataGraphIcon,
+    module: 'DATA_GRAPH_MODULE',
   },
   // 写操作审批：待办性质的超管入口，和「数据连接」同源但不是管连接。
   {
