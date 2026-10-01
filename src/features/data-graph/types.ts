@@ -16,22 +16,6 @@ export type NameSource = 'BUSINESS_VIEW' | 'COMMENT' | 'PHYSICAL';
 
 type NumericWire = number | string;
 
-export interface SystemSummaryWire {
-  connectorId: string;
-  name: string;
-  displayName: string | null;
-  kind: string | null;
-  status: string | null;
-  semanticStatus: SemanticStatus;
-  tableCount: NumericWire;
-  truncated: boolean;
-  viewStatus: ViewStatus;
-}
-
-export interface SystemSummary extends Omit<SystemSummaryWire, 'tableCount'> {
-  tableCount: number;
-}
-
 export interface ColumnRef {
   name: string;
   comment: string | null;

@@ -120,18 +120,18 @@ export const appRouter = createBrowserRouter(
           }
         />
         <Route
-          path="data-graph"
-          element={
-            <ModuleRoute module="DATA_GRAPH_MODULE">
-              <DataGraphPage />
-            </ModuleRoute>
-          }
-        />
-        <Route
           path="connectors/:id/semantic"
           element={
             <SuperAdminRoute>
               <SemanticWorkbenchPage />
+            </SuperAdminRoute>
+          }
+        />
+        <Route
+          path="connectors/:id/graph"
+          element={
+            <SuperAdminRoute>
+              <DataGraphPage />
             </SuperAdminRoute>
           }
         />

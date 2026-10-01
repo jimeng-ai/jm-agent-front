@@ -137,15 +137,6 @@ export const DatabaseIcon = makeIcon(
   </>,
 );
 
-export const DataGraphIcon = makeIcon(
-  <>
-    <circle cx="5" cy="12" r="2.5" />
-    <circle cx="17.5" cy="5.5" r="2.5" />
-    <circle cx="18" cy="18" r="2.5" />
-    <path d="m7.2 10.8 8.1-4.2M7.4 13.1l8.2 3.8M17.7 8v7.5" />
-  </>,
-);
-
 export const LogoutIcon = makeIcon(
   <>
     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />

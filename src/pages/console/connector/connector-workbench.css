@@ -382,6 +382,30 @@
   border-color: #4096ff;
 }
 
+.connector-card__link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 4px 15px;
+  color: rgba(0, 0, 0, 0.88);
+  line-height: 1.55;
+  background: #fff;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.02);
+  transition:
+    color 160ms ease,
+    border-color 160ms ease;
+}
+
+.connector-card__link:hover,
+.connector-card__link:focus-visible {
+  color: #4096ff;
+  border-color: #4096ff;
+}
+
+.connector-card__link.is-disabled,
 .connector-card__primary-link.is-disabled {
   color: rgba(0, 0, 0, 0.25);
   background: rgba(0, 0, 0, 0.04);

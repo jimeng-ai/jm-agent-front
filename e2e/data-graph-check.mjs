@@ -1,5 +1,6 @@
 // 数据星图端到端检查（data-service 设计文档 §8、§9、附录 E）：自起临时 Vite，浏览器里拦截全部 /data/ 请求返回夹具，
 // 不访问真实数据库、网关或模型。运行：npm run test:data-graph（需先 cd e2e && npm run setup）。
+// 入口是「数据连接」里每个库卡片上的「查看星图」，一个库一页（/console/connectors/:id/graph），只给企业超管。
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { dirname, resolve } from 'node:path';
@@ -14,17 +15,38 @@ const col = (name, comment = null) => ({ name, comment });
 
 // ---------------------------------------------------------------- 夹具
 
-const SYSTEMS = [
-  { connectorId: '7', name: 'erp', displayName: 'ERP 系统', kind: 'MYSQL', status: 'ACTIVE', semanticStatus: 'READY', tableCount: '9', truncated: false, viewStatus: 'READY' },
-  { connectorId: '8', name: 'crm', displayName: null, kind: 'MYSQL', status: 'DISABLED', semanticStatus: null, tableCount: '2', truncated: false, viewStatus: null },
-  { connectorId: '9', name: 'big', displayName: '大系统', kind: 'MYSQL', status: 'ACTIVE', semanticStatus: 'READY', tableCount: '200', truncated: true, viewStatus: 'READY' },
-  { connectorId: '10', name: 'running', displayName: null, kind: 'MYSQL', status: 'ACTIVE', semanticStatus: 'RUNNING', tableCount: '1', truncated: false, viewStatus: null },
-  { connectorId: '11', name: 'failed', displayName: null, kind: 'MYSQL', status: 'ACTIVE', semanticStatus: 'FAILED', tableCount: '1', truncated: false, viewStatus: null },
-  { connectorId: '12', name: 'ready-empty', displayName: null, kind: 'MYSQL', status: 'ACTIVE', semanticStatus: 'READY', tableCount: '1', truncated: false, viewStatus: 'READY' },
-  { connectorId: '13', name: 'legacy', displayName: '旧系统', kind: 'MYSQL', status: 'ACTIVE', semanticStatus: 'READY', tableCount: '3', truncated: false, viewStatus: 'RUNNING' },
-  { connectorId: '14', name: 'legacy-failed', displayName: '旧系统二', kind: 'MYSQL', status: 'ACTIVE', semanticStatus: 'READY', tableCount: '3', truncated: false, viewStatus: 'FAILED' },
-  { connectorId: '15', name: 'legacy-idle', displayName: '旧系统三', kind: 'MYSQL', status: 'ACTIVE', semanticStatus: 'READY', tableCount: '3', truncated: false, viewStatus: null },
-  { connectorId: '16', name: 'naming-empty', displayName: '新系统', kind: 'MYSQL', status: 'ACTIVE', semanticStatus: 'READY', tableCount: '1', truncated: false, viewStatus: 'RUNNING' },
+// 数据连接页的卡片：MySQL 声明了「能自描述」，每个库都有「查看星图」（8 还没探测过、21 还没有任何结构也一样）；
+// HTTP 接口没有表结构，没有星图。
+const KINDS = [
+  { kind: 'MYSQL', displayName: 'MySQL', capabilities: ['query', 'describe', 'health', 'write'], fields: [] },
+  { kind: 'HTTP', displayName: 'HTTP 接口', capabilities: ['invoke', 'health'], fields: [] },
+];
+const connectorView = (id, name, displayName, kind, extra = {}) => ({
+  id,
+  name,
+  displayName,
+  kind,
+  kindLabel: KINDS.find((k) => k.kind === kind).displayName,
+  params: {},
+  status: 'ACTIVE',
+  capabilities: kind === 'MYSQL' ? ['QUERY', 'DESCRIBE'] : ['INVOKE'],
+  healthState: 'HEALTHY',
+  healthReason: null,
+  readonlyVerified: true,
+  writePolicy: 'FORBIDDEN',
+  writePolicyLabel: '只读',
+  semanticStatus: kind === 'MYSQL' ? 'READY' : 'NOT_APPLICABLE',
+  semanticCoverage: kind === 'MYSQL' ? 'COMPLETE' : null,
+  semanticGaps: [],
+  semanticDataTier: 'DERIVED_STATS',
+  semanticDataTierLabel: '第 2 档 · 派生统计',
+  semanticDataTierEgress: '仅派生统计出库。',
+  ...extra,
+});
+const CONNECTORS = [
+  connectorView('7', 'erp', 'ERP 系统', 'MYSQL'),
+  connectorView('8', 'crm', null, 'MYSQL', { capabilities: [], healthState: 'UNKNOWN', semanticStatus: 'NONE', semanticCoverage: null }),
+  connectorView('20', 'pay-api', '支付接口', 'HTTP'),
 ];
 
 const card = (name, view, related, keyColumns, relationColumns, extra = {}) => ({
@@ -142,6 +164,8 @@ const GRAPHS = {
   15: legacyGraph('15', null),
   // 还没发现关联、业务名称还在整理：提示照样要挂（设计文档 §6.3 的条件里没有「得有关联」）。
   16: { ...lonely('16', 'naming-empty', 'READY'), displayName: '新系统', viewStatus: 'RUNNING' },
+  // 刚接进来的库：还没有任何结构，语义层也没生成过。卡片上照样有「查看星图」，进来要说清这个库自己的状态。
+  21: { connectorId: '21', name: 'fresh', displayName: '新接入的库', semanticStatus: null, truncated: false, viewStatus: null, tables: [], relations: [] },
 };
 
 // 单表详情的字段：键列、关系列，再补一些普通列；凭证行和采购订单明细各 30 列以上，才会出现字段搜索框。
@@ -275,9 +299,9 @@ async function waitForGraph(page, cards, edges) {
   return true;
 }
 
-/** 打开数据星图页；页面没出来（比如被权限拦下）不抛，返回 false。 */
+/** 打开某个库的星图；页面没出来（比如被权限拦下）不抛，返回 false。 */
 async function openSystem(page, baseUrl, system) {
-  await page.goto(`${baseUrl}/console/data-graph${system ? `?system=${system}` : ''}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${baseUrl}/console/connectors/${system}/graph`, { waitUntil: 'domcontentloaded' });
   return page
     .locator('[data-testid="data-graph-page"]')
     .waitFor({ state: 'visible', timeout: 15_000 })
@@ -412,8 +436,8 @@ page.on('console', (message) => {
   if (message.type() === 'error') pageErrors.push(message.text());
 });
 
-// 路由夹具的可变状态：换身份、换系统列表、让某个接口失败，都只改这里。
-const state = { perm: SUPER, systems: SYSTEMS, failSystems: false, failGraph: null };
+// 路由夹具的可变状态：换身份、让某个库的接口失败，都只改这里。
+const state = { perm: SUPER, failGraph: null };
 
 try {
   const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
@@ -432,7 +456,8 @@ try {
       if (path.endsWith('/admin/auth/login')) return json({ token, user });
       if (path.endsWith('/admin/auth/me')) return json(user);
       if (path.endsWith('/admin/me/permissions')) return json(state.perm);
-      if (path === '/data/admin/data-graph/systems') return state.failSystems ? fail() : json(state.systems);
+      if (path === '/data/admin/connectors/kinds') return json(KINDS);
+      if (path === '/data/admin/connectors') return json(CONNECTORS);
       const tableMatch = path.match(/^\/data\/admin\/data-graph\/systems\/([^/]+)\/tables$/);
       if (tableMatch) {
         const name = new URL(route.request().url()).searchParams.get('name');
@@ -451,9 +476,24 @@ try {
   await page.locator('.login-submit').click();
   await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15_000 });
 
-  // ======================================================== 1. 默认打开第一个系统（ERP）
+  // ======================================================== 0. 入口：数据连接里每个库的卡片上有「查看星图」，侧栏没有单独的入口
   const errorsAtStart = pageErrors.length;
-  await openSystem(page, baseUrl, null);
+  await page.goto(`${baseUrl}/console/connectors`, { waitUntil: 'domcontentloaded' });
+  const gridShown = await page.locator('[data-testid="connector-card-grid"]').waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+  r.ok('数据连接页出了卡片', gridShown);
+  r.ok('★ 侧栏没有单独的「数据星图」入口', (await page.locator('.atlas-nav-item', { hasText: '数据星图' }).count()) === 0);
+  const graphEntry = (id) => page.locator(`[data-testid="connector-card"][data-connector-id="${id}"] [data-testid="connector-card-graph"]`);
+  r.ok(
+    '★ 每个库的卡片上都有「查看星图」（还没探测过的库也有）',
+    (await graphEntry('7').count()) === 1 && (await graphEntry('8').count()) === 1 && ((await graphEntry('7').innerText().catch(() => '')) ?? '').includes('查看星图'),
+  );
+  r.ok('没有表结构的连接（HTTP 接口）没有「查看星图」', (await graphEntry('20').count()) === 0);
+  await page.screenshot({ path: shot('data-graph-entry.png'), fullPage: true });
+  if (await graphEntry('7').count()) await graphEntry('7').click();
+  await page.waitForURL((url) => url.pathname === '/console/connectors/7/graph', { timeout: 10_000 }).catch(() => null);
+  r.ok('点「查看星图」进这个库自己的星图', new URL(page.url()).pathname === '/console/connectors/7/graph', page.url());
+
+  // ======================================================== 1. 一个库一页（ERP）
   r.ok('画布画完：7 张卡片、8 根线', await waitForGraph(page, 7, 8));
   const erpIds = identifiersOf(erpGraph);
   r.ok('加载后控制台无报错', pageErrors.length === errorsAtStart, pageErrors.slice(errorsAtStart).join(' | '));
@@ -464,8 +504,10 @@ try {
       headerText.includes('看看业务系统里有哪些业务对象、它们之间怎样关联。内容由平台根据接入的系统自动整理，并随系统更新自动同步。'),
     headerText,
   );
-  const switcher = await page.locator('.data-graph-systems').innerText();
-  r.ok('系统切换：「连接显示名 · N 个对象」，停用的带标签', switcher.includes('ERP 系统 · 9 个对象') && switcher.includes('crm · 2 个对象') && switcher.includes('已停用'), switcher.replace(/\s+/g, ' '));
+  r.ok('页头标题带这个库的名字', ((await page.locator('.data-graph-header__title').innerText().catch(() => '')) ?? '') === '数据星图 · ERP 系统');
+  r.ok('★ 只看这一个库：没有系统切换', (await page.locator('.data-graph-systems').count()) === 0);
+  r.ok('页头有「返回数据连接」', (await page.locator('[data-testid="dg-back"]').getAttribute('href').catch(() => null)) === '/console/connectors');
+  r.ok('侧栏高亮「数据连接」', ((await page.locator('.atlas-nav-item.active').innerText().catch(() => '')) ?? '').includes('数据连接'));
   r.ok('画布只放有关联的对象（7 个）', (await page.locator('[data-testid="dg-card"]').count()) === 7);
   r.ok('同一方向的多条关系合并成一根线：10 条关系画 8 根线', (await page.locator('.react-flow__edge').count()) === 8);
   r.ok(
@@ -624,10 +666,14 @@ try {
   const searchDetail = await detail.innerText().catch(() => '');
   r.ok('搜索选中后右侧是该对象详情；下拉里没有表名', searchDetail.includes('采购订单明细') && optionCodes.length === 0, optionCodes.join(','));
 
-  // ======================================================== 5. 切换系统：选中状态同步清掉（#11）；兜底标题与整理提示
-  await page.locator('.data-graph-systems').getByText('旧系统 · 3 个对象').click({ timeout: 5_000 }).catch(() => page.goto(`${baseUrl}/console/data-graph?system=13`));
+  // ======================================================== 5. 换库：地址里的库变了、页面没重新挂载（浏览器前进后退），选中状态同步清掉（#11）；
+  // 兜底标题与整理提示
+  await page.evaluate(() => {
+    history.pushState(null, '', '/console/connectors/13/graph');
+    dispatchEvent(new PopStateEvent('popstate'));
+  });
   r.ok('旧系统画完：3 张卡片、2 根线', await waitForGraph(page, 3, 2));
-  r.ok('★ 切换系统后没有残留的选中与变暗', (await page.locator('[data-testid="dg-detail"]').count()) === 0 && (await page.locator('.dg-card.is-dimmed').count()) === 0);
+  r.ok('★ 换库后没有残留的选中与变暗', (await page.locator('[data-testid="dg-detail"]').count()) === 0 && (await page.locator('.dg-card.is-dimmed').count()) === 0);
   r.ok(
     '兜底标题：像名称的表注释，其次表名',
     (await page.locator('[data-testid="dg-card"][data-table="l_order"] .dg-card__title').innerText()) === '订单' &&
@@ -635,11 +681,11 @@ try {
   );
   r.ok('有对象还没拿到业务名、补全链在跑：提示「业务名称整理中」', ((await page.locator('[data-testid="dg-hint-naming"]').innerText().catch(() => '')) ?? '').includes('业务名称整理中'));
   hintContrast.push(...(await contrastProblems(page, '[data-testid="dg-hint-naming"]')));
-  // 切回原来的系统：之前在 ERP 里搜索选中的「采购订单明细」不能恢复（设计文档 §8.1：切换时清掉选中，不是藏起来）。
-  await page.locator('.data-graph-systems').getByText('ERP 系统 · 9 个对象').click();
+  // 后退回原来的库：之前在 ERP 里搜索选中的「采购订单明细」不能恢复（设计文档 §8.1：换库时清掉选中，不是藏起来）。
+  await page.goBack();
   await waitForGraph(page, 7, 8);
   r.ok(
-    '★ 切回原来的系统：之前的选中已经清掉，不恢复',
+    '★ 后退回原来的库：之前的选中已经清掉，不恢复',
     (await page.locator('[data-testid="dg-detail"]').count()) === 0 &&
       (await page.locator('.dg-card.is-selected').count()) === 0 &&
       (await page.locator('.dg-card.is-dimmed').count()) === 0,
@@ -667,7 +713,18 @@ try {
   }
   await openSystem(page, baseUrl, '8');
   await page.locator('[data-testid="dg-empty"]').waitFor({ state: 'visible', timeout: 10_000 });
-  r.ok('企业超管在空状态看得到「去数据连接」', (await page.locator('[data-testid="dg-empty"] a', { hasText: '去「数据连接」' }).count()) === 1);
+  r.ok('空状态里有「去数据连接」', (await page.locator('[data-testid="dg-empty"] a', { hasText: '去「数据连接」' }).count()) === 1);
+  await openSystem(page, baseUrl, '21');
+  const freshShown = await page.locator('[data-testid="dg-empty"]').waitFor({ state: 'visible', timeout: 10_000 }).then(() => true).catch(() => false);
+  const freshSummary = (await page.locator('.data-graph-summary').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  r.ok(
+    '★ 还没有任何结构的库：说这个库自己的状态，不落到别的库上',
+    freshShown &&
+      (await page.locator('[data-testid="dg-empty"]').innerText()).includes('这个系统的业务对象还在整理中，完成后会自动出现。') &&
+      /对象 0/.test(freshSummary) &&
+      ((await page.locator('.data-graph-header__title').innerText().catch(() => '')) ?? '') === '数据星图 · 新接入的库',
+    freshSummary,
+  );
   await openSystem(page, baseUrl, '16');
   await page.locator('[data-testid="dg-empty"]').waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {});
   r.ok(
@@ -746,42 +803,29 @@ try {
   );
   await page.screenshot({ path: shot('data-graph-v3-big.png'), fullPage: true });
 
-  // ======================================================== 8. 成员：有模块能看、看不到管理链接；没模块看不到入口、直链被拦
-  state.perm = MEMBER_WITH_MODULE;
-  await openSystem(page, baseUrl, '8');
-  const memberSees = await page.locator('[data-testid="dg-empty"]').waitFor({ state: 'visible', timeout: 10_000 }).then(() => true).catch(() => false);
-  r.ok('有「数据星图」模块的成员能打开页面', memberSees);
-  r.ok('成员在空状态看不到「去数据连接」', memberSees && (await page.locator('[data-testid="dg-empty"] a').count()) === 0);
-  r.ok('有模块的成员侧栏有「数据星图」入口', (await page.locator('.atlas-nav-item', { hasText: '数据星图' }).count()) === 1);
-  state.perm = MEMBER_WITHOUT_MODULE;
-  await page.goto(`${baseUrl}/console/data-graph`, { waitUntil: 'domcontentloaded' });
-  const denied = await page.getByText('无权访问').waitFor({ state: 'visible', timeout: 10_000 }).then(() => true).catch(() => false);
-  r.ok('★ 没有模块的成员直接敲地址：「无权访问」', denied);
-  r.ok('没有模块的成员侧栏没有「数据星图」入口', (await page.locator('.atlas-nav-item', { hasText: '数据星图' }).count()) === 0);
+  // ======================================================== 8. 成员：侧栏没有入口，直接敲地址被拦（以前授过「数据星图」模块的也一样）
+  for (const [who, perm] of [['以前授过「数据星图」模块的成员', MEMBER_WITH_MODULE], ['普通成员', MEMBER_WITHOUT_MODULE]]) {
+    state.perm = perm;
+    await openSystem(page, baseUrl, '7');
+    const denied = await page.getByText('仅企业超管可访问').waitFor({ state: 'visible', timeout: 10_000 }).then(() => true).catch(() => false);
+    r.ok(`★ ${who}直接敲地址：「仅企业超管可访问」`, denied);
+    r.ok(
+      `${who}侧栏既没有「数据星图」也没有「数据连接」`,
+      (await page.locator('.atlas-nav-item', { hasText: '数据星图' }).count()) === 0 &&
+        (await page.locator('.atlas-nav-item', { hasText: '数据连接' }).count()) === 0,
+    );
+  }
+  state.perm = SUPER;
 
-  // ======================================================== 9. 没有任何系统、接口失败
-  state.perm = SUPER;
-  state.systems = [];
-  await openSystem(page, baseUrl, null);
-  const noSystems = page.locator('[data-testid="dg-no-systems"]');
-  const noSystemsShown = await noSystems.waitFor({ state: 'visible', timeout: 10_000 }).then(() => true).catch(() => false);
-  r.ok('没有任何系统：「还没有可以查看的业务系统。」，超管带「去数据连接」', noSystemsShown && (await noSystems.innerText()).includes('还没有可以查看的业务系统。') && (await noSystems.locator('a').count()) === 1);
-  state.perm = MEMBER_WITH_MODULE;
-  await openSystem(page, baseUrl, null);
-  const memberNoSystems = await noSystems.waitFor({ state: 'visible', timeout: 10_000 }).then(() => true).catch(() => false);
-  r.ok('没有任何系统：成员不带管理链接', memberNoSystems && (await noSystems.locator('a').count()) === 0);
-  state.perm = SUPER;
-  state.systems = SYSTEMS;
-  state.failSystems = true;
-  await openSystem(page, baseUrl, null);
-  const systemsError = await page.getByText('业务系统列表没有加载出来').waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
-  r.ok('接口失败：系统列表加载失败有提示和重试', systemsError && (await page.getByRole('button', { name: /重试/ }).count()) >= 1);
-  state.failSystems = false;
+  // ======================================================== 9. 接口失败；返回数据连接
   state.failGraph = '7';
   await openSystem(page, baseUrl, '7');
   const graphError = await page.getByText('这个系统的关联没有加载出来').waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
-  r.ok('接口失败：某个系统的关联加载失败有提示和重试', graphError && (await page.getByRole('button', { name: /重试/ }).count()) >= 1);
+  r.ok('接口失败：这个库的关联加载失败有提示和重试', graphError && (await page.getByRole('button', { name: /重试/ }).count()) >= 1);
   state.failGraph = null;
+  await page.locator('[data-testid="dg-back"]').click().catch(() => null);
+  await page.waitForURL((url) => url.pathname === '/console/connectors', { timeout: 10_000 }).catch(() => null);
+  r.ok('点「返回数据连接」回到数据连接', new URL(page.url()).pathname === '/console/connectors', page.url());
   r.ok('全程无未预期的接口', unknownApis.size === 0, [...unknownApis].join(','));
 } finally {
   await browser.close();

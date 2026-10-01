@@ -321,6 +321,11 @@ export default function ConnectorListPage() {
 
   const rows = useMemo(() => listQuery.data ?? [], [listQuery.data]);
   const kinds: ConnectorKind[] = useMemo(() => kindsQuery.data ?? [], [kindsQuery.data]);
+  // 有表结构的连接才有数据星图。按类型声明的能力判断（能自描述），不按类型名写分支；还没探测过的库也算。
+  const graphableKinds = useMemo(
+    () => new Set(kinds.filter((kind) => kind.capabilities.includes('describe')).map((kind) => kind.kind)),
+    [kinds],
+  );
   const hasListCache = listQuery.data !== undefined;
   const hasKindsCache = kindsQuery.data !== undefined;
   const listInitialError = listQuery.isError && !hasListCache;
@@ -633,6 +638,7 @@ export default function ConnectorListPage() {
             <ConnectorCard
               key={connector.id}
               connector={connector}
+              graphable={graphableKinds.has(connector.kind)}
               busy={isCardBusy(connector.id)}
               onOpen={openInspector}
               onTest={testConnector}

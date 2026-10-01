@@ -16,6 +16,8 @@ import ConnectorSecurityProfile from './ConnectorSecurityProfile';
 
 interface Props {
   connector: ConnectorView;
+  /** 这类连接能自描述（有表结构），才有数据星图：卡片上带「查看星图」。 */
+  graphable?: boolean;
   busy?: boolean;
   onOpen: (connector: ConnectorView) => void;
   onTest: (connector: ConnectorView) => void;
@@ -40,6 +42,7 @@ function riskPriority(key: string): number {
 
 export default function ConnectorCard({
   connector,
+  graphable = false,
   busy = false,
   onOpen,
   onTest,
@@ -131,6 +134,18 @@ export default function ConnectorCard({
       )}
 
       <footer className="connector-card__footer">
+        {graphable ? (
+          <Link
+            data-testid="connector-card-graph"
+            className={`connector-card__link${busy ? ' is-disabled' : ''}`}
+            to={`/console/connectors/${connector.id}/graph`}
+            aria-disabled={busy}
+            tabIndex={busy ? -1 : undefined}
+            onClick={busy ? (event) => event.preventDefault() : undefined}
+          >
+            查看星图
+          </Link>
+        ) : null}
         {requiresTest ? (
           <Button
             data-testid="connector-card-primary-action"

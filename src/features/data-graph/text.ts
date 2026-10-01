@@ -67,8 +67,6 @@ export function emptyRelationsText(status: SemanticStatus): string {
   return '暂未发现可以确认的关联。';
 }
 
-export const NO_SYSTEMS_TEXT = '还没有可以查看的业务系统。';
-
 export interface SentenceGroup {
   key: string;
   title: string;

@@ -36,6 +36,20 @@
   content: '';
 }
 
+.data-graph-header__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: #155e75;
+  font-size: 13px;
+}
+
+.data-graph-header__back:hover,
+.data-graph-header__back:focus-visible {
+  color: #164e63;
+}
+
 .data-graph-header__title {
   margin: 0 0 6px;
   color: #0b1b2b;
@@ -48,16 +62,6 @@
   max-width: 820px;
   margin: 0;
   color: #475569;
-}
-
-.data-graph-systems {
-  justify-self: start;
-  max-width: 100%;
-  overflow-x: auto;
-}
-
-.data-graph-systems__tag {
-  margin-inline: 6px 0;
 }
 
 .data-graph-summary {
@@ -150,13 +154,6 @@
   height: 8px;
   border: 1px solid #475569;
   border-radius: 50%;
-}
-
-.data-graph-blank {
-  padding: 48px 24px;
-  background: #fff;
-  border: 1px solid #dce3ea;
-  border-radius: 14px;
 }
 
 /* ---------- 工作区：画布 + 右侧面板 ---------- */
