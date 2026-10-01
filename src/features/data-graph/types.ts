@@ -2,7 +2,10 @@
 // spring.jackson.write_numbers_as_strings=true：数字到前端都是字符串，api.ts 负责转成 number。
 
 export type SemanticStatus = 'READY' | 'RUNNING' | 'FAILED' | null;
-/** 业务文字的整理状态：补全链正在跑 / 上次成功 / 上次失败 / 从没跑过。只用来决定要不要挂提示，不上屏。 */
+/**
+ * 业务文字的整理状态：正在整理（在跑，或从没跑完过但补全链会来跑）/ 上次成功 / 上次失败 /
+ * 没人会来整理（补全链关着、语义层没生成成功）。只用来决定要不要挂提示，不上屏。
+ */
 export type ViewStatus = 'RUNNING' | 'READY' | 'FAILED' | null;
 export type RelationTier = 'CONFIRMED' | 'INFERRED';
 export type RelationCardinality = 'MANY_TO_ONE' | 'ONE_TO_ONE' | null;

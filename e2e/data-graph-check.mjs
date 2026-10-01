@@ -23,6 +23,7 @@ const SYSTEMS = [
   { connectorId: '12', name: 'ready-empty', displayName: null, kind: 'MYSQL', status: 'ACTIVE', semanticStatus: 'READY', tableCount: '1', truncated: false, viewStatus: 'READY' },
   { connectorId: '13', name: 'legacy', displayName: '旧系统', kind: 'MYSQL', status: 'ACTIVE', semanticStatus: 'READY', tableCount: '3', truncated: false, viewStatus: 'RUNNING' },
   { connectorId: '14', name: 'legacy-failed', displayName: '旧系统二', kind: 'MYSQL', status: 'ACTIVE', semanticStatus: 'READY', tableCount: '3', truncated: false, viewStatus: 'FAILED' },
+  { connectorId: '15', name: 'legacy-idle', displayName: '旧系统三', kind: 'MYSQL', status: 'ACTIVE', semanticStatus: 'READY', tableCount: '3', truncated: false, viewStatus: null },
 ];
 
 const card = (name, view, related, keyColumns, relationColumns, extra = {}) => ({
@@ -82,11 +83,13 @@ const erpGraph = {
   ],
 };
 
-// 旧系统：业务名称还没整理完，标题按表注释、表名兜底。
+// 旧系统：业务名称还没整理完，标题按表注释、表名兜底。13 补全链在跑；14 上次失败；15 从没跑完过、也不会有人来跑
+//（补全链开关关着，或语义层没生成成功），后端给的整理状态是 null。
+const LEGACY_NAMES = { 13: ['legacy', '旧系统'], 14: ['legacy-failed', '旧系统二'], 15: ['legacy-idle', '旧系统三'] };
 const legacyGraph = (connectorId, viewStatus) => ({
   connectorId,
-  name: connectorId === '13' ? 'legacy' : 'legacy-failed',
-  displayName: connectorId === '13' ? '旧系统' : '旧系统二',
+  name: LEGACY_NAMES[connectorId][0],
+  displayName: LEGACY_NAMES[connectorId][1],
   semanticStatus: 'READY',
   truncated: false,
   viewStatus,
@@ -135,6 +138,7 @@ const GRAPHS = {
   12: lonely('12', 'ready-empty', 'READY'),
   13: legacyGraph('13', 'RUNNING'),
   14: legacyGraph('14', 'FAILED'),
+  15: legacyGraph('15', null),
 };
 
 // 单表详情的字段：键列、关系列，再补一些普通列；凭证行和采购订单明细各 30 列以上，才会出现字段搜索框。
@@ -516,6 +520,9 @@ try {
   await openSystem(page, baseUrl, '14');
   await waitForGraph(page, 3, 2);
   r.ok('补全链上次失败：安静地用兜底，不挂提示', (await page.locator('[data-testid="dg-hint-naming"]').count()) === 0);
+  await openSystem(page, baseUrl, '15');
+  await waitForGraph(page, 3, 2);
+  r.ok('★ 补全链不会来跑（开关关着、语义层没生成成功）：安静地用兜底，不挂提示', (await page.locator('[data-testid="dg-hint-naming"]').count()) === 0);
 
   // ======================================================== 6. 空状态（画布区与页签用同一句话，#10）
   const emptyStates = [
@@ -555,6 +562,8 @@ try {
   const farBefore = await insideCanvas(page, far);
   const scale = () => page.$eval('.react-flow__viewport', (el) => el.style.transform.replace(/.*scale\(([^)]+)\).*/, '$1'));
   const scaleBefore = await scale();
+  // 先按一下 Tab：只有键盘带来的焦点才让画布跟过去（鼠标按下也会让卡片拿到焦点，那时不能挪画布）。
+  await page.keyboard.press('Tab');
   await page.locator(`[data-testid="dg-card"][data-table="${far}"]`).focus();
   // 等视口停稳再判断：平移若带动画，中途会先缩小再放大，停在半路读会误判。
   let lastViewport = '';
@@ -568,6 +577,34 @@ try {
     '★ 键盘聚焦到视野外的卡片：画布平移过去，缩放不变',
     !farBefore && (await insideCanvas(page, far)) && (await scale()) === scaleBefore,
     `之前在视野里=${farBefore} 缩放 ${scaleBefore} → ${await scale()}`,
+  );
+  // 鼠标点到半露在画布边上的卡片：选中它，画布不动。按下的那一刻卡片就拿到了焦点，若当成键盘聚焦把画布挪走，
+  // 松开时鼠标已经落在别处，这一下点击就落空了。
+  const edge = await page.evaluate(() => {
+    const frame = document.querySelector('.dg-canvas').getBoundingClientRect();
+    for (const el of document.querySelectorAll('[data-testid="dg-card"]')) {
+      const b = el.getBoundingClientRect();
+      const inside = b.left >= frame.left && b.right <= frame.right && b.top >= frame.top && b.bottom <= frame.bottom;
+      const left = Math.max(b.left, frame.left);
+      const right = Math.min(b.right, frame.right);
+      const top = Math.max(b.top, frame.top);
+      const bottom = Math.min(b.bottom, frame.bottom);
+      if (inside || right - left < 40 || bottom - top < 30) continue;
+      const x = (left + right) / 2;
+      const y = (top + bottom) / 2;
+      if (document.elementFromPoint(x, y)?.closest('[data-testid="dg-card"]') === el) return { name: el.dataset.table, x, y };
+    }
+    return null;
+  });
+  const viewportBefore = await page.$eval('.react-flow__viewport', (el) => el.style.transform);
+  if (edge) await page.mouse.click(edge.x, edge.y);
+  await page.waitForTimeout(300);
+  const viewportAfter = await page.$eval('.react-flow__viewport', (el) => el.style.transform);
+  const edgePressed = edge ? await page.locator(`[data-testid="dg-card"][data-table="${edge.name}"]`).getAttribute('aria-pressed') : null;
+  r.ok(
+    '★ 鼠标点画布边上半露的卡片：选中它，画布不动',
+    Boolean(edge) && edgePressed === 'true' && viewportAfter === viewportBefore,
+    `${edge?.name ?? '没找到半露的卡片'} 选中=${edgePressed} 视口 ${viewportBefore} → ${viewportAfter}`,
   );
   await page.screenshot({ path: shot('data-graph-v3-big.png'), fullPage: true });
 

@@ -38,13 +38,14 @@ const DARK_THEME = {
 };
 
 /**
- * 「业务名称整理中」只在两种时候出现（设计文档 §6.3）：有对象还没拿到业务名，并且补全链正在跑、或这个连接还从没跑过。
- * 跑完了仍有对象没拿到业务名（校验两次不过、或者失败了），就安静地用兜底，不挂提示。
+ * 「业务名称整理中」只在有对象还没拿到业务名、并且补全链正在整理时出现（设计文档 §6.3）。「正在整理」由后端判断：
+ * 正在跑，或者从没跑完过、但补全链会来跑，都给 RUNNING；补全链关着、语义层没生成成功（不会有人来跑）给 null。
+ * 跑完了仍有对象没拿到业务名（校验两次不过、或者失败了），以及不会有人来跑的，都安静地用兜底，不挂提示。
  */
 const namingInProgress = (graph: SystemGraph): boolean =>
   graph.relations.length > 0 &&
   graph.tables.some((table) => table.nameSource !== 'BUSINESS_VIEW') &&
-  (graph.viewStatus === 'RUNNING' || graph.viewStatus === null);
+  graph.viewStatus === 'RUNNING';
 
 /** 按系统记下来的页面状态：切换系统后自然作废，不会有一瞬间把上一个系统的选中套到新系统上（v2 审查 #11）。 */
 interface Scoped<T> {

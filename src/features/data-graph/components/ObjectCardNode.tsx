@@ -20,6 +20,11 @@ function ObjectCardNode({ data }: NodeProps<ObjectFlowNode>) {
       pane.scrollTop = 0;
       pane.scrollLeft = 0;
     }
+    // 只跟随键盘带来的焦点：鼠标按下的那一刻卡片也会拿到焦点，这时把画布挪走，松开时鼠标已经不在这张卡片上，
+    // 这一下点击就落空了（React Flow 自己的节点 onFocus 也是先看 :focus-visible）。
+    if (!card.matches(':focus-visible')) {
+      return;
+    }
     const frame = (card.closest('.dg-canvas') ?? pane)?.getBoundingClientRect();
     const box = card.getBoundingClientRect();
     const visible =
