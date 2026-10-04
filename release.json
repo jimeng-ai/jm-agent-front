@@ -2,6 +2,7 @@
   "name": "jm-agent-front",
   "gate": [
     "npm run typecheck",
-    "npm run lint"
+    "npm run lint",
+    "bash scripts/test-nginx-deny-selftest.sh"
   ]
 }
