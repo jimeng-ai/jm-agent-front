@@ -51,6 +51,9 @@ check "/data/admin/%6Fperator/auth/login"             403   # 百分号编码
 check "/data/ADMIN/Operator/auth/login"               403   # 大小写
 check "/data/internal/connector-agent/conn_list"      403
 check "/data/internal;x=1/semantic-agent/submit"      403
+check "/data/admin;x=1/operator/auth/login"           403   # ;参数 加在 admin 这一段上
+check "/data/admin;/operator/auth/login"              403
+check "/data/admin%3Bx=1/operator/auth/login"         403   # 编码过的分号
 # 不能误伤
 check "/data/admin/auth/login"                        200
 check "/data/admin/operators-report"                  200   # 只是前缀相似
