@@ -97,12 +97,15 @@ jobs:
 
       # 部署是关键步骤：直接用刚构建的本地镜像重建容器，不依赖镜像仓库可达性。
       # 放在推送之前，保证即使 GHCR 连不上，部署也能成功。
+      # 内存上限 256m（不给 swap）：和 ds-* 容器挤在同一个 Docker VM 里，每个容器都要有上限，不然谁涨上去 VM 都会
+      # 随机杀别的容器。nginx 只托管静态文件和转发请求，上传的文件落在磁盘上，实际用量是几十 MB。
       - name: Redeploy container
         run: |
           docker rm -f "$CONTAINER" 2>/dev/null || true
           docker run -d \
             --name "$CONTAINER" \
             --restart unless-stopped \
+            --memory 256m --memory-swap 256m \
             --add-host host.docker.internal:host-gateway \
             -p "$PORT:80" \
             "$IMAGE:latest"

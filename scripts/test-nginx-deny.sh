@@ -27,12 +27,22 @@ mkdir -p "$TMP/html" && echo "spa" > "$TMP/html/index.html"
 docker run -d --name "$EDGE" --network "$NET" -p 127.0.0.1::80 \
   -v "$TMP/edge.conf:/etc/nginx/conf.d/default.conf:ro" \
   -v "$TMP/html:/usr/share/nginx/html:ro" nginx:1.27-alpine >/dev/null
-PORT="$(docker port "$EDGE" 80/tcp | head -1 | sed 's/.*://')"
 
+# nginx 起不来（最常见的是配置写错）时容器会马上退出。先打出 nginx 自己的日志再失败，
+# 不然只剩 docker port 一句 "No public port published"，看不出是哪一行错了。测试：scripts/test-nginx-deny-selftest.sh
+edge_failed() {
+  echo "FAIL: ${1}。nginx 日志："
+  docker logs "$EDGE" 2>&1 | tail -30 | sed 's/^/     /'
+  exit 1
+}
+PORT=""
 for _ in $(seq 1 30); do
-  curl -s -o /dev/null "http://127.0.0.1:$PORT/" && break
+  [ "$(docker inspect -f '{{.State.Running}}' "$EDGE" 2>/dev/null)" = "true" ] || edge_failed "nginx 没起来（多半是配置有错）"
+  [ -n "$PORT" ] || PORT="$(docker port "$EDGE" 80/tcp 2>/dev/null | head -1 | sed 's/.*://' || true)"
+  [ -n "$PORT" ] && curl -s -o /dev/null "http://127.0.0.1:$PORT/" && break
   sleep 0.5
 done
+{ [ -n "$PORT" ] && curl -s -o /dev/null "http://127.0.0.1:$PORT/"; } || edge_failed "nginx 15 秒内没有响应"
 
 fails=0
 check() {   # $1 = 路径（原样发出，不让 curl 规范化），$2 = 期望状态码。用 GET：nginx 对静态文件的 POST 回 405。
