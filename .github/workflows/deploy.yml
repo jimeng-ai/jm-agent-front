@@ -81,6 +81,10 @@ jobs:
           printf '{}' > "$DC/config.json"
           echo "DOCKER_CONFIG=$DC" >> "$GITHUB_ENV"
 
+      # 公网入口的拦截规则必须真的生效：用真实 nginx 起一遍配置、逐条请求验证。不过就不构建、不部署。
+      - name: Test nginx deny rules
+        run: bash scripts/test-nginx-deny.sh
+
       # 只做镜像组装：把上一步在宿主机产出的 dist 复制进 nginx。没有 vite、没有 node，
       # 内存开销可忽略，因此不再需要 --memory 围栏（围栏是给会吃内存的构建准备的）。
       - name: Build image
