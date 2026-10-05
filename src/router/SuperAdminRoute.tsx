@@ -34,7 +34,7 @@ export default function SuperAdminRoute({ children }: { children: ReactNode }) {
       <Result
         status="403"
         title="仅企业超管可访问"
-        subTitle="数据连接、出站凭据与写操作审批属于企业级治理能力。"
+        subTitle="数据连接与写操作审批属于企业级治理能力。"
         extra={
           <Button type="primary" onClick={() => navigate('/console/dashboard')}>
             返回工作台

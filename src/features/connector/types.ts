@@ -1,5 +1,5 @@
 /**
- * 连接器：客户系统接入（数据库 / HTTP 接口等）。全超管可见可管。
+ * 连接器：客户数据库接入。全超管可见可管。
  *
  * ★ 本模块的核心约定：**前端不认识任何具体的连接器类型。**
  * 字段清单由后端 `GET /admin/connectors/kinds` 下发（每种类型一份表单 schema），
@@ -95,7 +95,7 @@ export interface ConnectorView {
    * 且把存量行上的 NULL 在 toView 里归一成 NONE，所以正常不会缺。
    *
    * ★ 仍标成可选，并且渲染时必须有兜底分支：漏认一个值那一格就是**空白**，
-   * 而「空白」和「没跑过」在人眼里是一回事——于是一条根本推不了语义层的 HTTP 连接
+   * 而「空白」和「没跑过」在人眼里是一回事——于是一条根本推不了语义层的连接（类型不支持自描述）
    * 会被当成卡住了，有人去点重试，永远点不出结果。
    */
   semanticStatus?: SemanticStatus | null;
@@ -531,8 +531,8 @@ export interface PendingWriteQuery {
 /**
  * 推导状态。后端枚举的**全集**，一个不能漏。
  *
- * ★ `NOT_APPLICABLE` 不是错误：这种连接器压根不提供结构自描述（今天的 HTTP 就是，
- * 它只声明 INVOKE / HEALTH），没有结构可推，重跑也不会变。把它渲染成红色，
+ * ★ `NOT_APPLICABLE` 不是错误：这种连接器压根不提供结构自描述（不声明 DESCRIBE），
+ * 没有结构可推，重跑也不会变。把它渲染成红色，
  * 只会让人去修一个没坏的东西——而真正 FAILED 的那几条混在一堆假警报里，反而没人看。
  */
 export type SemanticStatus = 'NONE' | 'RUNNING' | 'READY' | 'FAILED' | 'NOT_APPLICABLE';

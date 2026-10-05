@@ -94,14 +94,14 @@ const STATUS_META: Record<SemanticStatus, SemanticStatusMeta> = {
     alert: 'error',
     hint: `${SEMANTIC_FAILED_PREFIX}${semanticFailedVisibilityContext()}`,
   },
-  // ★ 刻意不是红色，也刻意不是 error。这种连接器不提供结构自描述（今天的 HTTP 就是，
-  //   它只声明 INVOKE / HEALTH），没有结构可推，重跑也不会变。
-  //   标成红色会训练人忽略这个字段：一条健康的 HTTP 连接显示「失败」，人第一反应是去修一个没坏的东西，
+  // ★ 刻意不是红色，也刻意不是 error。这种连接器不提供结构自描述（不声明 DESCRIBE），
+  //   没有结构可推，重跑也不会变。
+  //   标成红色会训练人忽略这个字段：一条健康的连接显示「失败」，人第一反应是去修一个没坏的东西，
   //   修不动几次之后，真正 FAILED 的那几条也不会有人看了。
   NOT_APPLICABLE: {
     label: '不适用',
     alert: 'info',
-    hint: '这种连接器不提供结构自描述（如 HTTP 接口），没有结构可推，语义层对它本来就不适用。这不是错误，重新生成也不会变。',
+    hint: '这种连接器不提供结构自描述，没有结构可推，语义层对它本来就不适用。这不是错误，重新生成也不会变。',
   },
 };
 
