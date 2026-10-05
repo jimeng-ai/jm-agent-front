@@ -25,7 +25,6 @@ const TraceListPage = lazy(() => import('@/pages/console/trace/TraceListPage'));
 const FeedbackPage = lazy(() => import('@/pages/console/feedback/FeedbackPage'));
 const SkillListPage = lazy(() => import('@/pages/console/skill/SkillListPage'));
 const SkillBuilderPage = lazy(() => import('@/pages/console/skill/SkillBuilderPage'));
-const ConnectionListPage = lazy(() => import('@/pages/console/connection/ConnectionListPage'));
 const ConnectorListPage = lazy(() => import('@/pages/console/connector/ConnectorListPage'));
 const DataGraphPage = lazy(() => import('@/pages/console/data-graph/DataGraphPage'));
 const SemanticWorkbenchPage = lazy(
@@ -103,14 +102,6 @@ export const appRouter = createBrowserRouter(
         <Route path="feedback" element={<FeedbackPage />} />
         <Route path="skills" element={<SkillListPage />} />
         <Route path="skill/builder" element={<SkillBuilderPage />} />
-        <Route
-          path="connections"
-          element={
-            <SuperAdminRoute>
-              <ConnectionListPage />
-            </SuperAdminRoute>
-          }
-        />
         <Route
           path="connectors"
           element={

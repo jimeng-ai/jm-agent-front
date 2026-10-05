@@ -16,7 +16,7 @@ const col = (name, comment = null) => ({ name, comment });
 // ---------------------------------------------------------------- 夹具
 
 // 数据连接页的卡片：MySQL 声明了「能自描述」，每个库都有「查看星图」（8 还没探测过、21 还没有任何结构也一样）；
-// HTTP 接口没有表结构，没有星图。
+// 不能自描述的类型没有星图（夹具借用已下线的 HTTP 类型，只为覆盖这条渲染分支）。
 const KINDS = [
   { kind: 'MYSQL', displayName: 'MySQL', capabilities: ['query', 'describe', 'health', 'write'], fields: [] },
   { kind: 'HTTP', displayName: 'HTTP 接口', capabilities: ['invoke', 'health'], fields: [] },

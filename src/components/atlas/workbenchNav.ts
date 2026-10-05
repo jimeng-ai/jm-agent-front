@@ -8,7 +8,6 @@ import {
   BellIcon,
   MessageIcon,
   SkillIcon,
-  PlugIcon,
   DatabaseIcon,
 } from '@/components/icons/AtlasIcons';
 
@@ -47,15 +46,7 @@ export const WORKBENCH_NAV: NavItem[] = [
     path: '/console/skills',
     Icon: SkillIcon,
   },
-  // 兼容的 HTTP egress 入口。与新版数据连接同属敏感治理面，只对超管展示。
-  {
-    key: 'connections',
-    label: 'HTTP 出站（兼容）',
-    path: '/console/connections',
-    Icon: PlugIcon,
-    superAdminOnly: true,
-  },
-  // 数据连接（连接器）：与上面同源，这个是含治理与语义层的主入口；每个库的数据星图也从这里的卡片进。
+  // 数据连接（连接器）：含治理与语义层；每个库的数据星图也从这里的卡片进。
   {
     key: 'connectors',
     label: '数据连接',

@@ -15,8 +15,8 @@ export default async function run() {
 
     const sidebar = page.locator('.atlas-sidebar');
     r.ok(
-      '兼容入口使用明确名称',
-      await sidebar.getByText('HTTP 出站（兼容）', { exact: true }).isVisible().catch(() => false),
+      '「HTTP 出站（兼容）」入口已下线',
+      (await sidebar.getByText('HTTP 出站（兼容）', { exact: true }).count()) === 0,
     );
 
     const routes = [

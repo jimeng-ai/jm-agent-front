@@ -50,7 +50,7 @@ npm run preview
 - `/console/agents` Agent 列表与编辑（`agents/new`、`agents/:id`）
 - `/console/knowledge` 知识库（`knowledge/:kbId`）
 - `/console/skills` 技能、`/console/skill/builder` 技能构建器
-- `/console/connections` 连接、`/console/connectors` 连接器、`/console/pending-writes` 待审写操作
+- `/console/connectors` 数据连接、`/console/pending-writes` 待审写操作
 - `/console/traces` 调用链、`/console/feedback` 产品反馈
 - `/console/playground/:agentId?` 调试台
 - `/chat/:agentId`、`/chat/c/:conversationId` 终端用户对话
@@ -80,7 +80,6 @@ location / {
 | 登录 | `POST /data/admin/auth/login` |
 | Agent | `/data/admin/agent/agents` |
 | 技能 | `/data/tenant/skills` |
-| 连接 | `/data/admin/connections` |
 | 连接器 | `/data/admin/connectors` |
 | 知识库 | `/data/rag/kb` |
 | 文档 | `/data/rag/kb/{kbId}/documents`、`/data/rag/documents/{id}` |
