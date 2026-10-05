@@ -180,6 +180,12 @@ export default function AgentConnectionGrantPanel({ agentId }: AgentConnectionGr
     queryKey: ['connector', 'list'],
     queryFn: connectorApi.list,
   });
+  // 可授权列表只列平台还支持的类型（2026-10 起 HTTP 类已下线，只剩数据库类）。与「数据连接」页共用同一份缓存。
+  const kindsQuery = useQuery({
+    queryKey: ['connector', 'kinds'],
+    queryFn: connectorApi.kinds,
+    staleTime: 5 * 60_000,
+  });
   const boundQuery = useQuery({
     queryKey: ['agent', agentId, 'connections'],
     queryFn: () => agentApi.listConnections(agentId),
@@ -224,7 +230,18 @@ export default function AgentConnectionGrantPanel({ agentId }: AgentConnectionGr
     () => rows.filter((row) => matchesConnection(row, query)),
     [query, rows],
   );
-  const availableRows = filteredRows.filter((row) => !boundSet.has(row.id));
+  // 类型清单没拿到时不过滤：授权时后端还会再判一次，宁可多列，也不要把整列连接藏掉。
+  // 已授权的遗留行照常留在右侧，方便撤销。
+  const supportedKinds = useMemo(
+    () =>
+      kindsQuery.data ? new Set(kindsQuery.data.map((k) => String(k.kind).toUpperCase())) : null,
+    [kindsQuery.data],
+  );
+  const availableRows = filteredRows.filter(
+    (row) =>
+      !boundSet.has(row.id) &&
+      (!supportedKinds || supportedKinds.has(String(row.kind).toUpperCase())),
+  );
   const grantedRows = filteredRows.filter((row) => boundSet.has(row.id));
   const missingGrantedIds = query.trim()
     ? []
