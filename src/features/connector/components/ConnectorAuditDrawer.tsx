@@ -147,8 +147,8 @@ export function ConnectorAuditPanel({ connector }: PanelProps) {
         type="info"
         showIcon
         style={{ marginBottom: 12 }}
-        message="这里记录的是对客户系统的每一次实际访问"
-        description="包括查目录、看结构、执行查询与调用接口。展开某一行可以看到平台实际执行的语句——它可能与模型写的原文不同（护栏会注入或收紧 LIMIT）。"
+        message="这里记录 AI 对这个库的每次访问"
+        description="展开可看实际执行的语句。"
       />
 
       <Space style={{ marginBottom: 12 }}>

@@ -252,7 +252,7 @@ function ProbeResultAlert({ snapshot, stale }: { snapshot: ProbeSnapshot; stale:
         type="warning"
         showIcon
         message="关键连接参数已变化，需要重新测试"
-        description="上一次结果绑定的是另一组目标地址、凭据或写策略，不能用来证明当前表单可用。"
+        description="地址、账号密码或写策略已改动，上次的结果不再适用。"
       />
     );
   }
@@ -277,7 +277,7 @@ function ProbeResultAlert({ snapshot, stale }: { snapshot: ProbeSnapshot; stale:
         description={
           <>
             <div>
-              探测到的能力：
+              可用能力：
               <Space size={4} wrap style={{ marginLeft: 4 }}>
                 {result.capabilities.map((capability) => (
                   <Tag key={capability}>{CAPABILITY_LABELS[capability] ?? capability}</Tag>
@@ -285,9 +285,7 @@ function ProbeResultAlert({ snapshot, stale }: { snapshot: ProbeSnapshot; stale:
               </Space>
             </div>
             {readonlyMismatch ? (
-              <div style={{ marginTop: 4 }}>
-                平台策略允许写，但客户库账号已验证为只读；查询可用，真实写请求仍会失败。
-              </div>
+              <div style={{ marginTop: 4 }}>平台允许写，但数据库账号是只读的，写入会失败。</div>
             ) : null}
             {result.readonlyDetail ? (
               <div style={{ marginTop: 4, color: '#64748b' }}>
@@ -393,7 +391,7 @@ function ConnectorFormContents({
     const current = connector?.semanticDataTier;
     if (current && !base.some((option) => option.value === current)) {
       base.push({
-        label: `${connector.semanticDataTierLabel || current} —— 本页还不认识这个档位，保存将原样提交`,
+        label: `${connector.semanticDataTierLabel || current}（无法识别，保存时保持不变）`,
         value: current,
       });
     }
@@ -563,9 +561,7 @@ function ConnectorFormContents({
             <span>01</span>
             <div>
               <Typography.Title level={5}>基本信息</Typography.Title>
-              <Typography.Text type="secondary">
-                连接如何被识别，以及由哪种后端实现接管。
-              </Typography.Text>
+              <Typography.Text type="secondary">设置连接的类型和名称。</Typography.Text>
             </div>
           </div>
           <Form.Item
@@ -595,7 +591,7 @@ function ConnectorFormContents({
                 message: '只能是字母、数字、下划线、短横线，最长 64 位',
               },
             ]}
-            extra="模型调用工具时用它寻址，创建后不建议修改"
+            extra="AI 靠这个名称识别连接，创建后不能修改"
           >
             <Input disabled={!!connector} placeholder="crm-mysql" />
           </Form.Item>
@@ -609,9 +605,7 @@ function ConnectorFormContents({
             <span>02</span>
             <div>
               <Typography.Title level={5}>连接参数</Typography.Title>
-              <Typography.Text type="secondary">
-                字段完全由后端 schema 下发；凭据只在当前 Drawer 内存活。
-              </Typography.Text>
+              <Typography.Text type="secondary">填写连接客户数据库所需的信息。</Typography.Text>
             </div>
           </div>
           {activeKind ? (
@@ -631,7 +625,7 @@ function ConnectorFormContents({
             <div>
               <Typography.Title level={5}>治理策略</Typography.Title>
               <Typography.Text type="secondary">
-                分别决定能不能改数据，以及什么形态的数据可以出库。
+                设置能否修改数据，以及哪些数据可以离开客户库。
               </Typography.Text>
             </div>
           </div>
@@ -639,7 +633,7 @@ function ConnectorFormContents({
             label="写策略"
             name="writePolicy"
             rules={[{ required: true, message: '请选择写策略' }]}
-            extra="这是平台侧的闸。数据库账号权限是另一回事；授权命令会按这里选择的档位生成。"
+            extra="平台层面的开关，数据库账号权限需另外设置。"
           >
             <Select options={WRITE_POLICY_OPTIONS} />
           </Form.Item>
@@ -650,12 +644,10 @@ function ConnectorFormContents({
               message="这条连接将允许修改客户数据"
               description={
                 <>
-                  只读校验不再是接入门槛。剩余护栏是：单条 DML、
-                  <b>UPDATE / DELETE 必须带 WHERE</b>、影响行数超上限整条回滚，以及禁用 DDL /
-                  TRUNCATE / REPLACE。
                   {watchedPolicy === 'AUTO'
-                    ? ' 写自动意味着模型无需人工确认即可改数据。'
-                    : ' 写需审批意味着模型只能提交，实际执行发生在超管批准之后。'}
+                    ? 'AI 可直接改数据，无需人工确认。'
+                    : 'AI 只能提交，经超管批准后才会执行。'}
+                  平台仍会拦截<b>不带条件的修改、删除</b>、超行数上限的写入，以及改表结构。
                 </>
               }
             />
@@ -665,7 +657,7 @@ function ConnectorFormContents({
               label="数据出库档位"
               name="semanticDataTier"
               rules={[{ required: true, message: '请选择数据出库档位' }]}
-              extra="往严里选，表关系只能靠名字猜；往松里选，离开客户库的内容会更具体。"
+              extra="档位越高，表关系越准，离开客户库的数据越具体。"
             >
               <Select options={tierOptions} />
             </Form.Item>
@@ -674,7 +666,7 @@ function ConnectorFormContents({
             <Alert
               type={tierMeta?.alert ?? 'warning'}
               showIcon
-              message={tierMeta?.title ?? `本页还不认识这个档位（${watchedTier}）`}
+              message={tierMeta?.title ?? `无法识别这个档位（${watchedTier}）`}
               description={
                 tierMeta ? (
                   <>
@@ -682,7 +674,7 @@ function ConnectorFormContents({
                     {tierMeta.extra ? <div style={{ marginTop: 4 }}>{tierMeta.extra}</div> : null}
                   </>
                 ) : (
-                  '保存时会原样提交，档位不变；但本页无法解释这一档具体什么东西会出库，请先升级前端再改。'
+                  '保存时档位保持不变；如需修改，请联系平台管理员。'
                 )
               }
             />
@@ -702,7 +694,7 @@ function ConnectorFormContents({
             <div>
               <Typography.Title level={5}>验证与保存</Typography.Title>
               <Typography.Text type="secondary">
-                测试不会落库；最终保存仍只有一次 create / update。
+                测试不会保存任何内容，确认无误后再保存。
               </Typography.Text>
             </div>
           </div>
@@ -727,7 +719,7 @@ function ConnectorFormContents({
                   type="info"
                   showIcon
                   message="可先测试，再一次性保存"
-                  description="保存时后端仍会重新验证；这里的测试用于在提交前就地发现地址、凭据和权限问题。"
+                  description="提前测试，可发现地址、账号和权限问题。"
                 />
               )}
             </div>

@@ -141,7 +141,7 @@ export default function DataGraphPage() {
           {systemName ? `数据星图 · ${systemName}` : '数据星图'}
         </h2>
         <p className="data-graph-header__lead">
-          看看业务系统里有哪些业务对象、它们之间怎样关联。内容由平台根据接入的系统自动整理，并随系统更新自动同步。
+          看看业务系统里有哪些对象，它们怎样关联。
         </p>
       </header>
 

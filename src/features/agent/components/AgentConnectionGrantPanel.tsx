@@ -125,7 +125,7 @@ function ConnectionGrantCard({
           type="warning"
           showIcon
           message="连接详情当前不可见"
-          description="授权关系仍然存在，但企业连接列表没有返回这条连接。"
+          description="授权仍然有效，但连接列表中找不到它。"
           style={{ marginTop: 10 }}
         />
       )}
@@ -297,9 +297,7 @@ export default function AgentConnectionGrantPanel({ agentId }: AgentConnectionGr
         message="无法读取企业数据连接"
         description={errorMessage(
           allQuery.error,
-          canManage
-            ? '暂时无法读取连接列表'
-            : '当前账号可能没有查看企业连接详情的权限；这不是“暂无连接”。',
+          canManage ? '暂时无法读取连接列表' : '当前账号可能没有查看连接的权限。',
         )}
         action={
           <Button size="small" aria-label="重试加载企业数据连接" onClick={() => allQuery.refetch()}>
@@ -316,7 +314,7 @@ export default function AgentConnectionGrantPanel({ agentId }: AgentConnectionGr
         type="error"
         showIcon
         message="无法读取当前连接授权"
-        description={errorMessage(boundQuery.error, '暂时无法读取该 Agent 的授权关系')}
+        description={errorMessage(boundQuery.error, '暂时无法读取该 Agent 的连接授权')}
         action={
           <Button
             size="small"
@@ -335,9 +333,7 @@ export default function AgentConnectionGrantPanel({ agentId }: AgentConnectionGr
       <div className="agent-bind-intro">
         <Typography.Text strong>数据连接授权更改后立即生效。</Typography.Text>
         <br />
-        <Typography.Text type="secondary">
-          授权后 Agent 才能通过 conn_* 工具访问对应系统；这项权限独立保存，不随草稿保存或发布。
-        </Typography.Text>
+        <Typography.Text type="secondary">授权后，Agent 才能访问对应的数据库。</Typography.Text>
       </div>
 
       {!canManage && (
@@ -355,7 +351,7 @@ export default function AgentConnectionGrantPanel({ agentId }: AgentConnectionGr
                     <div>为避免越权，本页暂不开放修改。刷新权限后可重试。</div>
                   </>
                 )
-              : '授予或撤销生产系统访问权限仅限企业超级管理员；普通成员可以查看当前授权与安全状态。'
+              : '仅企业超级管理员可以修改，你可以查看当前授权。'
           }
           action={
             permissionQuery.isError ? (
@@ -376,7 +372,7 @@ export default function AgentConnectionGrantPanel({ agentId }: AgentConnectionGr
         <Alert
           type="warning"
           showIcon
-          message="后台刷新失败，当前显示上一次成功读取的连接授权"
+          message="连接授权刷新失败，下面保留的是上一次结果"
           description={
             <ul className="agent-refresh-error-list">
               {refreshErrors.map((detail) => (

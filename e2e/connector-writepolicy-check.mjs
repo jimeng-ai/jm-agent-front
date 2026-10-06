@@ -158,7 +158,7 @@ try {
   const warnText = await page.textContent('[data-testid="connector-form-drawer"] .ant-alert-warning').catch(() => null);
   check(
     '切到「写自动」后出现告警并说明剩下哪些护栏',
-    !!warnText && warnText.includes('WHERE') && warnText.includes('回滚'),
+    !!warnText && warnText.includes('不带条件') && warnText.includes('拦截'),
     (warnText || '').slice(0, 60),
   );
 

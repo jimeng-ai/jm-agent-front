@@ -133,7 +133,7 @@ export default function GrantScriptPanel({ kind, database, writePolicy }: Props)
   const body = (
     <Space direction="vertical" size={12} style={{ width: '100%' }}>
       <Typography.Text type="secondary">
-        平台只把命令生成出来，不会拿它去客户库上执行。生成后复制给客户的 DBA 即可。
+        平台只生成命令，不会执行。复制给客户的 DBA 即可。
       </Typography.Text>
 
       <div>
@@ -182,18 +182,14 @@ export default function GrantScriptPanel({ kind, database, writePolicy }: Props)
       </div>
 
       {!database && (
-        <Typography.Text type="warning">
-          上面的连接参数里还没填库名，生成出来的授权范围会不完整。
-        </Typography.Text>
+        <Typography.Text type="warning">还没填库名，授权范围会不完整。</Typography.Text>
       )}
 
       <Space>
         <Button type="primary" loading={mut.isPending} disabled={!canGenerate} onClick={generate}>
           {generated ? '重新生成' : '生成'}
         </Button>
-        <Typography.Text type="secondary">
-          授权按当前写策略生成；改了写策略要重新生成一次。
-        </Typography.Text>
+        <Typography.Text type="secondary">授权按写策略生成，改动后需重新生成。</Typography.Text>
       </Space>
 
       {mut.isError && (
@@ -214,7 +210,7 @@ export default function GrantScriptPanel({ kind, database, writePolicy }: Props)
               showIcon
               style={{ marginBottom: 12 }}
               message="授权命令已过期"
-              description="生成后，连接类型、库名、写策略或授权范围等输入发生了变化。请重新生成；旧命令已禁止一键复制。"
+              description="输入内容已改动，请重新生成；旧命令不可再复制。"
             />
           ) : null}
           <Typography.Text strong>请把这段交给客户的 DBA 执行，密码需自行替换。</Typography.Text>

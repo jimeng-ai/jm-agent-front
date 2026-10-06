@@ -38,10 +38,10 @@ import type {
  */
 
 const OP_META: Record<WriteOperation, { color: string; label: string }> = {
-  INSERT: { color: 'green', label: 'INSERT' },
-  UPDATE: { color: 'orange', label: 'UPDATE' },
+  INSERT: { color: 'green', label: '新增' },
+  UPDATE: { color: 'orange', label: '修改' },
   // 删除最不可逆，单独给最重的颜色。
-  DELETE: { color: 'red', label: 'DELETE' },
+  DELETE: { color: 'red', label: '删除' },
 };
 
 const STATUS_META: Record<PendingWriteStatus, { color: string; label: string }> = {
@@ -128,7 +128,7 @@ export default function PendingWritePage() {
       // 接口 200 ≠ 数据改成功：批准之后语句还要真的在客户库上跑一次，跑挂了回 FAILED。
       // 这里不看 status 就报「已执行」，等于骗人。
       if (row.status === 'FAILED') {
-        message.error(row.errorDetail || '已批准，但语句在客户库上执行失败');
+        message.error(row.errorDetail || '已批准，但执行失败');
       } else {
         const n = Number(row.affectedRows ?? 0);
         message.success(`已执行，影响 ${Number.isNaN(n) ? row.affectedRows : n} 行`);
@@ -176,11 +176,11 @@ export default function PendingWritePage() {
             </div>
           ) : (
             <div style={{ marginTop: 8, color: '#d46b08' }}>
-              平台<b>未能预估</b>影响行数——请自行确认 WHERE 条件的命中范围
+              平台<b>未能预估</b>影响行数，请自行核对语句的筛选条件。
             </div>
           )}
           <div style={{ marginTop: 8, color: '#666' }}>
-            执行结果平台无法撤销。请确认 WHERE 条件命中的行数在你的预期之内。
+            执行后无法撤销，请确认影响范围在预期之内。
           </div>
         </div>
       ),
@@ -244,9 +244,7 @@ export default function PendingWritePage() {
         const tag = <Tag color={meta?.color}>{meta?.label ?? r.status}</Tag>;
         if (expired) {
           return (
-            <Tooltip title={`审批有效期至 ${fmtTime(r.expiresAt)}，已超时，平台不会再执行`}>
-              {tag}
-            </Tooltip>
+            <Tooltip title={`有效期至 ${fmtTime(r.expiresAt)}，已超时，不会再执行`}>{tag}</Tooltip>
           );
         }
         return tag;
@@ -324,7 +322,7 @@ export default function PendingWritePage() {
         showIcon
         style={{ marginBottom: 12 }}
         message="批准即执行，平台不提供撤销"
-        description="下面每行展开处的语句是护栏改写后、将要真正打到客户库上的那一条（不是模型写的原文）。批准前请读完它——这一页的意义就在于此。超时未审的会自动作废，不会补执行。"
+        description="批准前请看清要执行的语句。超时未审的会自动作废。"
       />
 
       <Table<PendingWriteRow>
@@ -413,12 +411,12 @@ export default function PendingWritePage() {
       >
         {rejecting && <pre style={MONO}>{rejecting.statementText}</pre>}
         {/* 原因必填：事后回看时「谁拒的」没有「为什么拒」值钱，模型那边也要拿这句话去改写。 */}
-        <div style={{ margin: '12px 0 4px' }}>拒绝原因（必填，会回给发起这次写操作的 Agent）</div>
+        <div style={{ margin: '12px 0 4px' }}>拒绝原因（必填，会反馈给 Agent）</div>
         <Input.TextArea
           rows={3}
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="例如：这条 UPDATE 没有限定客户 ID，影响范围太大"
+          placeholder="例如：没有限定客户 ID，影响范围太大"
         />
       </Modal>
     </div>

@@ -46,18 +46,18 @@ export default function SemanticCoverageStrip({ connector }: { connector: Connec
                 ))
               ) : (
                 <article>
-                  <b>成因未提供</b>
-                  <span>后端只标记了 PARTIAL；具体上下文请结合上方「最新说明」全文。</span>
+                  <b>原因未知</b>
+                  <span>详情见上方「最新说明」。</span>
                 </article>
               )}
             </div>
           </>
         ) : complete ? (
-          <p>当前成功版本没有整块表或字段缺失；这不代表每条推断都正确，仍需结合来源与验证结论。</p>
+          <p>没有缺表，也没有缺字段。</p>
         ) : unknown ? (
-          <p>后端返回了本页不认识的 coverage 原值，请先按契约漂移核对，不要将它当成「没跑过」。</p>
+          <p>覆盖情况无法识别，请联系平台管理员。</p>
         ) : (
-          <p>覆盖度为空表示还没成功生成过，不等于残缺；推导状态由上方独立回答。</p>
+          <p>生成后这里会显示覆盖情况。</p>
         )}
       </div>
     </section>

@@ -23,7 +23,7 @@ export function JoinCareSummary({ care, tierText }: { care: JoinCare; tierText: 
       <div>{care.careReason}</div>
       {care.careReasonWithheld && (
         <Typography.Text type="secondary">
-          后端原话含具体取值，「{tierText}」当前不提供给模型；原话仍在 Inspector 的留存区。
+          原提醒含具体取值，「{tierText}」下 AI 看不到。
         </Typography.Text>
       )}
       <div className="semantic-condition-line">{care.conditionSummary}</div>
@@ -34,16 +34,16 @@ export function JoinCareSummary({ care, tierText }: { care: JoinCare; tierText: 
 export function TableShapeSummary({ shape }: { shape: TableShapeView }) {
   if (shape.kind === 'LEGACY') {
     return (
-      <Tooltip title="旧版自由描述不符合当前四种形态契约，给模型的工具不提供它。重新生成后机器推断行会重新判断。">
-        <span className="semantic-shape-legacy">旧版形态：{shape.raw}（模型读不到）</span>
+      <Tooltip title="旧版描述，AI 看不到。重新生成后会更新。">
+        <span className="semantic-shape-legacy">旧版形态：{shape.raw}（AI 看不到）</span>
       </Tooltip>
     );
   }
   if (shape.kind === 'UNRECOGNIZED') {
     return (
-      <Tooltip title="形态或来源不是当前契约里的值，工具会把这一行形态丢掉，模型读不到。">
+      <Tooltip title="无法识别的形态，AI 看不到。">
         <span className="semantic-shape-legacy">
-          未认出形态：{shape.raw}（{shape.source?.label ?? `来源 ${shape.sourceRaw}`}，模型读不到）
+          未识别形态：{shape.raw}（{shape.source?.label ?? `来源 ${shape.sourceRaw}`}，AI 看不到）
         </span>
       </Tooltip>
     );
@@ -64,8 +64,8 @@ export function TableShapeSummary({ shape }: { shape: TableShapeView }) {
       </Tooltip>
       {shape.modelGuess && (
         <span className="semantic-muted">
-          模型原判 {shape.modelGuess}
-          {shape.measured ? '（已被实测推翻）' : ''}
+          AI 原判 {shape.modelGuess}
+          {shape.measured ? '（已按实测更正）' : ''}
         </span>
       )}
     </span>
@@ -75,11 +75,11 @@ export function TableShapeSummary({ shape }: { shape: TableShapeView }) {
 export function KeyValueCare({ shape }: { shape: Extract<TableShapeView, { kind: 'SHAPE' }> }) {
   return (
     <div className="semantic-care-note">
-      一行是一对「指标名 = 值」，不是一条记录。聚合前先按
+      一行是一个指标（指标名 = 值），不是一条记录。统计前先按
       <Typography.Text code>{shape.kvNameColumn ?? '指标名列'}</Typography.Text>
-      筛出一个指标，再对
+      选定指标，再对
       <Typography.Text code>{shape.kvValueColumn ?? '值列'}</Typography.Text>
-      求和或计数。
+      汇总。
     </div>
   );
 }

@@ -25,8 +25,8 @@ export default function SemanticWorkbenchPage() {
     return (
       <Result
         status="404"
-        title="缺少连接 id"
-        subTitle="请从数据连接列表重新进入语义层。"
+        title="地址不完整"
+        subTitle="请从数据连接列表进入。"
         extra={<Button onClick={() => navigate('/console/connectors')}>返回数据连接</Button>}
       />
     );
@@ -92,7 +92,7 @@ export default function SemanticWorkbenchPage() {
           className="semantic-detail-refresh-error"
           type="error"
           showIcon
-          message="连接详情刷新失败，继续显示上一次成功内容"
+          message="连接详情刷新失败，当前显示的是旧内容"
           description={(connectorQuery.error as Error)?.message}
           action={
             <Button

@@ -501,7 +501,7 @@ try {
   r.ok(
     '页头：标题与说明',
     headerText.includes('数据星图') &&
-      headerText.includes('看看业务系统里有哪些业务对象、它们之间怎样关联。内容由平台根据接入的系统自动整理，并随系统更新自动同步。'),
+      headerText.includes('看看业务系统里有哪些对象，它们怎样关联。'),
     headerText,
   );
   r.ok('页头标题带这个库的名字', ((await page.locator('.data-graph-header__title').innerText().catch(() => '')) ?? '') === '数据星图 · ERP 系统');
@@ -701,7 +701,7 @@ try {
   const emptyStates = [
     ['8', '这个系统的业务对象还在整理中，完成后会自动出现。'],
     ['10', '正在整理，完成后刷新页面即可看到。'],
-    ['11', '整理没有成功，请联系企业管理员。'],
+    ['11', '整理没有成功，请到数据连接重新生成。'],
     ['12', '暂未发现可以确认的关联。'],
   ];
   for (const [system, text] of emptyStates) {

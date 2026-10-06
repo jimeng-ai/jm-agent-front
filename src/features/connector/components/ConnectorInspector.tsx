@@ -24,8 +24,8 @@ function SemanticSummary({ connector }: { connector: ConnectorView }) {
       <Alert
         type={connector.semanticStatus === 'FAILED' ? 'warning' : 'info'}
         showIcon
-        message="这里仅展示连接级摘要"
-        description="表、字段、关系与业务口径的完整清单在语义工作台维护；Inspector 不请求语义行，避免只看一角就误判整份说明书。"
+        message="这里只显示概况"
+        description="完整说明在语义层页面查看。"
       />
       <div className="connector-semantic-summary__state">
         <Typography.Text type="secondary">当前状态</Typography.Text>
@@ -39,7 +39,7 @@ function SemanticSummary({ connector }: { connector: ConnectorView }) {
         to={`/console/connectors/${connector.id}/semantic`}
       >
         <ArrowRightOutlined aria-hidden />
-        <span>打开完整语义工作台</span>
+        <span>打开语义层页面</span>
       </Link>
     </div>
   );

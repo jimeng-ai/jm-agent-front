@@ -231,8 +231,8 @@ export default function ConnectorListPage() {
       if (formSessionRef.current !== variables.sessionToken) return;
       message.success(
         writePolicy === 'FORBIDDEN'
-          ? '已创建（连通性、只读权限与能力均已验证通过）'
-          : '已创建（连通性、账号权限与写策略均已验证通过）',
+          ? '已创建，连接和只读权限均已验证'
+          : '已创建，连接和账号权限均已验证',
       );
       closeForm(variables.sessionToken, true);
       // 同目标重复接入会形成两份不互通的语义层，必须让人读完，不能用瞬时 toast。
@@ -399,7 +399,7 @@ export default function ConnectorListPage() {
 
   const openEdit = (connector: ConnectorView) => {
     if (!kinds.some((kind) => kind.kind === connector.kind)) {
-      message.error('当前没有这类连接的表单 schema，无法安全编辑；请重试或升级后端。');
+      message.error('暂时无法编辑这类连接，请刷新重试或联系平台管理员');
       return;
     }
     beginFormSession();
@@ -417,7 +417,7 @@ export default function ConnectorListPage() {
   const confirmDelete = (connector: ConnectorView) => {
     modal.confirm({
       title: `删除连接「${connector.displayName || connector.name}」？`,
-      content: '将同时摘除所有 Agent 对它的授权、清空已缓存的结构信息，操作不可恢复。',
+      content: '将同时取消所有 Agent 对它的授权，且不可恢复。',
       okText: '删除',
       okButtonProps: { danger: true },
       cancelText: '取消',
@@ -484,7 +484,7 @@ export default function ConnectorListPage() {
           </Typography.Text>
           <Typography.Title level={2}>数据连接</Typography.Title>
           <Typography.Paragraph>
-            把账号权限、平台写策略、语义完整度与数据出库范围放在同一张卡上，先看清风险，再打开连接处理。
+            接入客户数据库，卡片上可直接看到各连接的风险。
           </Typography.Paragraph>
         </div>
         <Button
@@ -528,7 +528,7 @@ export default function ConnectorListPage() {
           type="warning"
           showIcon
           className="connector-workbench__query-alert"
-          message="后端没有返回可用的连接类型"
+          message="暂无可用的连接类型，请联系平台管理员"
           description="现有连接仍可查看和测试，但无法新建或编辑。"
         />
       ) : null}
@@ -578,8 +578,8 @@ export default function ConnectorListPage() {
           type="error"
           showIcon
           className="connector-workbench__query-alert"
-          message="当前没有这类连接的表单 schema，无法安全编辑"
-          description="重试连接类型接口，或升级后端后再从语义工作台返回。"
+          message="暂时无法编辑这类连接"
+          description="请刷新页面重试，或联系平台管理员。"
         />
       ) : null}
 
@@ -608,7 +608,7 @@ export default function ConnectorListPage() {
             description={
               <span>
                 还没有数据连接
-                <small>创建后，Agent 才能在治理策略约束下访问客户系统。</small>
+                <small>创建后，Agent 才能访问客户数据库。</small>
               </span>
             }
           >

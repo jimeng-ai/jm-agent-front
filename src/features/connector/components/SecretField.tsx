@@ -135,7 +135,7 @@ export default function SecretField({ value, onChange, id, field, connectorId }:
       const v = secrets[field.name];
       if (v === undefined) {
         // 后端按敏感参数名返回。取不到说明两边的字段名对不上，这是配置问题，不是「密码是空的」。
-        message.error(`未取到${field.label}，请联系管理员检查连接配置`);
+        message.error(`未取到${field.label}，请联系平台管理员`);
         return;
       }
       setRevealed(v);

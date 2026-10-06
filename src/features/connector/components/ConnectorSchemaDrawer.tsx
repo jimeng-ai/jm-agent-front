@@ -134,9 +134,9 @@ function refreshSummary(r: SchemaSnapshotResult): { text: string; level: 'succes
     const kind = schemaGuardKind(guardNote);
     const text =
       kind === 'EMPTY_CATALOG'
-        ? '刷新被拒绝——客户库这次返回了 0 个对象，这份结果没有保存'
+        ? '刷新被拒绝：客户库这次返回了 0 个对象，结果未保存'
         : kind === 'SUPERSEDED'
-          ? '本次刷新结果已被更新的结构快照取代，保留的是更新版本'
+          ? '本次刷新结果已被更新的结构快照取代'
           : `本次刷新结果未保存——${guardNote}`;
     return { text, level: 'warning' };
   }
@@ -155,7 +155,7 @@ function refreshSummary(r: SchemaSnapshotResult): { text: string; level: 'succes
 
 function revivedLine(revived: number | null): string | null {
   return revived !== null && revived > 0
-    ? `另有 ${revived} 条之前标成「结构已变」的说明重新对上了当前结构，已自动恢复。`
+    ? `另有 ${revived} 条「结构已变」的说明已自动恢复。`
     : null;
 }
 
@@ -183,7 +183,7 @@ function TruncationNote({ note }: { note: string }) {
   return (
     <Typography.Text type="warning" style={{ display: 'block', margin: '4px 0' }}>
       {sentence}
-      快照之外的表这次两头都判断不了：是删了还是还在、结构变没变都看不到，所以它们不会出现在差异列表里——列表里没有，不代表没变。
+      未纳入快照的表这次无法比对：列表里没有，不代表没变。
     </Typography.Text>
   );
 }
@@ -227,10 +227,10 @@ function RemovedImpactBody({
     return (
       <Typography.Text type="warning">
         {impact.reason === 'FAILED'
-          ? '表已消失。语义层这次没能核对，挂在它上面的说明有没有失效不知道——它们可能仍被当成有效的提供给模型。'
+          ? '表已消失，相关说明未能核对，可能仍在被使用。'
           : staled !== null && staled > 0
-            ? `表已消失。本次共有 ${staled} 条说明被标成「结构已变」，但分不清其中几条挂在这张表上。`
-            : '表已消失。挂在它上面的说明失效了几条，没能从返回里读出来。'}
+            ? `表已消失。本次共 ${staled} 条说明标成「结构已变」，分不清属于哪张表。`
+            : '表已消失，受影响的说明条数不明。'}
       </Typography.Text>
     );
   }
@@ -243,12 +243,10 @@ function RemovedImpactBody({
     <div>
       <Typography.Text type="danger">
         {hasRows
-          ? `表已消失，挂在它上面的 ${rows} 条说明已标成「结构已变」`
-          : '表已消失，引用它的说明已标成「结构已变」'}
+          ? `表已消失，${rows} 条相关说明已标成「结构已变」`
+          : '表已消失，相关说明已标成「结构已变」'}
       </Typography.Text>
-      {hasRows
-        ? '——这类说明（表用途、字段含义、表关系等）仍会提供给模型，只是带着「结构已变」的标记。'
-        : '。'}
+      {hasRows ? '，仍会提供给模型。' : '。'}
       {metricN > 0 && (
         <div style={{ marginTop: 4 }}>
           涉及 {metricN} 条业务口径
@@ -257,7 +255,7 @@ function RemovedImpactBody({
               ：<TermTags terms={metricTerms} />
             </>
           )}
-          ——这些口径<b>整条不再提供给模型</b>。
+          ——这些口径<b>不再提供给模型</b>。
         </div>
       )}
     </div>
@@ -314,7 +312,7 @@ export function ConnectorSchemaPanel({ connector }: PanelProps) {
         //   报一句带连接名的总结，明细不画。
         message.open({
           type: summary.level === 'success' ? 'info' : 'warning',
-          content: `「${target.label}」：${summary.text}（抽屉已经关掉或换了连接，这次的明细没有显示）`,
+          content: `「${target.label}」：${summary.text}（已切换连接，这次的明细没有显示）`,
           duration: 6,
         });
         return;
@@ -425,11 +423,10 @@ export function ConnectorSchemaPanel({ connector }: PanelProps) {
         type="info"
         showIcon
         style={{ marginBottom: 12 }}
-        message="这份快照用来发现「客户悄悄改了什么」"
+        message="用来发现客户数据库的结构变化"
         description={
           <>
-            Agent 查询时读的是<b>实时</b>结构，不读这份快照——所以它不会导致答错。
-            它的用途是与上次比对：客户加了字段、改了类型、删了表，挂在这些表和列上的业务口径就会失效。
+            Agent 查询用的是<b>实时</b>结构，不依赖这份快照。
             {syncedAt && (
               <>
                 <br />
@@ -514,12 +511,9 @@ export function ConnectorSchemaPanel({ connector }: PanelProps) {
               {guardKind === 'EMPTY_CATALOG' ? (
                 <>
                   <br />
-                  一次返回 0 个对象，更可能是「这次没看到」，而不是「整个库的表都删光了」，所以平台
-                  <b>没有保存</b>这份结果：
-                  上一份快照原样保留，挂在上面的说明也不会因为这次的空结果被标成「结构已变」。
+                  这次结果<b>没有保存</b>，原有快照和说明保持不变。
                   <br />
-                  常见原因：只读账号的权限被收回或收窄了、连接参数指向的库不对了、客户库这时本身有问题。
-                  先让客户那边确认，再刷新一次。
+                  请检查只读账号的权限和库名，确认后再刷新。
                 </>
               ) : null}
             </>
@@ -537,26 +531,15 @@ export function ConnectorSchemaPanel({ connector }: PanelProps) {
           message="结构快照已保存，但语义层这次没能跟着核对"
           description={
             <>
-              挂在表和列上的说明<b>没有</b>对照这次拉回来的结构重新核对。
-              {lastDiffs && lastDiffs.length > 0
-                ? '下面列出的删除和变更，挂在上面的说明可能仍被当成有效的提供给模型，也没有被标成「结构已变」。'
-                : '结构本身没有变，通常影响不大；但之前若也没核对成，积压的过期说明这次同样没被标出来。'}
-              <br />
-              {/* ★ 承诺只说到后端真做到的那一步，三句各对一件事：
-                  1. 差异列表补不回来：快照这次已经存下，下次 diff 比的是这一份，这次的「删除」不会再出现在差异列表里；
-                  2. 处置补得回来：这次没处置成的删除后端记下了，【下一次刷新】——手动或定时，谁先跑谁处置——重新应用，
-                     标「结构已变」，并在【那一次】的返回里按表列出影响；
-                  3. 定时刷新的返回没有任何界面显示。先跑的若是它，按表的列表就不会出现在这个抽屉里——
-                     不说这一句，人会一直在自己下一次手动刷新的结果里等那几张表，而它们已经被定时刷新处置掉了。 */}
-              {/* 有没有「删除」分两种说：只有新增 / 变更时没有要补处置的表，说「会把这次消失的表重新处置」就是编出来的。 */}
+              {/* ★ 只承诺后端真做到的事：这次的删除 / 变更已随快照记下，下一次刷新（手动或定时，谁先跑算谁）
+                  会更新挂在上面的说明。有删除时才提「删除」：只有新增 / 变更时没有要补处置的表。 */}
               {lastDiffs && lastDiffs.some((d) => d.change === 'REMOVED')
-                ? '这次的删除和变更已经随快照存下，之后不会再出现在差异列表里，但处置不会丢：下一次刷新——你再点「刷新结构」，或平台的定时刷新，哪个先跑算哪个——会把这次消失的表重新处置一遍，挂在上面的说明在那次被标成「结构已变」，消失的表带走了哪些说明和业务口径，在那一次刷新的结果里按表列出。'
+                ? '删除和变更已记录，下次刷新时会更新相关说明。'
                 : lastDiffs && lastDiffs.length > 0
-                  ? '这次的变更已经随快照存下，之后不会再出现在差异列表里；下一次刷新——你再点「刷新结构」，或平台的定时刷新，哪个先跑算哪个——会对照最新结构重新核对，挂在变了的表和列上的说明在那次被标成「结构已变」。之前没核对成时消失的表（如果有），也会在那一次刷新的结果里按表列出。'
-                  : '下一次刷新——你再点「刷新结构」，或平台的定时刷新，哪个先跑算哪个——会重新核对，积压的过期说明在那次被标成「结构已变」；之前没核对成时消失的表（如果有），也会在那一次刷新的结果里按表列出。'}
+                  ? '变更已记录，下次刷新时会更新相关说明。'
+                  : '下次刷新时会重新核对相关说明。'}
               <br />
-              先跑的若是定时刷新，那份结果不会显示在这里：到「语义层」里看标成「结构已变」的行，失效的业务口径在展开详情里写着是因哪几张表消失而失效的。
-              反复失败请联系平台排查。
+              反复失败请联系平台管理员。
             </>
           }
         />
@@ -568,7 +551,7 @@ export function ConnectorSchemaPanel({ connector }: PanelProps) {
           type="error"
           showIcon
           style={{ marginBottom: 12 }}
-          message={`${impact.lostMetricCount} 条业务口径引用的表已不在，已停止提供给模型`}
+          message={`${impact.lostMetricCount} 条业务口径因表消失而停用`}
           description={
             <>
               {impact.lostTerms.length > 0 && (
@@ -576,12 +559,9 @@ export function ConnectorSchemaPanel({ connector }: PanelProps) {
                   <TermTags terms={impact.lostTerms} />
                 </div>
               )}
-              它们已被标成「结构已变」，<b>整条不再提供给模型</b>
-              ——模型再遇到这些词会按自己的理解去算，不报错，数字看起来照样正常。
+              这些口径<b>不再提供给模型</b>，相关数字可能不准。
               <br />
-              只有业务口径是这样：表用途、字段含义、表关系这类说明被标成「结构已变」之后仍会提供给模型，只是带着「结构已变」的标记。
-              <br />
-              表如果是改名或迁移了，需要业务方在对话里把这些口径重新答一次；表恢复之后再刷新一次，状态会自动撤销。
+              表改名或迁移了，请在对话里重新确认口径；表恢复后再刷新即可自动恢复。
             </>
           }
         />
@@ -594,10 +574,10 @@ export function ConnectorSchemaPanel({ connector }: PanelProps) {
           type="warning"
           showIcon
           style={{ marginBottom: 12 }}
-          message={`${unlisted.length} 张表不在本次的差异列表里，但核对时发现它们已不在结构中`}
+          message={`${unlisted.length} 张表已不在结构中，但不在本次变化列表里`}
           description={
             <>
-              这次拉回来的结构里没有它们，挂在上面的说明现在是「结构已变」。它们多半是之前某次刷新里就已消失、而那次语义层没能跟着核对的表——删除当时随快照存下了，处置补在了这一次：
+              它们多半是之前就已消失的表，相关说明现已标成「结构已变」：
               <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
                 {unlisted.map((h) => (
                   <li key={h.objectName}>
@@ -721,7 +701,7 @@ export function ConnectorSchemaPanel({ connector }: PanelProps) {
                           </ul>
                         ) : removed ? null : (
                           <Typography.Text type="secondary">
-                            （对象级变化，无列级明细）
+                            （整表变化，无字段明细）
                           </Typography.Text>
                         )}
                       </>

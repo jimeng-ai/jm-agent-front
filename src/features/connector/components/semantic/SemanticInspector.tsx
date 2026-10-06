@@ -75,7 +75,7 @@ export default function SemanticInspector({
     <aside
       className="semantic-inspector"
       data-testid="semantic-inspector"
-      aria-label="语义条目详情"
+      aria-label="说明详情"
     >
       <div className="semantic-inspector-head">
         <div className="semantic-eyebrow">LIVE CONTEXT INSPECTOR</div>
@@ -90,13 +90,13 @@ export default function SemanticInspector({
         ) : (
           <>
             <h2>尚未选择</h2>
-            <p>从中间列表选择一条语义，核对模型输入与平台留存边界。</p>
+            <p>选一条说明查看详情。</p>
           </>
         )}
       </div>
 
       <section className="semantic-inspector-section is-visible">
-        <h3>模型此刻读到</h3>
+        <h3>AI 能看到</h3>
         {visibility?.connectionContext && (
           <div className="semantic-inspector-context">
             <InfoCircleOutlined />
@@ -106,26 +106,26 @@ export default function SemanticInspector({
         {visibility && !visibility.visible && (
           <div className="semantic-inspector-warning">
             <WarningOutlined />
-            语义断言不注入：{visibility.hiddenReason}
+            AI 看不到这条：{visibility.hiddenReason}
           </div>
         )}
         <FactList
           facts={visibility?.current ?? []}
-          empty={row ? '这一条当前没有内容进入模型上下文。' : '选择一条语义后显示。'}
+          empty={row ? '暂无内容。' : '选中一条说明后显示。'}
         />
       </section>
 
       <section className="semantic-inspector-section is-retained">
-        <h3>平台留存但模型当前看不到</h3>
-        <div className="semantic-inspector-subhead">已留存 · 被状态或档位挡下</div>
+        <h3>AI 看不到</h3>
+        <div className="semantic-inspector-subhead">已保存，未提供</div>
         <FactList
           facts={visibility?.retained ?? []}
-          empty={row ? '没有被挡下的留存内容。' : '选择一条语义后显示。'}
+          empty={row ? '暂无内容。' : '选中一条说明后显示。'}
         />
-        <div className="semantic-inspector-subhead">当前允许 · 但尚未取得</div>
+        <div className="semantic-inspector-subhead">允许但尚未取得</div>
         <FactList
           facts={visibility?.allowedMissing ?? []}
-          empty={row ? '没有“允许但未取得”的内容。' : '选择一条语义后显示。'}
+          empty={row ? '暂无内容。' : '选中一条说明后显示。'}
         />
       </section>
 
@@ -149,10 +149,7 @@ export default function SemanticInspector({
               </p>
             )}
             {confidence !== null && (
-              <p className="semantic-trust-line">模型自评置信度：{confidence} / 100</p>
-            )}
-            {row.anchorKind && row.anchorKind !== 'NONE' && (
-              <p className="semantic-trust-line">结构锚定：{row.anchorKind}</p>
+              <p className="semantic-trust-line">AI 自评可信度：{confidence} / 100</p>
             )}
             {details.length > 0 && (
               <dl className="semantic-detail-list">
@@ -174,7 +171,7 @@ export default function SemanticInspector({
             )}
             {history.length > 0 && (
               <div className="semantic-history">
-                <b>口径覆盖历史 · {history.length} 次</b>
+                <b>修改记录 · {history.length} 次</b>
                 <ol>
                   {history.map((entry, index) => (
                     <li key={`${index}-${entry.at ?? ''}`}>
@@ -191,17 +188,15 @@ export default function SemanticInspector({
             )}
           </>
         ) : (
-          <p className="semantic-inspector-empty">选择一条语义后显示。</p>
+          <p className="semantic-inspector-empty">选中一条说明后显示。</p>
         )}
       </section>
 
       <section className="semantic-inspector-section is-danger">
         <h3>危险区</h3>
-        <p>
-          删除是物理删除、不可恢复。机器推断行下次重新生成会回来；人工确认行会连同覆盖历史一起消失。
-        </p>
+        <p>删除后无法恢复。</p>
         <Divider />
-        <Tooltip title={row ? '删除当前语义条目' : '请先选择一条语义'}>
+        <Tooltip title={row ? '删除当前说明' : '请先选一条说明'}>
           <span>
             <Button
               danger
@@ -211,11 +206,11 @@ export default function SemanticInspector({
               loading={deletePending}
               onClick={() => row && onDelete(row)}
             >
-              物理删除这一行
+              删除这条说明
             </Button>
           </span>
         </Tooltip>
-        {row && isHuman(row) && <Tag color="red">当前选中的是人工确认口径</Tag>}
+        {row && isHuman(row) && <Tag color="red">人工确认的口径</Tag>}
       </section>
     </aside>
   );

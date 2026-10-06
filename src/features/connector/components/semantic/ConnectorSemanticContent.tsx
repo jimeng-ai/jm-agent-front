@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App, Button, Drawer, Spin, Tag, Typography } from 'antd';
+import { Alert, App, Button, Drawer, Spin } from 'antd';
 import { connectorApi } from '@/features/connector/api';
 import {
   SCOPE_ORDER,
   answeredSemanticTerms,
   groupByScope,
-  isHuman,
   rowAnchor,
   scopeMeta,
   semanticAttentionReasons,
@@ -119,7 +118,7 @@ export default function ConnectorSemanticContent({ connector, onBack }: Props) {
     mutationFn: ({ connectorId }: DeriveRequest) => connectorApi.deriveSemantic(connectorId),
     onSuccess: (result, request) => {
       if (result?.started !== true) {
-        const note = result?.note?.trim() || '后台没有确认接受这次任务。';
+        const note = result?.note?.trim() || '没能开始生成，请稍后重试。';
         const error = result?.error?.trim() || null;
         setClaimWait(null);
         setDeriveNotice({ note, error });
@@ -127,7 +126,7 @@ export default function ConnectorSemanticContent({ connector, onBack }: Props) {
         return;
       }
       setDeriveNotice(null);
-      message.info('已提交。推导在后台异步跑，这次点击只是把任务派发出去——进度看上方的状态。');
+      message.info('已开始生成，进度看上方状态。');
       setClaimWait({
         baseline: request.baseline,
         phase: 'WATCHING',
@@ -265,25 +264,8 @@ export default function ConnectorSemanticContent({ connector, onBack }: Props) {
       width: 580,
       content: (
         <div className="semantic-confirm-copy">
-          <p>
-            <b>只覆盖机器推断的行。</b>人在对话里答过的口径（
-            <Tag color="purple">人工确认</Tag>）与直接采信客户库注释的（
-            <Tag color="blue">库注释</Tag>）<b>一行不动</b>。后端删除时明确带着
-            <Typography.Text code>source = &apos;INFERRED&apos;</Typography.Text> 条件。
-          </p>
-          <p>
-            <b>模型调用次数不固定。</b>
-            当前生成器可能走多分片模型调用；资源不足、兼容路径或生成器回落时，也可能改走单次模型调用。
-          </p>
-          <p>
-            <b>可能读取客户系统的结构信息。</b>
-            生成可能读取结构元数据；对象是视图或存储过程时，还可能读取视图与过程定义。
-            是否继续采样真实数据取决于当前出库档位与实际推导阶段，不能据此承诺零客户系统访问。
-          </p>
-          <p>
-            <b>这是异步派发。</b>
-            点击后立即返回，推导在后台运行，首次通常几十秒起步；返回不代表已经生成完成。
-          </p>
+          <p>只更新机器生成的说明，人工确认的口径和库注释不会动。</p>
+          <p>在后台生成，通常几十秒到几分钟。</p>
         </div>
       ),
       okText: '开始生成',
@@ -297,9 +279,9 @@ export default function ConnectorSemanticContent({ connector, onBack }: Props) {
       connectorApi.deleteSemanticRow(connectorId, rowId),
     onSuccess: (result, variables) => {
       if (Number(result?.removed ?? 0) > 0) {
-        message.success('已删除。这一行是物理删除，不可恢复。');
+        message.success('已删除。');
       } else {
-        message.info('这一行已经不在了（可能刚被别人删掉），本次没有删除任何内容。');
+        message.info('这条说明已不存在。');
       }
       setInspectorOpen(false);
       refresh(variables.connectorId);
@@ -310,28 +292,13 @@ export default function ConnectorSemanticContent({ connector, onBack }: Props) {
   const confirmDelete = (row: ConnectorSemanticRow) => {
     const connectorId = connector.id;
     const rowId = row.id;
-    const human = isHuman(row);
     modal.confirm({
-      title: `删除这一行语义「${rowAnchor(row)}」？`,
+      title: `删除这条说明「${rowAnchor(row)}」？`,
       width: 580,
       content: (
         <div className="semantic-confirm-copy">
-          <p>
-            <b>物理删除，不可恢复。</b>
-            这不是停用或软删；库里这一行会被真正删除，没有回收站，也不能撤销。
-          </p>
-          <p>
-            <b>机器推断的行（</b>
-            <Tag>机器推断</Tag>
-            <b>）删掉后，下次重新生成会再推一遍。</b>
-            这里只清掉当前这一份；要它不再出现，需要处理让它被推出来的结构注释或口径。
-          </p>
-          <p>
-            <b>人工确认的行（</b>
-            <Tag color="purple">人工确认</Tag>
-            <b>）删掉后，连同覆盖历史一起消失。</b>届时再也查不到这条口径被谁、在哪次对话里改过。
-            {human && <b>——你正要删除的就是这样一行。</b>}
-          </p>
+          <p>删除后无法恢复。</p>
+          <p>机器生成的说明重新生成后会再出现；人工确认的口径会连同修改记录一起消失。</p>
         </div>
       ),
       okText: '删除',
@@ -367,14 +334,14 @@ export default function ConnectorSemanticContent({ connector, onBack }: Props) {
     if (scope === 'ATTENTION') {
       return {
         label: '需关注',
-        desc: '由当前状态、验证结论、关系形态和档位纯前端派生；不会写回或改变原始 scope。',
+        desc: '需要你留意的说明。',
       };
     }
     if (scope === 'UNKNOWN') {
       const unknown = groups.find((group) => !SCOPE_ORDER.includes(group.scope as SemanticScope));
       return {
         label: '未知分类',
-        desc: unknown?.meta.desc ?? '后端新增或异常的 scope 会完整保留在这里。',
+        desc: unknown?.meta.desc ?? '无法归类的说明。',
       };
     }
     return scopeMeta(scope);
@@ -400,7 +367,7 @@ export default function ConnectorSemanticContent({ connector, onBack }: Props) {
           data-testid="semantic-derive-not-started"
           type="error"
           showIcon
-          message="后台没有接受这次生成任务"
+          message="任务没有开始"
           description={[deriveNotice.note, deriveNotice.error].filter(Boolean).join('；')}
           closable
           onClose={() => setDeriveNotice(null)}
@@ -413,21 +380,17 @@ export default function ConnectorSemanticContent({ connector, onBack }: Props) {
           data-testid="semantic-derive-claim-wait"
           type={claimWait.phase === 'WATCHING' ? 'info' : 'warning'}
           showIcon
-          message={
-            claimWait.phase === 'WATCHING'
-              ? '已提交，正在等待后台认领'
-              : '已提交，但暂未观察到后台认领'
-          }
+          message={claimWait.phase === 'WATCHING' ? '已提交' : '排队时间较长'}
           description={
             claimWait.phase === 'WATCHING'
-              ? '队列等待期间，连接详情可能仍显示上一次的 READY / FAILED；观察到本次 RUNNING、新成功时间或新终态后会自动结束等待。'
-              : '没有再次派发任务，以免产生重复作业。你可以继续检查，或停止等待后重新提交；停止等待不会取消后台可能仍在运行的作业。'
+              ? '正在排队，稍等片刻。'
+              : '可以继续等待，或重新提交。'
           }
           action={
             claimWait.phase === 'TIMED_OUT' ? (
               <div className="semantic-claim-actions">
                 <Button size="small" onClick={continueClaimCheck}>
-                  继续检查
+                  继续等待
                 </Button>
                 <Button
                   size="small"
@@ -437,7 +400,7 @@ export default function ConnectorSemanticContent({ connector, onBack }: Props) {
                     window.setTimeout(confirmDerive, 0);
                   }}
                 >
-                  停止等待并重新提交
+                  重新提交
                 </Button>
               </div>
             ) : undefined
@@ -450,7 +413,7 @@ export default function ConnectorSemanticContent({ connector, onBack }: Props) {
           className="semantic-load-alert"
           type="error"
           showIcon
-          message={semanticQuery.data ? '刷新失败，继续显示上一次成功内容' : '没能读到语义层'}
+          message={semanticQuery.data ? '刷新失败，当前显示的是旧内容' : '没能读到语义层'}
           description={(semanticQuery.error as Error)?.message}
           action={
             semanticQuery.data !== undefined ? (
@@ -472,8 +435,8 @@ export default function ConnectorSemanticContent({ connector, onBack }: Props) {
         </div>
       ) : showInitialError ? (
         <div className="semantic-error-state" role="status">
-          <b>这不是“还没有生成”</b>
-          <span>请求失败与空说明书是两种状态。请先恢复接口读取，再判断是否需要重新生成。</span>
+          <b>读取失败</b>
+          <span>这不代表还没生成，请先重试。</span>
           <Button
             type="primary"
             loading={semanticQuery.isFetching}
@@ -518,7 +481,7 @@ export default function ConnectorSemanticContent({ connector, onBack }: Props) {
 
       <Drawer
         rootClassName="semantic-inspector-drawer"
-        title="语义详情"
+        title="说明详情"
         width={420}
         open={inspectorOpen}
         onClose={() => setInspectorOpen(false)}

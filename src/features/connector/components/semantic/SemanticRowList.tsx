@@ -102,9 +102,9 @@ export default function SemanticRowList({
       </div>
 
       {rows.length === 0 ? (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这个视图目前没有语义条目" />
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里还没有说明" />
       ) : (
-        <div className="semantic-card-stack" role="group" aria-label={`${title}语义列表`}>
+        <div className="semantic-card-stack" role="group" aria-label={`${title}列表`}>
           {visibleRows.map((row, index) => {
             const source = sourceMeta(row.source);
             const evidence = evidenceMeta(row);

@@ -125,7 +125,7 @@ export default function ConnectorCard({
           </div>
           {issues.length > 1 ? (
             <span className="connector-card__issue-more">
-              另有 {issues.length - 1} 项风险，详情中可查看完整清单
+              另有 {issues.length - 1} 项需处理，详见连接详情
             </span>
           ) : null}
         </div>

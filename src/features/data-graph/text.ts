@@ -63,7 +63,7 @@ export const edgeLabel = (relations: Relation[]): string | null =>
 export function emptyRelationsText(status: SemanticStatus): string {
   if (status === null) return '这个系统的业务对象还在整理中，完成后会自动出现。';
   if (status === 'RUNNING') return '正在整理，完成后刷新页面即可看到。';
-  if (status === 'FAILED') return '整理没有成功，请联系企业管理员。';
+  if (status === 'FAILED') return '整理没有成功，请到数据连接重新生成。';
   return '暂未发现可以确认的关联。';
 }
 

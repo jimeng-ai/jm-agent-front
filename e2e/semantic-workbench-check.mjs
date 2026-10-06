@@ -725,7 +725,7 @@ export default async function run() {
         ((await page.locator('[data-testid="semantic-inspector"]:visible h2').first().textContent()) ?? '') ===
           'orders.field_21' &&
         !((await page.locator('[data-testid="semantic-inspector"]:visible').first().textContent()) ?? '').includes(
-          '当前选中的是人工确认口径',
+          '人工确认的口径',
         ),
     );
     await page.locator('.semantic-pagination .ant-pagination-prev button').click();
@@ -735,13 +735,13 @@ export default async function run() {
     const inspectorText = (await inspector.textContent()) ?? '';
     r.ok(
       'Inspector 四区完整',
-      ['模型此刻读到', '平台留存但模型当前看不到', '信任与来源', '危险区'].every((label) =>
+      ['AI 能看到', 'AI 看不到', '信任与来源', '危险区'].every((label) =>
         inspectorText.includes(label),
       ),
     );
     r.ok(
       'HUMAN 行保留回答人、时间、Trace 与覆盖历史',
-      ['业务负责人', 'trace-semantic-fixture', '口径覆盖历史'].every((label) =>
+      ['业务负责人', 'trace-semantic-fixture', '修改记录'].every((label) =>
         inspectorText.includes(label),
       ),
     );
@@ -945,7 +945,7 @@ export default async function run() {
       'lowercase rejected JOIN 按后端归一后整条 withheld',
       !rejectedJoinCurrent.includes('customers.id') &&
         rejectedJoinRetained.includes('lowercase rejected') &&
-        rejectedJoinRetained.includes('REJECTED') &&
+        rejectedJoinRetained.includes('数据不支持') &&
         !rejectedJoinCardText.includes('REJECTED_JOIN_SECRET') &&
         !rejectedJoinCardText.includes('REJECTED_CARE_SECRET') &&
         !`${rejectedJoinCurrent} ${rejectedJoinRetained}`.includes('REJECTED_JOIN_SECRET') &&
@@ -986,7 +986,7 @@ export default async function run() {
     r.ok(
       '缺 to_column 的 JOIN 不注入并说明 endpoint 不完整',
       !incompleteJoinCurrent.includes('关系端点orders.') &&
-        incompleteJoinRetained.includes('to_column') &&
+        incompleteJoinRetained.includes('目标列') &&
         incompleteJoinRetained.includes('不完整') &&
         !incompleteJoinCardText.includes('MALFORMED_JOIN_SECRET') &&
         !incompleteJoinCardText.includes('MALFORMED_CARE_SECRET') &&
@@ -1101,7 +1101,7 @@ export default async function run() {
           current.includes('每个取值都指向 targets 时它只是分类列，不要加这个条件') &&
           !current.includes('需要 target_type 的类型条件') &&
           retained.includes(secret) &&
-          retained.includes('当前档位不提供给模型'),
+          retained.includes('AI 看不到'),
         `${current} | ${retained}`,
       );
     }
@@ -1142,8 +1142,8 @@ export default async function run() {
     const deriveModal = page.locator('.ant-modal-content:visible');
     const deriveCopy = (await deriveModal.textContent()) ?? '';
     r.ok(
-      '重跑确认保守说明多分片/fallback、结构读取与条件采样',
-      ['INFERRED', '多分片模型调用', '单次', '结构元数据', '视图与过程定义', '档位', '阶段', '这是异步派发'].every(
+      '重跑确认说明只动机器生成的说明、在后台生成',
+      ['只更新机器生成的说明', '人工确认的口径和库注释不会动', '在后台生成'].every(
         (label) => deriveCopy.includes(label),
       ) && !deriveCopy.includes('一次模型调用，对客户系统零访问'),
       deriveCopy,
@@ -1208,7 +1208,7 @@ export default async function run() {
     await headerDeriveButton.click();
     await page.getByRole('button', { name: '开始生成', exact: true }).last().click();
     const timeoutAction = page.getByRole('button', {
-      name: '停止等待并重新提交',
+      name: '重新提交',
       exact: true,
     });
     const timeoutReached = await isVisible(timeoutAction, 10_000);
@@ -1236,8 +1236,8 @@ export default async function run() {
     const deleteModal = page.locator('.ant-modal-content:visible');
     const deleteCopy = (await deleteModal.textContent()) ?? '';
     r.ok(
-      '删除确认保留不可恢复、INFERRED 回来、HUMAN 历史丢失',
-      ['物理删除，不可恢复', '下次重新生成会再推一遍', '连同覆盖历史一起消失'].every(
+      '删除确认说明不可恢复、机器生成的会回来、人工口径连修改记录一起消失',
+      ['删除后无法恢复', '重新生成后会再出现', '连同修改记录一起消失'].every(
         (label) => deleteCopy.includes(label),
       ),
     );
@@ -1248,7 +1248,7 @@ export default async function run() {
     r.ok('删除请求被 fixture 拦截，未写入真实后端', deleteRequests === 1);
     r.ok(
       'removed=0 如实提示已经不在',
-      await isVisible(page.getByText('这一行已经不在了（可能刚被别人删掉），本次没有删除任何内容。'), 2_000),
+      await isVisible(page.getByText('这条说明已不存在。'), 2_000),
     );
 
     const backgroundSemanticRetry = page.getByRole('button', { name: '重试语义层', exact: true });
@@ -1328,14 +1328,13 @@ export default async function run() {
           (await page.locator('[data-testid="semantic-inspector"]:visible').first().textContent()) ?? '';
         r.ok(
           'FAILED 明示保留旧成功内容且不再宣称只靠表列名',
-          statusText.includes('上一次成功内容仍保留') &&
+          statusText.includes('上一次成功的说明仍保留') &&
             !statusText.includes('只能靠表名和列名猜'),
           statusText,
         );
         r.ok(
           'FAILED Inspector 按行级规则说明旧内容的模型可见性',
-          failedInspectorText.includes('连接级 FAILED 不会隐藏这些旧行') &&
-            failedInspectorText.includes('仍由每条的状态、验证结论和当前档位决定'),
+          failedInspectorText.includes('上一次成功的说明仍保留'),
           failedInspectorText,
         );
       }
@@ -1358,10 +1357,10 @@ export default async function run() {
       (await page.locator('[data-testid="semantic-inspector"]:visible').first().textContent()) ?? '';
     r.ok(
       'FAILED 无成功时间戳时不声称存在上一版成功内容',
-      !failedWithoutHistoryText.includes('上一次成功内容仍保留') &&
-        failedWithoutHistoryText.includes('没有时间戳能证明它来自一次成功生成') &&
-        !failedWithoutHistoryInspector.includes('上一次成功内容仍保留') &&
-        failedWithoutHistoryInspector.includes('没有时间戳能证明它来自一次成功生成'),
+      !failedWithoutHistoryText.includes('上一次成功的说明仍保留') &&
+        failedWithoutHistoryText.includes('之前的说明仍保留') &&
+        !failedWithoutHistoryInspector.includes('上一次成功的说明仍保留') &&
+        failedWithoutHistoryInspector.includes('之前的说明仍保留'),
       `${failedWithoutHistoryText} | ${failedWithoutHistoryInspector}`,
     );
 
@@ -1486,8 +1485,7 @@ export default async function run() {
     const failedWithHistoryCardText = (await failedConnectorCard.textContent()) ?? '';
     r.ok(
       'FAILED 连接卡有成功时间戳时保守说明旧内容仍按行级规则生效',
-      failedWithHistoryCardText.includes('最近一次成功说明') &&
-        failedWithHistoryCardText.includes('每条状态') &&
+      failedWithHistoryCardText.includes('上一次的说明') &&
         !failedWithHistoryCardText.includes('只能凭结构名称'),
       failedWithHistoryCardText,
     );

@@ -50,49 +50,46 @@ export interface SemanticFailedContext {
   storedRowsPresent: boolean;
 }
 
-const SEMANTIC_FAILED_PREFIX =
-  '连接本身照常可用——语义层是叠加上去的注解，不是连接的前置条件。';
-const SEMANTIC_FAILED_VISIBILITY_RULE =
-  '模型是否读取仍由每条的状态、验证结论和当前档位决定。';
+const SEMANTIC_FAILED_SUFFIX = '连接照常可用。';
 
 export function semanticFailedVisibilityContext(
   context?: SemanticFailedContext,
 ): string {
   if (context?.previousSuccessKnown && context.storedRowsPresent) {
-    return `本次生成失败，上一次成功内容仍保留；连接级 FAILED 不会隐藏这些旧行。${SEMANTIC_FAILED_VISIBILITY_RULE}`;
+    return '本次生成失败，上一次成功的说明仍保留。';
   }
   if (context?.storedRowsPresent) {
-    return `本次生成失败；下方已有语义内容仍保留，但没有时间戳能证明它来自一次成功生成。连接级 FAILED 不会隐藏这些已有行。${SEMANTIC_FAILED_VISIBILITY_RULE}`;
+    return '本次生成失败，之前的说明仍保留。';
   }
   if (context?.previousSuccessKnown) {
-    return `本次生成失败；此前有过成功生成，但当前没有可展示的语义条目。${SEMANTIC_FAILED_VISIBILITY_RULE}`;
+    return '本次生成失败，之前成功过，但现在没有可显示的说明。';
   }
-  return `本次生成失败。若此前已有成功内容，仍会保留；连接级 FAILED 本身不会隐藏旧行。${SEMANTIC_FAILED_VISIBILITY_RULE}`;
+  return '本次生成失败，之前的说明（如有）仍保留。';
 }
 
 const STATUS_META: Record<SemanticStatus, SemanticStatusMeta> = {
   NONE: {
     label: '未生成',
     alert: 'info',
-    hint: '还没有生成过说明书。新建连接时会自动推一次；这里是空的，通常是推导开关关着、或者建连那次派发没成。',
+    hint: '还没生成说明书，点「开始生成」。',
   },
   RUNNING: {
     label: '生成中',
     color: 'processing',
     alert: 'info',
-    hint: '推导正在后台跑。首次推导要先把客户库的结构拉一遍再叫一次模型，几十秒起步。',
+    hint: '正在生成，首次至少要几十秒。',
   },
   READY: {
     label: '已生成',
     color: 'green',
     alert: 'success',
-    hint: '模型现在能读到这条连接的说明书（表用途 / 字段含义 / 表关系 / 业务口径）。',
+    hint: 'AI 已能读到这份说明书。',
   },
   FAILED: {
     label: '失败',
     color: 'red',
     alert: 'error',
-    hint: `${SEMANTIC_FAILED_PREFIX}${semanticFailedVisibilityContext()}`,
+    hint: `${semanticFailedVisibilityContext()}${SEMANTIC_FAILED_SUFFIX}`,
   },
   // ★ 刻意不是红色，也刻意不是 error。这种连接器不提供结构自描述（不声明 DESCRIBE），
   //   没有结构可推，重跑也不会变。
@@ -101,7 +98,7 @@ const STATUS_META: Record<SemanticStatus, SemanticStatusMeta> = {
   NOT_APPLICABLE: {
     label: '不适用',
     alert: 'info',
-    hint: '这种连接器不提供结构自描述，没有结构可推，语义层对它本来就不适用。这不是错误，重新生成也不会变。',
+    hint: '这种连接不支持说明书，不是出错，无需处理。',
   },
 };
 
@@ -115,7 +112,7 @@ export function semanticStatusMeta(
     if (v === 'FAILED') {
       return {
         ...hit,
-        hint: `${SEMANTIC_FAILED_PREFIX}${semanticFailedVisibilityContext(failedContext)}`,
+        hint: `${semanticFailedVisibilityContext(failedContext)}${SEMANTIC_FAILED_SUFFIX}`,
       };
     }
     return hit;
@@ -124,13 +121,13 @@ export function semanticStatusMeta(
     return {
       label: '未知',
       alert: 'info',
-      hint: '这个后端版本还没有返回语义层状态。',
+      hint: '读不到状态，请联系平台管理员。',
     };
   }
   return {
     label: `未知（${v}）`,
     alert: 'warning',
-    hint: '后端返回了本页还不认识的状态值，前端需要补一条映射。',
+    hint: '状态无法识别，请联系平台管理员。',
   };
 }
 
@@ -160,19 +157,19 @@ export interface SemanticGapMeta {
 const GAP_META: Record<SemanticGapCode, SemanticGapMeta> = {
   TABLES_MISSING: {
     label: '有表没进说明书',
-    desc: '本次该覆盖的表没覆盖全。没覆盖到的那些表，模型完全看不到——它不会说「我不知道这张表」，只会用看得到的表凑一个答案。',
+    desc: '没覆盖到的表，AI 看不到。',
   },
   TABLES_GAVE_UP: {
-    label: '有表反复失败后被放弃',
-    desc: '有表试过几次都没生成出来，已被放弃。重新生成大概率还是同样结果，要先看那几张表本身出了什么问题。',
+    label: '有表反复失败',
+    desc: '多次失败已放弃这些表；重新生成多半还会失败，请先检查表本身。',
   },
   SNAPSHOT_TRUNCATED: {
-    label: '结构快照本身就不全',
-    desc: '客户库的对象数超过了结构快照的上限，超出的表根本没进过快照，因此也不会有语义。★ 只重新生成语义层补不回来，得先解决快照那一层。',
+    label: '表结构没读全',
+    desc: '库里的表太多，超出上限的没读进来；重新生成无效，请联系平台管理员。',
   },
   MODEL_OUTPUT_TRUNCATED: {
-    label: '模型输出被截断',
-    desc: '模型这次的输出超了长度上限，尾部被截掉（已保留到最后一个完整条目）。调大 connector.semantic.max-tokens 后重新生成通常能补全。',
+    label: '内容被截断',
+    desc: '内容太长被截断，有些表没写到。请联系平台管理员。',
   },
 };
 
@@ -181,7 +178,7 @@ export function semanticGapMeta(code: string): SemanticGapMeta {
   return (
     GAP_META[code as SemanticGapCode] ?? {
       label: `未知缺口（${code}）`,
-      desc: '后端报了一种本页还不认识的残缺成因，前端需要补一条映射。在补上之前，请按「说明书不完整」处理。',
+      desc: '原因无法识别，请按「说明书不完整」处理，并联系平台管理员。',
     }
   );
 }
@@ -228,11 +225,11 @@ export function semanticCoverageDisplayOf(c?: {
   if (raw === 'PARTIAL') {
     return {
       kind: 'PARTIAL',
-      label: 'PARTIAL · 不完整',
+      label: '不完整',
       gaps: (c?.semanticGaps ?? []).map(semanticGapMeta),
     };
   }
-  if (raw === 'COMPLETE') return { kind: 'COMPLETE', label: 'COMPLETE · 完整', gaps: [] };
+  if (raw === 'COMPLETE') return { kind: 'COMPLETE', label: '完整', gaps: [] };
   if (!raw) return { kind: 'EMPTY', label: '尚未成功生成过', gaps: [] };
   return { kind: 'UNKNOWN', label: `未知覆盖度（${raw}）`, gaps: [], raw };
 }
@@ -242,7 +239,7 @@ export function semanticCoverageDisplayOf(c?: {
  * 两处各写一份文案，迟早会漂成两种说法，而这句话正是这个标记存在的全部理由。
  */
 export const SEMANTIC_PARTIAL_CONSEQUENCE =
-  '说明书不完整：缺掉的那些表和字段，模型看不到。它不会因此报错，也不会说「我不知道」，只会拿看得到的部分凑一个答案——一个看起来很正常的错数字。';
+  '说明书不完整，缺的表和字段 AI 看不到，可能答错。';
 
 // ---------------------------------------------------------------------------
 // 行级：scope / source / evidence / verified / status
@@ -257,20 +254,20 @@ export interface ScopeMeta {
 const SCOPE_META: Record<SemanticScope, ScopeMeta> = {
   METRIC: {
     label: '业务口径',
-    desc: '「销售额要不要减退款」这类问题的答案。只能由人在对话里答出来，平台不会自己编——所以这一组全是 HUMAN。',
+    desc: '人在对话里确认的口径，如「销售额算不算退款」。',
   },
   CAVEAT: {
     label: '待澄清的歧义',
-    desc: '推导时发现说不准的地方，模型下次遇到会主动问人。有人答了之后它会变成上面的「业务口径」。',
+    desc: '拿不准的问题，AI 遇到会问人；有人答了就变成「业务口径」。',
   },
   OBJECT: { label: '表用途', desc: '这张表是干什么的。' },
   FIELD: {
     label: '字段含义',
-    desc: '这一列是什么意思。★ 它是被模型当事实读的，错了没有任何地方看得出来。',
+    desc: '这一列是什么意思。AI 当事实用，错了也不会提示。',
   },
   JOIN: {
     label: '表关系',
-    desc: '两张表怎么连。★ 标「未经数据验证」的只是按命名推的；标「多态关联 / 复合键」的，join 时必须带上它写明的条件——漏了不报错，只会把数字串了或放大。',
+    desc: '两张表怎么关联。「未经数据验证」的只是猜测；多态关联、复合键必须带条件。',
   },
 };
 
@@ -279,7 +276,12 @@ export const SCOPE_ORDER: SemanticScope[] = ['METRIC', 'CAVEAT', 'OBJECT', 'FIEL
 
 export function scopeMeta(v?: string | null): ScopeMeta {
   const hit = v ? SCOPE_META[v as SemanticScope] : undefined;
-  return hit ?? { label: v ? `未知分类（${v}）` : '未分类', desc: '本页还不认识这个 scope。' };
+  return (
+    hit ?? {
+      label: v ? `未知分类（${v}）` : '未分类',
+      desc: '分类无法识别，请联系平台管理员。',
+    }
+  );
 }
 
 export interface SemanticGroup {
@@ -332,23 +334,23 @@ const SOURCE_META: Record<SemanticSource, TagMeta> = {
   HUMAN: {
     label: '人工确认',
     color: 'purple',
-    hint: '业务方在对话里亲口答的口径。重新生成不会动它（后端只删 source=INFERRED 的行）。要改只能在对话里重新答一次，那会留痕。',
+    hint: '业务方在对话里确认的口径，重新生成不会改动；要改请在对话里重答。',
   },
   IMPORTED: {
     label: '库注释',
     color: 'blue',
-    hint: '直接采信客户库里的注释，属于一手事实。重新生成同样不动它。',
+    hint: '直接采用客户库里的注释，重新生成不会改动。',
   },
   INFERRED: {
     label: '机器推断',
-    hint: '模型看着表名、列名和注释推出来的，没有人确认过。「重新生成」覆盖的就是这一类。',
+    hint: 'AI 根据表名、列名和注释推出来的，没人确认过；重新生成会更新它。',
   },
 };
 
 export function sourceMeta(v?: string | null): TagMeta {
   const hit = v ? SOURCE_META[v as SemanticSource] : undefined;
   return (
-    hit ?? { label: v ? `未知来源（${v}）` : '来源不明', hint: '本页还不认识这个 source 取值。' }
+    hit ?? { label: v ? `未知来源（${v}）` : '来源不明', hint: '来源无法识别，请联系平台管理员。' }
   );
 }
 
@@ -359,11 +361,11 @@ export function isHuman(r: ConnectorSemanticRow): boolean {
 const EVIDENCE_META: Record<SemanticEvidence, TagMeta> = {
   COMMENT: { label: '库注释', color: 'blue', hint: '依据是客户库里写的注释。' },
   DATA: { label: '数据采样', color: 'green', hint: '依据是真实数据的取值分布。' },
-  NAME: { label: '命名推断', color: 'orange', hint: '依据只有表名/列名的写法，没有别的旁证。' },
+  NAME: { label: '命名推断', color: 'orange', hint: '只凭表名、列名判断，没有别的依据。' },
   GUESS: {
     label: '无依据',
     color: 'red',
-    hint: '没有任何外部依据。推导时这类行本来会被丢掉，出现在这里要当心。',
+    hint: '没有任何依据，请核对。',
   },
 };
 
@@ -379,15 +381,15 @@ export function evidenceMeta(r: ConnectorSemanticRow): TagMeta {
     return {
       label: '人给的定义',
       color: 'purple',
-      hint: '这条口径的依据是「业务方说的」——数据库里本来就查不到答案。后端把这类行记成 GUESS，不是「瞎猜」的意思。',
+      hint: '依据是业务方的说法，数据库里查不到。',
     };
   }
   if (!r.evidence) {
     // CAVEAT 刻意不带依据标签：它不是一条断言，恰恰是「没有依据、必须问人」的那一类。
-    return { label: '—', hint: '歧义项不是断言，不带依据标签：它要问的就是「这个没人答过」。' };
+    return { label: '—', hint: '待人回答的问题，没有依据。' };
   }
   const hit = EVIDENCE_META[r.evidence as SemanticEvidence];
-  return hit ?? { label: `未知（${r.evidence}）`, hint: '本页还不认识这个 evidence 取值。' };
+  return hit ?? { label: `未知（${r.evidence}）`, hint: '依据无法识别，请联系平台管理员。' };
 }
 
 const VERIFIED_META: Record<SemanticVerified, TagMeta> = {
@@ -434,18 +436,18 @@ export function verifiedMeta(r: ConnectorSemanticRow): TagMeta {
     meta = {
       label: '未经数据验证',
       color: 'orange',
-      hint: '没有用数据核过（数据出库档位不允许、采样预算用完、或还没轮到），只是按命名推出来的推测。join 之前请先看该列的取值分布。',
+      hint: '没用数据核过，只是按命名推测，用前请先核对。',
     };
   } else {
     const hit: TagMeta | undefined = normalized ? VERIFIED_META[normalized] : undefined;
-    meta = hit ?? { label: `未知（${v}）`, hint: '本页还不认识这个 verified 取值。' };
+    meta = hit ?? { label: `未知（${v}）`, hint: '验证结论无法识别，请联系平台管理员。' };
   }
   // 这里只要形态的名字，不要条件——所以走 joinKindMeta，不牵扯档位（条件里的取值给不给模型才看档位）。
   const kind = joinKindMeta(r);
   if (kind && normalized !== 'REJECTED') {
     return {
       ...meta,
-      hint: `${meta.hint} 另外这是一条「${kind.label}」关系：即使数据核过，也只作为需要带条件的关系提供给模型，不当普通 join 用。`,
+      hint: `${meta.hint}另外这是「${kind.label}」，核对过也要带条件才能关联。`,
     };
   }
   return meta;
@@ -458,7 +460,7 @@ const ROW_STATUS_META: Record<SemanticRowStatus, TagMeta> = {
   STALE: {
     label: '结构已变',
     color: 'red',
-    hint: '它锚的表/列结构已经变了，这条说明可能已经过时。它仍会提供给模型，但带着「结构已变」的标记（让模型以实时结构为准）。重新生成会重推机器推断的那部分；人答的口径需要在对话里重新确认。',
+    hint: '结构变了，说明可能过时，AI 仍会参考。重新生成会更新机器生成的部分。',
   },
 };
 
@@ -472,13 +474,13 @@ const ROW_STATUS_META: Record<SemanticRowStatus, TagMeta> = {
 const STALE_METRIC_META: TagMeta = {
   label: '结构已变',
   color: 'red',
-  hint: '它引用的表或列已经变了（或消失了），这条口径可能已经不成立。结构已变的业务口径整条不再提供给模型——模型再遇到这个词会按自己的理解去算。表如果是改名或迁移了，需要业务方在对话里重新答一次；表恢复之后刷新结构，状态会自动撤销。',
+  hint: '引用的表或列变了，AI 已停用这条口径。请在对话里重新确认，或表恢复后刷新结构。',
 };
 
 export function rowStatusMeta(v?: string | null, scope?: string | null): TagMeta {
   if (v === 'STALE' && scope === 'METRIC') return STALE_METRIC_META;
   const hit = v ? ROW_STATUS_META[v as SemanticRowStatus] : undefined;
-  return hit ?? { label: v ? `未知（${v}）` : '—', hint: '本页还不认识这个 status 取值。' };
+  return hit ?? { label: v ? `未知（${v}）` : '—', hint: '状态无法识别，请联系平台管理员。' };
 }
 
 export function isStale(r: ConnectorSemanticRow): boolean {
@@ -632,11 +634,11 @@ export interface JoinCare {
 const JOIN_KIND_META: Record<Exclude<JoinKind, 'SIMPLE'>, { label: string; hint: string }> = {
   POLYMORPHIC: {
     label: '多态关联',
-    hint: '这一列可能按判别列的取值指向不同表。只有验证确认后才直接要求类型条件；未确认时要先核各取值是否其实都指向同一张表。',
+    hint: '这一列可能按类型列的取值指向不同的表，关联时要先核对并带上类型条件。',
   },
   COMPOSITE: {
     label: '复合键',
-    hint: '目标表要几列合起来才唯一。只按其中一列 join 会一行对多行，把数字放大——不报错，看起来照样正常。',
+    hint: '目标表要几列合起来才唯一，只按一列关联会把数字放大。',
   },
 };
 
@@ -655,7 +657,7 @@ function joinKindMeta(
     return {
       kind,
       label: '单列弱关系',
-      hint: '真实数据只支持部分取值命中；后端把它放在不可靠关系里，要求先排查多态外键或复合键，再自行 COUNT 核对。',
+      hint: '只有部分取值对得上。用前先排查多态外键、复合键，并核对行数。',
     };
   }
   if (kind === 'POLYMORPHIC' || kind === 'COMPOSITE') return { kind, ...JOIN_KIND_META[kind] };
@@ -663,7 +665,7 @@ function joinKindMeta(
   return {
     kind,
     label: `未知关系形态（${kind}）`,
-    hint: '本页还不认识这个 join_kind。后端特意标出来的都不是普通关联，join 前先核。',
+    hint: '关系形态无法识别，不是普通关联，用前先核对。',
   };
 }
 
@@ -884,7 +886,7 @@ export function joinCare(
         `${measured ?? '采样只有一部分取值对得上'}：数据只部分支持，常见成因是多态外键或复合键。` +
         '那两种情况下按单列 join 连上的行本身就可能是错的，不是「少连了一部分」。' +
         `要用先查清本表有没有类型列、${toObject} 是不是复合键，带上完整条件再自己跑 COUNT 核对；查不清就不要用`,
-      conditionSummary: '先排查本表类型列与目标表复合键，带完整条件后再自行 COUNT 核对。',
+      conditionSummary: '先排查类型列和复合键，带上条件后核对行数。',
       careReasonWithheld: false,
       condition: null,
     };
@@ -940,7 +942,7 @@ export function joinCare(
       hint,
       careReason: storedReason ?? compositeCare(columns, toObject, toColumn),
       modelCondition: compositeCondition(fromColumn, columns, toObject, toColumn),
-      conditionSummary: `平台只确认 ${fromColumn ?? '本表这一列'} → ${toObject}.${toColumn}；先核目标列是否一行一个，勿按同名列补条件。`,
+      conditionSummary: `平台只确认 ${fromColumn ?? '本表这一列'} → ${toObject}.${toColumn}；先核对目标列是否唯一，别按同名列补条件。`,
       careReasonWithheld: false,
       condition: { type: 'COMPOSITE', target: joinStringOrNull(d.to_object), columns },
     };
@@ -961,20 +963,20 @@ const TABLE_SHAPE_META: Record<TableShape, TagMeta> = {
   MULTI_METRIC_PERIOD: {
     label: '多指标周期表',
     color: 'blue',
-    hint: '一行是一个周期（天 / 月…）的一组已经汇总好的指标。按行计数数的是周期数，不是业务记录数。',
+    hint: '一行是一个周期（天 / 月…）的汇总指标，按行计数数的是周期数。',
   },
   // ★ 本组唯一需要一眼看出来的形态：当成明细表处理时所有聚合都是错的，而且不报错。
   KEY_VALUE: {
     label: '键值对表',
     color: 'volcano',
-    hint: '一行不是一条记录，而是一对「指标名 = 值」。当成明细表直接求和、计数，所有聚合都是错的——必须先按指标名那一列筛出一个指标，再对值那一列聚合。',
+    hint: '一行是一对「指标名 = 值」。先按指标名筛出一个指标再聚合，直接求和会全错。',
   },
   OTHER: { label: '其他形态', hint: '不属于明细表 / 多指标周期表 / 键值对表。' },
 };
 
 const TABLE_SHAPE_SOURCE_META: Record<TableShapeSource, TagMeta> = {
-  MEASURED: { label: '实测', color: 'green', hint: '用真实数据测出来的形态，不只是看名字判断的。' },
-  MODEL: { label: '模型判断', hint: '模型看表名、列名和注释判断的，没有用数据测过。' },
+  MEASURED: { label: '实测', color: 'green', hint: '用真实数据测出来的，不只是看名字判断。' },
+  MODEL: { label: 'AI 判断', hint: 'AI 看表名、列名和注释判断的，没用数据测过。' },
 };
 
 /**
@@ -1071,30 +1073,30 @@ const DETAIL_LABEL: Record<string, string> = {
   care_reason: '为什么要当心',
   discriminator_column: '类型判别列',
   discriminator_value: '判别值',
-  probed_with_sample_values: '曾以样本值分组探查',
+  probed_with_sample_values: '曾用样本值探查',
   composite_columns: '目标表的复合键列',
   table_shape: '表形态',
   table_shape_source: '形态怎么定的',
-  table_shape_model_guess: '模型原判',
+  table_shape_model_guess: 'AI 原判',
   kv_name_column: '指标名列',
   kv_value_column: '指标值列',
   // ── 采样验证（JOIN）的细账。原样显示英文键名等于没显示：看这里的是企业超管，不是写这段代码的人 ──
-  auto_joinable: '可直接 join',
+  auto_joinable: '可直接关联',
   sample_n: '采样的去重取值数',
-  match_n: '其中在目标表命中的',
+  match_n: '在目标表命中的',
   containment: '包含率',
   verify_note: '验证说明',
   // ── 表形态实测（OBJECT）──
   table_shape_measurement: '形态实测',
   // ── 口径 / 歧义（METRIC / CAVEAT）──
-  stale_removed_objects: '因这些表消失而失效',
+  stale_removed_objects: '已消失的表',
 };
 
 /** 旧行（没有 table_shape_source）上 table_shape 的标签：原文是一句旧描述，不是四种形态之一，工具也不给模型。 */
-const LEGACY_TABLE_SHAPE_LABEL = '表形态（旧版描述，不提供给模型）';
+const LEGACY_TABLE_SHAPE_LABEL = '表形态（旧版，AI 看不到）';
 
 /** 来源或取值认不出的 table_shape 的标签。工具同样整行丢掉，模型读不到。 */
-const UNRECOGNIZED_TABLE_SHAPE_LABEL = '表形态（未认出，不提供给模型）';
+const UNRECOGNIZED_TABLE_SHAPE_LABEL = '表形态（未识别，AI 看不到）';
 
 const MEASUREMENT_OUTCOME_LABEL: Record<TableShapeMeasurementOutcome, string> = {
   KEY_VALUE: '测出来是键值对表',
@@ -1156,9 +1158,7 @@ const DETAIL_FORMAT: Record<string, ((v: unknown) => string | null) | undefined>
   auto_joinable: (v) => {
     const b = booleanOf(v);
     if (b === null) return null;
-    return b
-      ? '是（目标列唯一，按它 join 不会放大行数）'
-      : '否（目标列没有确认唯一，按它 join 可能把行数放大，只标注、不自动 join）';
+    return b ? '是（目标列唯一）' : '否（目标列不一定唯一，关联可能放大行数）';
   },
   containment: (v) => {
     const n = countOf(v);
@@ -1225,13 +1225,13 @@ export function detailEntries(
     }
     // 存着、但当前档位不给模型的真实取值：原样给人看（这一页只有企业超管），标签上说清它没进模型。
     if (withheld && k === 'discriminator_value') {
-      out.push({ key: k, label: '判别值（当前档位不提供给模型）', value: plainValue(v) });
+      out.push({ key: k, label: '判别值（AI 看不到）', value: plainValue(v) });
       continue;
     }
     if (withheld && k === 'care_reason') {
       out.push({
         key: k,
-        label: '为什么要当心（原话嵌着取值，当前档位不提供给模型，模型收到的是通用说明）',
+        label: '为什么要当心（含取值，AI 看不到）',
         value: plainValue(v),
       });
       continue;
@@ -1399,7 +1399,7 @@ export function semanticAttentionReasons(
     add({
       code: 'UNKNOWN_VERIFIED',
       label: '未知验证结论',
-      hint: `verified=${String(r.verified)} 不在已知枚举中；后端不会注入这条关系。`,
+      hint: `验证结论「${String(r.verified)}」未识别，AI 不会使用这条关系。`,
       tone: 'danger',
     });
   } else if (normalizedVerified === 'REJECTED') {
@@ -1426,15 +1426,15 @@ export function semanticAttentionReasons(
       if (condition?.withheldValue !== null || care.careReasonWithheld) {
         add({
           code: 'VALUE_WITHHELD',
-          label: '取值当前不给模型',
-          hint: '平台留存着判别值或含取值的原话，但连接当前档位没有开放样本值。',
+          label: 'AI 看不到取值',
+          hint: '判别值已留存，但当前档位不开放样本值。',
           tone: 'warning',
         });
       } else if (condition?.valuesAllowed && condition.value === null) {
         add({
           code: 'VALUE_MISSING',
-          label: '允许取值但尚未取得',
-          hint: '当前档位允许样本值，但平台没有取得可安全使用的判别值。',
+          label: '取值尚未取得',
+          hint: '档位允许样本值，但没取到可用的判别值。',
           tone: 'warning',
         });
       }
@@ -1453,7 +1453,7 @@ export function semanticAttentionReasons(
     add({
       code: 'SHAPE_NOT_VISIBLE',
       label: shape.kind === 'LEGACY' ? '旧版表形态' : '未认出的表形态',
-      hint: '平台留存了形态描述，但给模型的工具不提供它。',
+      hint: '形态描述已留存，但 AI 看不到。',
       tone: 'warning',
     });
   }
@@ -1496,29 +1496,29 @@ export interface SemanticTierVisibilityView {
 export function semanticTierVisibility(tier?: string | null): SemanticTierVisibilityView {
   if (tier === 'SAMPLE_VALUES') {
     return {
-      modelVisible: '元数据、库内派生统计，以及通过敏感信息筛查后取得的样本值',
-      retainedHidden: '没有因档位而隐藏；没取得或没通过筛查的取值仍不会出现',
-      hint: '允许取值不等于已经取得。每一条未取得的判别值会在 Inspector 单独标出。',
+      modelVisible: '元数据、派生统计，以及通过敏感信息筛查的样本值',
+      retainedHidden: '没有因档位隐藏的内容',
+      hint: '允许取值不等于已取得；没取到的判别值会在详情里标出。',
     };
   }
   if (tier === 'DERIVED_STATS') {
     return {
-      modelVisible: '元数据 + 客户库内计算出的派生统计；逐行业务记录不出库',
-      retainedHidden: '平台旧结果里若留有样本值或含取值的原话，此刻不提供给模型',
-      hint: '这是默认档。Inspector 会把“模型此刻读到”和“平台留存但看不到”分开。',
+      modelVisible: '元数据和派生统计；逐行业务记录不出库',
+      retainedHidden: '旧结果里的样本值，以及含取值的原话',
+      hint: '这是默认档；详情里会分开列出 AI 看得到和看不到的内容。',
     };
   }
   if (tier === 'METADATA_ONLY') {
     return {
       modelVisible: '表名、列名、类型、索引和客户自己写的注释',
-      retainedHidden: '派生统计、样本值，以及平台旧结果里含具体取值的原话',
-      hint: '纯元数据推断关系的代价更高；未经数据验证的 JOIN 会持续标为需关注。',
+      retainedHidden: '派生统计、样本值，以及含具体取值的原话',
+      hint: '仅凭名字推关系更易出错，未经数据验证的关系会一直标为需关注。',
     };
   }
   return {
-    modelVisible: '档位未知，按不开放样本值处理',
-    retainedHidden: '无法确认的样本值不会提供给模型',
-    hint: '后端返回了本页不认识的档位，请先核对配置。',
+    modelVisible: '档位无法识别，按不开放样本值处理',
+    retainedHidden: '无法确认的样本值不给 AI',
+    hint: '档位无法识别，请联系平台管理员。',
   };
 }
 
@@ -1541,14 +1541,14 @@ function joinInjectionDecision(r: ConnectorSemanticRow): JoinInjectionDecision {
   let hiddenReason: string | null = null;
 
   if (verified === null) {
-    hiddenReason = `verified=${String(rawVerified)} 未识别；后端对未知验证结论 fail-closed，这条关系不注入。`;
+    hiddenReason = `验证结论「${String(rawVerified)}」未识别，AI 不会使用这条关系。`;
   } else if (verified === 'REJECTED') {
-    hiddenReason = 'verified 已归一为 REJECTED；真实数据不支持这条关系，后端明确不注入。';
+    hiddenReason = '真实数据不支持这条关系，AI 不会使用。';
   } else if (!toObject || !toColumn) {
-    const missing = [!toObject ? 'to_object' : null, !toColumn ? 'to_column' : null]
+    const missing = [!toObject ? '目标表' : null, !toColumn ? '目标列' : null]
       .filter(Boolean)
       .join('、');
-    hiddenReason = `关系端点不完整：缺少 ${missing}；后端不会拿残缺端点拼 JOIN。`;
+    hiddenReason = `关系不完整：缺少${missing}，AI 不会使用这条关系。`;
   }
   return { verified, toObject, toColumn, hiddenReason };
 }
@@ -1864,10 +1864,9 @@ export function semanticModelVisibility(
   } else if (normalizeSemanticVerified(r.verified) === 'REJECTED') {
     hiddenReason = verifiedMeta(r).hint;
   } else if (isAnsweredCaveat(r, answeredTerms)) {
-    hiddenReason = '已有口径回答同名词条；这条待澄清问题仍留作审计，但不再提供给模型。';
+    hiddenReason = '已有口径回答了这个问题，AI 不再使用这条。';
   } else if (isValueProfileRow(r) && !sampleValuesAllowed(tier)) {
-    hiddenReason =
-      '这条字段说明来自值域阶段，只有第 3 档 · 样本值才会提供给模型；当前仅在平台留存。';
+    hiddenReason = '这条说明来自取值采集，只有第 3 档 · 样本值才提供给 AI；目前仅留存。';
   }
   const visible = hiddenReason === null;
   const current: SemanticVisibilityFact[] = [];
@@ -1880,20 +1879,20 @@ export function semanticModelVisibility(
     if (r.gloss) {
       retained.push({
         key: 'join-gloss-retained',
-        label: '关系说明（平台留存，不作为注入事实）',
+        label: '关系说明',
         value: r.gloss,
       });
     }
     if (joinDecision?.hiddenReason) {
       retained.push({
         key: 'join-withheld-reason',
-        label: '关系未注入',
+        label: '未使用的原因',
         value: joinDecision.hiddenReason,
       });
       const endpointParts = [
         r.fieldName ? `${r.objectName || '—'}.${r.fieldName}` : null,
         joinDecision.toObject || joinDecision.toColumn
-          ? `${joinDecision.toObject || '缺 to_object'}.${joinDecision.toColumn || '缺 to_column'}`
+          ? `${joinDecision.toObject || '缺目标表'}.${joinDecision.toColumn || '缺目标列'}`
           : null,
       ].filter(Boolean);
       if (endpointParts.length > 0) {
@@ -1905,9 +1904,9 @@ export function semanticModelVisibility(
       }
       retained.push({
         key: 'join-verified-retained',
-        label: '留存 verified',
+        label: '留存的验证结论',
         value: r.verified === null || r.verified === undefined || String(r.verified).trim() === ''
-          ? 'NONE'
+          ? '未验证'
           : String(r.verified),
       });
     } else if (joinDecision) {
@@ -1928,14 +1927,14 @@ export function semanticModelVisibility(
       if (condition.withheldValue !== null) {
         retained.push({
           key: 'withheld-value',
-          label: '判别值（当前档位不提供）',
+          label: '判别值（AI 看不到）',
           value: `${condition.column} = ${condition.withheldValue}`,
         });
       } else if (condition.valuesAllowed) {
         allowedMissing.push({
           key: 'missing-value',
-          label: '允许但未取得判别值',
-          value: `${condition.column} 的安全取值尚未取得；模型会被要求先查、拿不准就问人。`,
+          label: '判别值未取得',
+          value: `${condition.column} 的取值还没取到；AI 会先去查，拿不准就问人。`,
         });
       }
     }
@@ -2173,7 +2172,7 @@ export function refreshImpactWording(impact: RefreshSemanticImpact): RefreshImpa
   if (impact.failed) return { clauses: [], quiet: false };
   const clauses: string[] = [];
   if (impact.lostMetricCount > 0) {
-    clauses.push(`${impact.lostMetricCount} 条业务口径已停止提供给模型`);
+    clauses.push(`${impact.lostMetricCount} 条业务口径已停用`);
   }
   if (impact.staled !== null && impact.staled > 0) {
     clauses.push(`${impact.staled} 条说明被标成「结构已变」`);
@@ -2238,7 +2237,7 @@ export function truncationNoteOf(r: SchemaSnapshotResult): string | null {
   const note = typeof r.truncationNote === 'string' ? strOf(r.truncationNote) : null;
   return (
     note ??
-    `共 ${r.totalObjects} 个对象，本次只覆盖了其中 ${r.objectCount} 个；其余对象没有进快照，也不在结构漂移检测范围内。`
+    `共 ${r.totalObjects} 个对象，本次只覆盖 ${r.objectCount} 个，其余没有检测结构变化。`
   );
 }
 

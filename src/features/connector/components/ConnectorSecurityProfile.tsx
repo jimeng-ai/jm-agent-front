@@ -60,7 +60,7 @@ function WritePolicyState({ connector }: { connector: ConnectorView }) {
   return (
     <>
       <Tag color="red">{label}</Tag>
-      <Typography.Text type="secondary">模型可直接修改客户数据，不经过人工确认</Typography.Text>
+      <Typography.Text type="secondary">AI 可直接修改客户数据，无需人工确认</Typography.Text>
     </>
   );
 }
@@ -109,7 +109,7 @@ export default function ConnectorSecurityProfile({ connector, compact = false }:
         <div className="connector-security-profile__value">
           <SemanticTierTag connector={connector} />
           <Typography.Text type="secondary">
-            {connector.semanticDataTierEgress || '后端未返回这一档的出库说明'}
+            {connector.semanticDataTierEgress || '暂无这一档的出库说明'}
           </Typography.Text>
         </div>
       </section>

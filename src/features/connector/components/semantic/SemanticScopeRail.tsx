@@ -23,7 +23,7 @@ export default function SemanticScopeRail({ rows, tier, answeredTerms, value, on
     {
       value: 'ATTENTION',
       label: '需关注',
-      desc: '纯前端视图，不改变后端 scope',
+      desc: '',
       count: attentionCount,
     },
     ...SCOPE_ORDER.map((scope) => ({
@@ -35,7 +35,7 @@ export default function SemanticScopeRail({ rows, tier, answeredTerms, value, on
     {
       value: 'UNKNOWN',
       label: '未知分类',
-      desc: '后端新增或异常的 scope，永不静默丢弃',
+      desc: '无法归类的说明。',
       count: unknownCount,
     },
   ];
@@ -44,7 +44,7 @@ export default function SemanticScopeRail({ rows, tier, answeredTerms, value, on
     <nav
       className="semantic-scope-rail"
       data-testid="semantic-scope-rail"
-      aria-label="语义分类筛选"
+      aria-label="按分类筛选"
     >
       <div className="semantic-rail-title">SCOPE INDEX</div>
       <div className="semantic-scope-options">

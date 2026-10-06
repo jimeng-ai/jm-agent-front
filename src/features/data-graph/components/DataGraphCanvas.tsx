@@ -127,7 +127,7 @@ function CanvasInner({ graph, domains, selected, domainFilter, focus, titleOf, o
       </ReactFlow>
       {overview || !hubTitle ? null : (
         <div className="data-graph-hint" data-testid="dg-explore-hint">
-          对象比较多，先显示「{hubTitle}」附近。拖动画布、滚轮缩放，或用搜索找对象。
+          对象较多，先显示「{hubTitle}」附近，可拖动、缩放或搜索。
         </div>
       )}
     </>
