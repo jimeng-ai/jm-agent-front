@@ -27,4 +27,6 @@ export interface SkillDetailView extends SkillView {
   ownerName?: string | null;
   body: string | null;
   files: SkillFileView[];
+  /** 加密保存的 key：只有名字和能发往的域名，读不回原值（一切皆可 skills §3.4）。老数据没有这个字段。 */
+  keys?: { name: string; hosts: string[] }[];
 }

@@ -142,6 +142,14 @@ export default function SkillDetailDrawer({ id, onClose }: Props) {
             >
               <MetaRow label="来源" value={SOURCE_LABEL[data.source] ?? data.source} />
               <MetaRow label="创建人" value={data.ownerName || '—'} />
+              {data.keys && data.keys.length > 0 && (
+                <MetaRow
+                  label="key"
+                  value={`含加密保存的 key：${data.keys
+                    .map((k) => `${k.name} → ${k.hosts.join('、')}`)
+                    .join('；')}`}
+                />
+              )}
             </div>
 
             {/* SKILL.md */}
